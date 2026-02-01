@@ -62,6 +62,9 @@ pub fn qualifies_for_b2b(tspin: TSpinKind, lines: usize) -> bool {
     )
 }
 
+// Re-export for use in game_state
+pub use self::qualifies_for_b2b as check_b2b_qualification;
+
 /// Calculate back-to-back bonus
 /// Returns bonus points (3/2 multiplier applied to total score)
 pub fn calculate_b2b_bonus(base_score: u32) -> u32 {

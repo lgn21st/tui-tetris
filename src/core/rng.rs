@@ -10,6 +10,7 @@ use crate::types::PieceKind;
 
 /// Simple LCG (Linear Congruential Generator) RNG
 /// Uses constants from Numerical Recipes
+#[derive(Debug, Clone)]
 pub struct SimpleRng {
     state: u32,
 }
@@ -45,6 +46,7 @@ impl SimpleRng {
 }
 
 /// 7-bag piece generator
+#[derive(Debug, Clone)]
 pub struct PieceQueue {
     /// Current bag of pieces
     bag: Vec<PieceKind>,
@@ -145,8 +147,7 @@ impl PieceQueue {
         &self.bag[self.bag_index..]
     }
 
-    /// Get seed for testing
-    #[cfg(test)]
+    /// Get the current RNG state (for restarting game with same sequence)
     pub fn seed(&self) -> u32 {
         self.rng.state
     }
