@@ -279,6 +279,6 @@ fn test_board_cells_reference() {
     let board = Board::new();
     let cells = board.cells();
 
-    assert_eq!(cells.len(), BOARD_HEIGHT as usize);
-    assert!(cells.iter().all(|row| row.len() == BOARD_WIDTH as usize));
+    // cells() returns a flat array of length BOARD_WIDTH * BOARD_HEIGHT
+    assert_eq!(cells.len(), (BOARD_WIDTH * BOARD_HEIGHT) as usize);
 }
