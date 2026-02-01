@@ -216,7 +216,7 @@ impl GameState {
             |x, y| self.board.is_valid(x, y),
         );
 
-        if let Some((new_shape, new_rotation, (dx, dy))) = result {
+        if let Some((_new_shape, new_rotation, (dx, dy))) = result {
             self.active = Some(Tetromino {
                 rotation: new_rotation,
                 x: active.x + dx,

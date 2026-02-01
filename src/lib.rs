@@ -5,5 +5,6 @@
 //! - adapter: AI protocol handling (TCP, JSON)
 //! - ui: Terminal rendering and input (ratatui, crossterm)
 
+pub mod adapter;
 pub mod core;
 pub mod types;
