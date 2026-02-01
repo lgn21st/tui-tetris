@@ -5,7 +5,11 @@
 
 pub mod board;
 pub mod pieces;
+pub mod rng;
+pub mod scoring;
 
 // Re-export commonly used types
 pub use board::Board;
 pub use pieces::{get_shape, try_rotate};
+pub use rng::{PieceQueue, SimpleRng};
+pub use scoring::{calculate_drop_score, calculate_score, ScoreResult};
