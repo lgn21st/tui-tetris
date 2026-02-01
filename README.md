@@ -86,8 +86,11 @@ tui-tetris/
 │       └── mod.rs
 ├── tests/                # 集成测试
 ├── docs/                 # 文档
-│   ├── architecture-review.md  # 专家级架构评审
+│   ├── architecture-review.md  # 专家级架构评审 (15 模块深度分析)
+│   ├── IMPROVEMENT-PLAN.md # 全面改进方案与路线图
+│   ├── TODO.md           # 实施检查清单
 │   ├── rules-spec.md     # 游戏规则详情
+│   ├── PERFORMANCE.md    # 性能优化指南
 │   └── adapter-protocol.md # AI 协议规范
 └── Cargo.toml
 ```
@@ -167,10 +170,16 @@ cargo tarpaulin --out Html
 
 ## 📚 文档
 
-- [架构评审](docs/architecture-review.md) - 专家级代码审查
-- [游戏规则](docs/rules-spec.md) - 完整 Tetris 规则
+### 设计与评审
+- [架构评审](docs/architecture-review.md) - 专家级代码审查 (15 模块深度分析)
+- [改进方案](docs/IMPROVEMENT-PLAN.md) - 全面改进方案与 5 阶段路线图
+- [实施清单](docs/TODO.md) - 详细任务分解与验收标准
+
+### 技术规范
+- [游戏规则](docs/rules-spec.md) - 完整 Tetris 规则 (SRS/计分/计时)
+- [性能指南](docs/PERFORMANCE.md) - 优化技术与基准测试
 - [AI 协议](docs/adapter-protocol.md) - JSON 协议规范
-- [AGENTS.md](AGENTS.md) - 开发约定
+- [开发约定](AGENTS.md) - TDD 工作流程
 
 ## 🤝 兼容性
 
