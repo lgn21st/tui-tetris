@@ -22,7 +22,7 @@ use tui_tetris::core::GameState;
 use tui_tetris::types::{GameAction, SOFT_DROP_GRACE_MS};
 use tui_tetris::ui::{
     handle_key_event, render_game_over_overlay, render_pause_overlay, render_side_panel,
-    should_quit, IncrementalRenderer,
+    should_quit, IncrementalRenderer, InputHandler,
 };
 
 /// Game tick interval (16ms = ~60 FPS)
@@ -75,6 +75,9 @@ fn run_game_loop<B: Backend>(
     // Create incremental renderer (maintains state between frames)
     let mut renderer = IncrementalRenderer::new();
 
+    // Create input handler for DAS/ARR support
+    let mut input_handler = InputHandler::new();
+
     loop {
         // Draw UI using incremental renderer
         terminal.draw(|f| {
@@ -88,25 +91,47 @@ fn run_game_loop<B: Backend>(
 
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    // Check quit
-                    if should_quit(key) {
-                        return Ok(());
-                    }
+                match key.kind {
+                    KeyEventKind::Press => {
+                        // Check quit
+                        if should_quit(key) {
+                            return Ok(());
+                        }
 
-                    // Handle game action
-                    if let Some(action) = handle_key_event(key) {
-                        match action {
-                            GameAction::SoftDrop => {
-                                *soft_drop_active = true;
-                                *soft_drop_timer_ms = SOFT_DROP_GRACE_MS as i32;
-                                game_state.apply_action(action);
+                        // Handle DAS/ARR for movement keys
+                        if let Some(action) = input_handler.handle_key_press(key.code) {
+                            match action {
+                                GameAction::SoftDrop => {
+                                    *soft_drop_active = true;
+                                    *soft_drop_timer_ms = SOFT_DROP_GRACE_MS as i32;
+                                    game_state.apply_action(action);
+                                }
+                                _ => {
+                                    game_state.apply_action(action);
+                                }
                             }
-                            _ => {
-                                game_state.apply_action(action);
+                        }
+
+                        // Handle other game actions (non-DAS keys)
+                        if let Some(action) = handle_key_event(key) {
+                            match action {
+                                GameAction::MoveLeft | GameAction::MoveRight => {
+                                    // These are handled by input_handler
+                                }
+                                GameAction::SoftDrop => {
+                                    // Already handled above
+                                }
+                                _ => {
+                                    game_state.apply_action(action);
+                                }
                             }
                         }
                     }
+                    KeyEventKind::Release => {
+                        // Handle key release for DAS/ARR
+                        input_handler.handle_key_release(key.code);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -114,6 +139,21 @@ fn run_game_loop<B: Backend>(
         // Update game timing
         if last_tick.elapsed() >= tick_duration {
             *last_tick = Instant::now();
+
+            // Get DAS/ARR auto-repeat actions
+            let auto_actions = input_handler.update(TICK_MS);
+            for action in auto_actions {
+                match action {
+                    GameAction::SoftDrop => {
+                        *soft_drop_active = true;
+                        *soft_drop_timer_ms = SOFT_DROP_GRACE_MS as i32;
+                        game_state.apply_action(action);
+                    }
+                    _ => {
+                        game_state.apply_action(action);
+                    }
+                }
+            }
 
             // Update soft drop timer
             if *soft_drop_active {
@@ -128,6 +168,9 @@ fn run_game_loop<B: Backend>(
 
             // Check game over
             if game_state.game_over {
+                // Reset input handler on game over
+                input_handler.reset();
+
                 // Show game over screen and wait for input
                 terminal.draw(|f| {
                     draw_ui(f, game_state, &mut renderer);
@@ -146,6 +189,7 @@ fn run_game_loop<B: Backend>(
                                 game_state.start();
                                 *soft_drop_active = false;
                                 *soft_drop_timer_ms = SOFT_DROP_GRACE_MS as i32;
+                                input_handler.reset();
                                 break;
                             }
                         }

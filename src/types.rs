@@ -16,9 +16,11 @@ pub const LINE_CLEAR_PAUSE_MS: u32 = 180;
 pub const LANDING_FLASH_MS: u32 = 120;
 
 /// DAS/ARR timing (milliseconds)
-pub const DEFAULT_DAS_MS: u32 = 150;
-pub const DEFAULT_ARR_MS: u32 = 50;
-pub const SOFT_DROP_ARR_MS: u32 = 50;
+/// DAS: Delayed Auto Shift - time before auto-repeat starts
+/// ARR: Auto Repeat Rate - interval between auto-repeats
+pub const DEFAULT_DAS_MS: u32 = 167; // Tetris Guideline standard
+pub const DEFAULT_ARR_MS: u32 = 33; // Tetris Guideline standard
+pub const SOFT_DROP_ARR_MS: u32 = 33; // Same as ARR for consistency
 
 /// Drop intervals by level (milliseconds)
 pub const DROP_INTERVALS: [u32; 9] = [1000, 800, 650, 500, 400, 320, 250, 200, 160];

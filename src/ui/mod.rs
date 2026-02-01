@@ -2,10 +2,12 @@
 
 pub mod incremental;
 pub mod input;
+pub mod input_handler;
 pub mod widgets;
 
 pub use incremental::IncrementalRenderer;
 pub use input::{handle_key_event, should_quit};
+pub use input_handler::InputHandler;
 pub use widgets::{
     piece_style, render_game_over_overlay, render_pause_overlay, render_side_panel, BoardWidget,
 };
