@@ -22,7 +22,7 @@ use tui_tetris::core::GameState;
 use tui_tetris::types::{GameAction, SOFT_DROP_GRACE_MS};
 use tui_tetris::ui::{
     handle_key_event, render_game_over_overlay, render_pause_overlay, render_side_panel,
-    should_quit, BoardWidget,
+    should_quit, IncrementalRenderer,
 };
 
 /// Game tick interval (16ms = ~60 FPS)
@@ -72,10 +72,13 @@ fn run_game_loop<B: Backend>(
     soft_drop_active: &mut bool,
     soft_drop_timer_ms: &mut i32,
 ) -> io::Result<()> {
+    // Create incremental renderer (maintains state between frames)
+    let mut renderer = IncrementalRenderer::new();
+
     loop {
-        // Draw UI
+        // Draw UI using incremental renderer
         terminal.draw(|f| {
-            draw_ui(f, game_state);
+            draw_ui(f, game_state, &mut renderer);
         })?;
 
         // Handle input with timeout
@@ -127,7 +130,7 @@ fn run_game_loop<B: Backend>(
             if game_state.game_over {
                 // Show game over screen and wait for input
                 terminal.draw(|f| {
-                    draw_ui(f, game_state);
+                    draw_ui(f, game_state, &mut renderer);
                     render_game_over_overlay(f.area(), f.buffer_mut());
                 })?;
 
@@ -153,7 +156,7 @@ fn run_game_loop<B: Backend>(
     }
 }
 
-fn draw_ui(f: &mut Frame, game_state: &GameState) {
+fn draw_ui(f: &mut Frame, game_state: &GameState, renderer: &mut IncrementalRenderer) {
     let area = f.area();
 
     // Clear background
@@ -171,9 +174,8 @@ fn draw_ui(f: &mut Frame, game_state: &GameState) {
     let board_area = chunks[0];
     let panel_area = chunks[1];
 
-    // Render board
-    let board_widget = BoardWidget::new(game_state);
-    board_widget.render(board_area, f.buffer_mut());
+    // Render board using incremental renderer
+    renderer.render(game_state, board_area, f.buffer_mut());
 
     // Render side panel
     render_side_panel(game_state, panel_area, f.buffer_mut());
