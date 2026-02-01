@@ -4,6 +4,8 @@
 //! Coordinates: (x, y) where x ranges 0..9 (left to right), y ranges 0..19 (top to bottom)
 //! Spawn position for new pieces is at (3, 0)
 
+use arrayvec::ArrayVec;
+
 use crate::types::{Cell, PieceKind, BOARD_HEIGHT, BOARD_WIDTH};
 
 /// The game board - 10 columns x 20 rows
@@ -87,16 +89,18 @@ impl Board {
             self.cells[row] = self.cells[row - 1].clone();
         }
 
-        // Clear the top row
-        self.cells[0] = vec![None; BOARD_WIDTH as usize];
+        // Clear the top row using fill (no allocation)
+        self.cells[0].fill(None);
 
         1
     }
 
     /// Clear all full rows and return the row indices that were cleared (sorted bottom to top)
     /// Uses a two-pointer algorithm for efficiency
-    pub fn clear_full_rows(&mut self) -> Vec<usize> {
-        let mut cleared_rows = Vec::new();
+    ///
+    /// Uses ArrayVec for zero-allocation (max 4 lines can be cleared at once)
+    pub fn clear_full_rows(&mut self) -> ArrayVec<usize, 4> {
+        let mut cleared_rows = ArrayVec::new();
         let mut write_y = BOARD_HEIGHT as usize; // Points to where we should write the next non-full row
 
         // Scan from bottom to top
@@ -108,6 +112,8 @@ impl Board {
                 // This row is not full, move it down to the write position
                 write_y -= 1;
                 if write_y != read_y {
+                    // Clone the row (this allocates but only happens during line clear)
+                    // TODO: Optimize with flat array + copy_nonoverlapping for zero-allocation
                     self.cells[write_y] = self.cells[read_y].clone();
                 }
             }
@@ -115,10 +121,11 @@ impl Board {
 
         // Clear the remaining rows at the top
         for y in 0..write_y {
-            self.cells[y] = vec![None; BOARD_WIDTH as usize];
+            // Use fill instead of creating new vec
+            self.cells[y].fill(None);
         }
 
-        // Reverse to get bottom-to-top order
+        // ArrayVec maintains insertion order, reverse to get bottom-to-top
         cleared_rows.reverse();
         cleared_rows
     }

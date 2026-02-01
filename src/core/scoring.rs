@@ -91,15 +91,16 @@ pub fn calculate_score(
     let qualifies_b2b = qualifies_for_b2b(tspin, lines);
     let is_back_to_back = qualifies_b2b && previous_b2b;
 
+    // Calculate combo score first (needed for B2B calculation)
+    let combo_score = calculate_combo_score(combo, level);
+
     // Calculate B2B bonus
+    // Note: In modern Tetris, B2B applies to base score + combo score
     let back_to_back_bonus = if is_back_to_back {
-        calculate_b2b_bonus(base_score)
+        calculate_b2b_bonus(base_score + combo_score)
     } else {
         0
     };
-
-    // Calculate combo score
-    let combo_score = calculate_combo_score(combo, level);
 
     // Total score
     let total = base_score + back_to_back_bonus + combo_score;

@@ -8,9 +8,9 @@ pub const BOARD_HEIGHT: u8 = 20;
 /// Game timing constants (in milliseconds)
 pub const TICK_MS: u32 = 16;
 pub const BASE_DROP_MS: u32 = 1000;
-pub const SOFT_DROP_MULTIPLIER: u32 = 10;
+pub const SOFT_DROP_MULTIPLIER: u32 = 20;
 pub const SOFT_DROP_GRACE_MS: u32 = 150;
-pub const LOCK_DELAY_MS: u32 = 450;
+pub const LOCK_DELAY_MS: u32 = 500;
 pub const LOCK_RESET_LIMIT: u8 = 15;
 pub const LINE_CLEAR_PAUSE_MS: u32 = 180;
 pub const LANDING_FLASH_MS: u32 = 120;
