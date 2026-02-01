@@ -132,7 +132,7 @@ impl IncrementalRenderer {
         buf: &mut Buffer,
     ) {
         if let (Some(active), Some(ghost_y)) = (state.active, state.ghost_y()) {
-            let current_ghost = Some(ghost_y);
+            let _current_ghost = Some(ghost_y);
 
             // Clear old ghost if position changed
             if let Some(last_y) = self.last_ghost_y {

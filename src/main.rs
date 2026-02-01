@@ -12,9 +12,9 @@ use crossterm::{
 };
 use ratatui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout},
     style::{Color, Style},
-    widgets::{Block, Borders, Clear, Widget},
+    widgets::Block,
     Frame, Terminal,
 };
 
