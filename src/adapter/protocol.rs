@@ -260,7 +260,7 @@ pub fn create_welcome(seq: u64, protocol_version: &str) -> WelcomeMessage {
 }
 
 /// Create an acknowledgment
-pub fn create_ack(seq: u64, command_seq: u64) -> AckMessage {
+pub fn create_ack(seq: u64, _command_seq: u64) -> AckMessage {
     AckMessage {
         msg_type: "ack".to_string(),
         seq,
