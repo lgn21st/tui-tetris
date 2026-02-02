@@ -28,16 +28,16 @@ fn test_game_actions() {
     let initial_y = state.active().unwrap().y;
 
     // Move left (may fail at left edge, but should try)
-    let moved = state.try_move(-1, 0);
+    let moved = state.apply_action(GameAction::MoveLeft);
     if moved {
         assert_eq!(state.active().unwrap().x, initial_x - 1);
     }
 
     // Rotate (may or may not succeed depending on piece position)
-    state.try_rotate(true);
+    let _ = state.apply_action(GameAction::RotateCw);
 
     // Move down (soft drop)
-    let dropped = state.try_move(0, 1);
+    let dropped = state.apply_action(GameAction::SoftDrop);
     if dropped {
         assert!(state.active().unwrap().y > initial_y);
     }
@@ -122,7 +122,7 @@ fn test_game_restart() {
     state.start();
 
     // Play a bit
-    state.hard_drop();
+    let _ = state.apply_action(GameAction::HardDrop);
 
     // Restart
     state = GameState::new(12345);

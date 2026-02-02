@@ -301,7 +301,7 @@ impl GameState {
     }
 
     /// Try to move the active piece
-    pub fn try_move(&mut self, dx: i8, dy: i8) -> bool {
+    pub(crate) fn try_move(&mut self, dx: i8, dy: i8) -> bool {
         let Some(active) = self.active else {
             return false;
         };
@@ -336,7 +336,7 @@ impl GameState {
     }
 
     /// Try to rotate the active piece with SRS wall kicks
-    pub fn try_rotate(&mut self, clockwise: bool) -> bool {
+    pub(crate) fn try_rotate(&mut self, clockwise: bool) -> bool {
         let Some(active) = self.active else {
             return false;
         };
@@ -382,7 +382,7 @@ impl GameState {
     }
 
     /// Hard drop the active piece to the bottom
-    pub fn hard_drop(&mut self) -> u32 {
+    pub(crate) fn hard_drop(&mut self) -> u32 {
         let Some(active) = self.active else {
             return 0;
         };
