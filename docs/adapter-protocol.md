@@ -120,3 +120,5 @@ Example:
 - `TETRIS_AI_OBS_HZ`: observation frequency in Hz (default: `20`)
 - `TETRIS_AI_MAX_PENDING`: max queued controller commands before `backpressure` (default: `10`)
 - `TETRIS_AI_LOG_PATH`: append raw adapter traffic to a file (one line per frame; each line is the raw JSON frame)
+- `TETRIS_AI_LOG_EVERY_N`: only log every Nth frame (default: 1)
+- `TETRIS_AI_LOG_MAX_LINES`: stop logging after N lines (default: unlimited)

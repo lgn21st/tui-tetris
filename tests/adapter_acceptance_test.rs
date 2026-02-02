@@ -152,6 +152,7 @@ async fn acceptance_backpressure_does_not_stop_observations() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (server_handle, addr, _cmd_rx, out_tx) = spawn_server(config, 1).await;
@@ -292,6 +293,7 @@ async fn acceptance_handshake_ordering_command_before_hello_returns_handshake_re
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (server_handle, addr, _cmd_rx, _out_tx) = spawn_server(config, 8).await;
@@ -321,6 +323,7 @@ async fn acceptance_protocol_mismatch_returns_error() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (server_handle, addr, _cmd_rx, _out_tx) = spawn_server(config, 8).await;
@@ -354,6 +357,7 @@ async fn acceptance_parse_error_returns_invalid_command() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (server_handle, addr, _cmd_rx, _out_tx) = spawn_server(config, 8).await;
@@ -380,6 +384,7 @@ async fn acceptance_observer_enforcement_not_controller() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -441,6 +446,7 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -497,6 +503,7 @@ async fn acceptance_restart_and_pause_semantics() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);

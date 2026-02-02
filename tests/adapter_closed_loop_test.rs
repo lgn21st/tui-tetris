@@ -128,6 +128,7 @@ async fn closed_loop_stability_3x50_reconnects() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 64,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(128);
@@ -232,6 +233,7 @@ async fn closed_loop_long_run_200_episodes() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 64,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(256);

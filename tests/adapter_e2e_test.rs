@@ -42,6 +42,7 @@ async fn adapter_wire_logging_writes_raw_frames() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: Some(log_path.to_string_lossy().to_string()),
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -119,6 +120,7 @@ async fn adapter_hello_command_ack_and_observation() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -220,6 +222,7 @@ async fn adapter_hello_enqueues_snapshot_request() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -264,6 +267,8 @@ async fn adapter_place_maps_to_place_command() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        log_every_n: 1,
+        log_max_lines: None,
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -327,6 +332,8 @@ async fn adapter_place_invalid_rotation_returns_error() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        log_every_n: 1,
+        log_max_lines: None,
     };
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -383,6 +390,7 @@ async fn adapter_backpressure_returns_error() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 1,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(1);
@@ -457,6 +465,8 @@ async fn adapter_requires_hello_before_command() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        log_every_n: 1,
+        log_max_lines: None,
     };
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -503,6 +513,8 @@ async fn adapter_parse_error_echoes_seq_best_effort() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        log_every_n: 1,
+        log_max_lines: None,
     };
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -549,6 +561,8 @@ async fn adapter_rejects_out_of_order_seq_after_hello() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        log_every_n: 1,
+        log_max_lines: None,
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -623,6 +637,8 @@ async fn controller_disconnect_promotes_next_client() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        log_every_n: 1,
+        log_max_lines: None,
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -695,6 +711,7 @@ async fn adapter_unknown_message_type_echoes_seq() {
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
+        ..ServerConfig::default()
     };
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);

@@ -76,6 +76,8 @@ pub struct ServerConfig {
     pub protocol_version: String,
     pub max_pending_commands: usize,
     pub log_path: Option<String>,
+    pub log_every_n: u64,
+    pub log_max_lines: Option<u64>,
 }
 
 impl Default for ServerConfig {
@@ -86,6 +88,8 @@ impl Default for ServerConfig {
             protocol_version: "2.0.0".to_string(),
             max_pending_commands: 10,
             log_path: None,
+            log_every_n: 1,
+            log_max_lines: None,
         }
     }
 }
@@ -111,12 +115,25 @@ impl ServerConfig {
             .map(|s| s.trim().to_string())
             .and_then(|s| if s.is_empty() { None } else { Some(s) });
 
+        let log_every_n = env::var("TETRIS_AI_LOG_EVERY_N")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|&n| n >= 1)
+            .unwrap_or(1);
+
+        let log_max_lines = env::var("TETRIS_AI_LOG_MAX_LINES")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|&n| n >= 1);
+
         Self {
             host,
             port,
             protocol_version: "2.0.0".to_string(),
             max_pending_commands,
             log_path,
+            log_every_n,
+            log_max_lines,
         }
     }
 
@@ -228,6 +245,8 @@ pub async fn run_server(
     }
 
     let wire_log_tx: Option<mpsc::UnboundedSender<WireRecord>> = if let Some(path) = config.log_path.clone() {
+        let log_every_n = config.log_every_n.max(1);
+        let log_max_lines = config.log_max_lines;
         let (tx, mut rx) = mpsc::unbounded_channel::<WireRecord>();
         tokio::spawn(async move {
             use tokio::fs::OpenOptions;
@@ -239,8 +258,19 @@ pub async fn run_server(
             };
 
             let mut buf: Vec<u8> = Vec::with_capacity(4096);
+            let mut line_count: u64 = 0;
+            let mut record_count: u64 = 0;
 
             while let Some(rec) = rx.recv().await {
+                record_count = record_count.wrapping_add(1);
+                if record_count % log_every_n != 0 {
+                    continue;
+                }
+                if let Some(max) = log_max_lines {
+                    if line_count >= max {
+                        continue;
+                    }
+                }
                 match rec {
                     WireRecord::Bytes(b) => {
                         if file.write_all(&b).await.is_err() {
@@ -287,6 +317,7 @@ pub async fn run_server(
                 if file.write_all(b"\n").await.is_err() {
                     break;
                 }
+                line_count = line_count.wrapping_add(1);
             }
 
             let _ = file.flush().await;
