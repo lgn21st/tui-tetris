@@ -757,8 +757,8 @@ async fn handle_client(
                 let _ = tx.send(ClientOutbound::Error(error));
             }
 
-            Ok(ParsedMessage::Unknown(value)) => {
-                let seq = value.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
+            Ok(ParsedMessage::Unknown(unknown)) => {
+                let seq = unknown.seq;
                 if is_handshaken(&state, client_id).await && !check_and_update_seq(&state, client_id, seq).await {
                     let error = create_error(
                         seq,

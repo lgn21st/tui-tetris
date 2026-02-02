@@ -654,7 +654,14 @@ pub fn parse_message(json: &str) -> Result<ParsedMessage, serde_json::Error> {
         "hello" => Ok(ParsedMessage::Hello(serde_json::from_str(json)?)),
         "command" => Ok(ParsedMessage::Command(serde_json::from_str(json)?)),
         "control" => Ok(ParsedMessage::Control(serde_json::from_str(json)?)),
-        _ => Ok(ParsedMessage::Unknown(serde_json::from_str(json)?)),
+        _ => {
+            #[derive(Debug, Deserialize)]
+            struct SeqOnly {
+                seq: Option<u64>,
+            }
+            let seq = serde_json::from_str::<SeqOnly>(json)?.seq.unwrap_or(0);
+            Ok(ParsedMessage::Unknown(UnknownMessage { seq }))
+        }
     }
 }
 
@@ -664,7 +671,12 @@ pub enum ParsedMessage {
     Hello(HelloMessage),
     Command(CommandMessage),
     Control(ControlMessage),
-    Unknown(serde_json::Value),
+    Unknown(UnknownMessage),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownMessage {
+    pub seq: u64,
 }
 
 // ============== Utility Functions ==============
