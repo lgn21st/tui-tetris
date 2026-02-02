@@ -8,7 +8,7 @@ Schema: `docs/adapter-protocol.schema.json`.
 - Handshake: enforce `hello` first; validate `protocol_version` major; reply with `welcome` including `game_id` and `capabilities`.
 - Controller rules: first `hello` becomes controller; reject command/control from observers with `not_controller`; promote next observer on controller disconnect; support `claim`/`release`.
 - Framing: newline-delimited JSON; reject empty/partial frames; reply with `invalid_command` on parse/shape errors.
-- Sequencing: maintain monotonic `seq` per sender; echo command `seq` in `ack` or `error`.
+- Sequencing: `seq` MUST be strictly increasing per sender after `hello` (no duplicates, no decreases). On violation, reply `error.code = "invalid_command"` and do not enqueue/apply the message.
 - Timestamps: `ts` in unix ms; keep monotonic but not necessarily synchronized.
 - Observations: send full snapshot (board + active + next + hold + score/level/lines/timers) at fixed step or throttled interval; include `playable` gate.
   - Default cadence: 20Hz (50ms) via `TETRIS_AI_OBS_HZ`.
@@ -19,7 +19,7 @@ Schema: `docs/adapter-protocol.schema.json`.
     - `game_over` changes
 - Piece kinds: accept lowercase or uppercase in incoming payloads; emit consistent case in outgoing snapshots.
 - Action mode: implement `moveLeft`, `moveRight`, `softDrop`, `hardDrop`, `rotateCw`, `rotateCcw`, `hold`, `pause`, `restart`.
-- Place mode: validate `x`, `rotation`, `useHold`; apply before tick; reply `invalid_command` on illegal placements.
+- Place mode: validate `x`, `rotation`, `useHold`; apply before tick; reply `invalid_place` when the placement cannot be applied (rotation blocked, x out-of-bounds, x blocked, not playable, etc.).
 - Backpressure: if command queue is full, return `backpressure` and continue streaming observations.
 - Determinism: apply commands before `GameState.tick` on each fixed step; do not let rendering/UI mutate core.
 - Debugging: optionally enable wire logging via `TETRIS_AI_LOG_PATH` to capture raw adapter traffic.
@@ -36,7 +36,7 @@ Example:
 Fields: `type`, `seq`, `ts`, `protocol_version`, `game_id`, `capabilities`.
 Example:
 ```
-{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.0.0","game_id":"swiftui-spritekit-tetris","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","last_event","state_hash","score","timers"]}}
+{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.0.0","game_id":"tui-tetris","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","last_event","state_hash","score","timers"]}}
 ```
 
 ## Commands
@@ -87,7 +87,7 @@ Example:
 - `protocol_mismatch`: hello version incompatible
 - `not_controller`: non-controller sent command/release
 - `controller_active`: controller already assigned
-- `invalid_command`: missing payload
+- `invalid_command`: JSON parse/shape errors, unknown message type, or `seq` not strictly increasing
 - `invalid_place`: place command could not be mapped/applied
 - `hold_unavailable`: hold requested when unavailable
 - `snapshot_required`: snapshot required for mapping
@@ -101,6 +101,10 @@ Example:
   - Set queue limit small (for example `TETRIS_AI_MAX_PENDING=1`).
   - Send two controller `command` messages quickly before the first is drained.
   - Expect one successful `ack` and one `error.code = "backpressure"` (matching each command `seq`).
+- Sequencing (out-of-order):
+  - Send `hello` with `seq=2`.
+  - Then send a `command` with `seq=1`.
+  - Expect `error.code = "invalid_command"` and matching `seq=1`, and the command MUST NOT be enqueued/applied.
 
 ## Defaults
 - Default bind: `127.0.0.1:7777` (override with `TETRIS_AI_HOST` / `TETRIS_AI_PORT`).
@@ -111,4 +115,4 @@ Example:
 - `TETRIS_AI_DISABLED`: disable adapter (`1`/`true`)
 - `TETRIS_AI_OBS_HZ`: observation frequency in Hz (default: `20`)
 - `TETRIS_AI_MAX_PENDING`: max queued controller commands before `backpressure` (default: `10`)
-- `TETRIS_AI_LOG_PATH`: append raw adapter traffic to a file (one line per frame)
+- `TETRIS_AI_LOG_PATH`: append raw adapter traffic to a file (one line per frame; each line is the raw JSON frame)
