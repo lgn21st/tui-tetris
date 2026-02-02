@@ -344,10 +344,48 @@ pub struct WelcomeMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerCapabilities {
-    pub formats: Vec<String>,
+    pub formats: [CapabilityFormat; 1],
     #[serde(rename = "command_modes")]
-    pub command_modes: Vec<String>,
-    pub features: Vec<String>,
+    pub command_modes: [CapabilityCommandMode; 2],
+    pub features: [CapabilityFeature; 10],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CapabilityFormat {
+    #[serde(rename = "json")]
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CapabilityCommandMode {
+    #[serde(rename = "action")]
+    Action,
+    #[serde(rename = "place")]
+    Place,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CapabilityFeature {
+    #[serde(rename = "hold")]
+    Hold,
+    #[serde(rename = "next")]
+    Next,
+    #[serde(rename = "next_queue")]
+    NextQueue,
+    #[serde(rename = "can_hold")]
+    CanHold,
+    #[serde(rename = "ghost_y")]
+    GhostY,
+    #[serde(rename = "board_id")]
+    BoardId,
+    #[serde(rename = "last_event")]
+    LastEvent,
+    #[serde(rename = "state_hash")]
+    StateHash,
+    #[serde(rename = "score")]
+    Score,
+    #[serde(rename = "timers")]
+    Timers,
 }
 
 /// Acknowledgment for command receipt
@@ -659,17 +697,19 @@ pub fn create_welcome(seq: u64, protocol_version: &str) -> WelcomeMessage {
         protocol_version: protocol_version.to_string(),
         game_id: "tui-tetris".to_string(),
         capabilities: ServerCapabilities {
-            formats: vec!["json".to_string()],
-            command_modes: vec!["action".to_string(), "place".to_string()],
-            features: vec![
-                "hold".to_string(),
-                "next".to_string(),
-                "next_queue".to_string(),
-                "can_hold".to_string(),
-                "last_event".to_string(),
-                "state_hash".to_string(),
-                "score".to_string(),
-                "timers".to_string(),
+            formats: [CapabilityFormat::Json],
+            command_modes: [CapabilityCommandMode::Action, CapabilityCommandMode::Place],
+            features: [
+                CapabilityFeature::Hold,
+                CapabilityFeature::Next,
+                CapabilityFeature::NextQueue,
+                CapabilityFeature::CanHold,
+                CapabilityFeature::GhostY,
+                CapabilityFeature::BoardId,
+                CapabilityFeature::LastEvent,
+                CapabilityFeature::StateHash,
+                CapabilityFeature::Score,
+                CapabilityFeature::Timers,
             ],
         },
     }

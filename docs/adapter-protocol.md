@@ -36,7 +36,7 @@ Example:
 Fields: `type`, `seq`, `ts`, `protocol_version`, `game_id`, `capabilities`.
 Example:
 ```
-{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.0.0","game_id":"tui-tetris","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","last_event","state_hash","score","timers"]}}
+{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.0.0","game_id":"tui-tetris","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"]}}
 ```
 
 ## Commands
