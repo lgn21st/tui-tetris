@@ -67,7 +67,8 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                     combo: ev.combo,
                     back_to_back: ev.back_to_back,
                 });
-                let obs = build_observation(&gs, obs_seq, gs.episode_id, gs.piece_id, gs.step_in_piece, last_event);
+                let snap = gs.snapshot();
+                let obs = build_observation(obs_seq, &snap, last_event);
                 obs_seq += 1;
                 let _ = out_tx.send(OutboundMessage::ToClient {
                     client_id: inbound.client_id,
@@ -112,7 +113,8 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                     combo: ev.combo,
                     back_to_back: ev.back_to_back,
                 });
-                let obs = build_observation(&gs, obs_seq, gs.episode_id, gs.piece_id, gs.step_in_piece, last_event);
+                let snap = gs.snapshot();
+                let obs = build_observation(obs_seq, &snap, last_event);
                 obs_seq += 1;
                 let _ = out_tx.send(OutboundMessage::ToClient {
                     client_id: inbound.client_id,
@@ -129,14 +131,8 @@ async fn broadcast_observations_task(out_tx: mpsc::UnboundedSender<OutboundMessa
     let mut seq: u64 = 10_000;
 
     loop {
-        let obs = build_observation(
-            &gs,
-            seq,
-            gs.episode_id,
-            gs.piece_id,
-            gs.step_in_piece,
-            None,
-        );
+        let snap = gs.snapshot();
+        let obs = build_observation(seq, &snap, None);
         seq = seq.wrapping_add(1);
         let _ = out_tx.send(OutboundMessage::Broadcast {
             line: serde_json::to_string(&obs).unwrap(),
@@ -275,22 +271,10 @@ fn acceptance_determinism_fixed_seed_reproduces_state_hash_sequence() {
                 back_to_back: ev.back_to_back,
             });
 
-        let obs_a = build_observation(
-            &a,
-            i,
-            a.episode_id,
-            a.piece_id,
-            a.step_in_piece,
-            last_a,
-        );
-        let obs_b = build_observation(
-            &b,
-            i,
-            b.episode_id,
-            b.piece_id,
-            b.step_in_piece,
-            last_b,
-        );
+        let snap_a = a.snapshot();
+        let snap_b = b.snapshot();
+        let obs_a = build_observation(i, &snap_a, last_a);
+        let obs_b = build_observation(i, &snap_b, last_b);
 
         hashes_a.push(obs_a.state_hash);
         hashes_b.push(obs_b.state_hash);

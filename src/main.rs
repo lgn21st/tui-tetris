@@ -131,12 +131,10 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         tui_tetris::adapter::runtime::InboundPayload::SnapshotRequest => {
                             // Send an immediate observation to this client.
                             obs_seq = obs_seq.wrapping_add(1);
+                            let snap = game_state.snapshot();
                             let obs = tui_tetris::adapter::server::build_observation(
-                                &game_state,
                                 obs_seq,
-                                game_state.episode_id,
-                                game_state.piece_id,
-                                game_state.step_in_piece,
+                                &snap,
                                 pending_last_event.take(),
                             );
                             ad.send(OutboundMessage::ToClientObservation {
@@ -297,14 +295,9 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 let last_event = pending_last_event.take();
 
                 if let Some(ad) = adapter.as_ref() {
-                    let obs = tui_tetris::adapter::server::build_observation(
-                        &game_state,
-                        obs_seq,
-                        game_state.episode_id,
-                        game_state.piece_id,
-                        game_state.step_in_piece,
-                        last_event,
-                    );
+                    let snap = game_state.snapshot();
+                    let obs =
+                        tui_tetris::adapter::server::build_observation(obs_seq, &snap, last_event);
                     ad.send(OutboundMessage::BroadcastObservation { obs });
                 }
             }

@@ -50,14 +50,8 @@ async fn engine_loop(
         match inbound.payload {
             InboundPayload::SnapshotRequest => {
                 let last_event = last_event_from_core(&mut gs);
-                let obs = build_observation(
-                    &gs,
-                    inbound.seq,
-                    gs.episode_id,
-                    gs.piece_id,
-                    gs.step_in_piece,
-                    last_event,
-                );
+                let snap = gs.snapshot();
+                let obs = build_observation(inbound.seq, &snap, last_event);
                 let _ = out_tx.send(OutboundMessage::ToClient {
                     client_id: inbound.client_id,
                     line: serde_json::to_string(&obs).unwrap(),
@@ -106,14 +100,8 @@ async fn engine_loop(
 
                 // follow with an observation
                 let last_event = last_event_from_core(&mut gs);
-                let obs = build_observation(
-                    &gs,
-                    inbound.seq.wrapping_add(10_000),
-                    gs.episode_id,
-                    gs.piece_id,
-                    gs.step_in_piece,
-                    last_event,
-                );
+                let snap = gs.snapshot();
+                let obs = build_observation(inbound.seq.wrapping_add(10_000), &snap, last_event);
                 let _ = out_tx.send(OutboundMessage::ToClient {
                     client_id: inbound.client_id,
                     line: serde_json::to_string(&obs).unwrap(),

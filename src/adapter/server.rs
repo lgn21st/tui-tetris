@@ -11,8 +11,8 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::adapter::protocol::*;
 use crate::adapter::runtime::{ClientCommand, InboundCommand, InboundPayload, OutboundMessage};
-use crate::core::GameState;
-use crate::types::{GameAction, PieceKind, Rotation};
+use crate::core::GameSnapshot;
+use crate::types::{GameAction, Rotation};
 
 use arrayvec::ArrayVec;
 
@@ -861,58 +861,33 @@ fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (ErrorCode, String
 
 /// Build observation message from game state
 pub fn build_observation(
-    game_state: &GameState,
     seq: u64,
-    episode_id: u32,
-    piece_id: u32,
-    step_in_piece: u32,
+    snap: &GameSnapshot,
     last_event: Option<LastEvent>,
 ) -> ObservationMessage {
     use std::hash::{Hash, Hasher};
 
-    // Build board snapshot (no heap)
-    let mut cells = [[0u8; 10]; 20];
-    for y in 0..20 {
-        for x in 0..10 {
-            let v = game_state
-                .board
-                .get(x as i8, y as i8)
-                .and_then(|c| c)
-                .map(|kind| match kind {
-                    PieceKind::I => 1,
-                    PieceKind::O => 2,
-                    PieceKind::T => 3,
-                    PieceKind::S => 4,
-                    PieceKind::Z => 5,
-                    PieceKind::J => 6,
-                    PieceKind::L => 7,
-                })
-                .unwrap_or(0);
-            cells[y][x] = v;
-        }
-    }
+    let cells = snap.board;
 
     // Build state hash
     let mut hasher = Fnv1aHasher::new();
-    game_state.board.cells().hash(&mut hasher);
-    if let Some(active) = game_state.active {
-        active.hash(&mut hasher);
-    }
-    game_state.hold.hash(&mut hasher);
-    game_state.can_hold.hash(&mut hasher);
-    game_state.next_queue.iter().for_each(|k| k.hash(&mut hasher));
-    game_state.paused.hash(&mut hasher);
-    game_state.game_over.hash(&mut hasher);
-    episode_id.hash(&mut hasher);
-    piece_id.hash(&mut hasher);
-    step_in_piece.hash(&mut hasher);
-    game_state.piece_queue.seed().hash(&mut hasher);
-    game_state.score.hash(&mut hasher);
-    game_state.level.hash(&mut hasher);
-    game_state.lines.hash(&mut hasher);
-    game_state.drop_timer_ms.hash(&mut hasher);
-    game_state.lock_timer_ms.hash(&mut hasher);
-    game_state.line_clear_timer_ms.hash(&mut hasher);
+    snap.board.hash(&mut hasher);
+    snap.active.hash(&mut hasher);
+    snap.hold.hash(&mut hasher);
+    snap.can_hold.hash(&mut hasher);
+    snap.next_queue.hash(&mut hasher);
+    snap.paused.hash(&mut hasher);
+    snap.game_over.hash(&mut hasher);
+    snap.episode_id.hash(&mut hasher);
+    snap.piece_id.hash(&mut hasher);
+    snap.step_in_piece.hash(&mut hasher);
+    snap.seed.hash(&mut hasher);
+    snap.score.hash(&mut hasher);
+    snap.level.hash(&mut hasher);
+    snap.lines.hash(&mut hasher);
+    snap.timers.drop_ms.hash(&mut hasher);
+    snap.timers.lock_ms.hash(&mut hasher);
+    snap.timers.line_clear_ms.hash(&mut hasher);
     // Include last_event since it is part of the observation payload.
     last_event.is_some().hash(&mut hasher);
     if let Some(ev) = last_event.as_ref() {
@@ -927,12 +902,12 @@ pub fn build_observation(
 
     // Build next queue
     let next_queue: [PieceKindLower; 5] =
-        std::array::from_fn(|i| PieceKindLower::from(game_state.next_queue[i]));
+        std::array::from_fn(|i| PieceKindLower::from(snap.next_queue[i]));
 
     let next = next_queue[0];
 
     // Build active piece
-    let active = game_state.active.map(|piece| ActivePieceSnapshot {
+    let active = snap.active.map(|piece| ActivePieceSnapshot {
         kind: PieceKindLower::from(piece.kind),
         rotation: RotationLower::from(piece.rotation),
         x: piece.x,
@@ -940,19 +915,19 @@ pub fn build_observation(
     });
 
     // Build hold
-    let hold = game_state.hold.map(PieceKindLower::from);
+    let hold = snap.hold.map(PieceKindLower::from);
 
     ObservationMessage {
         msg_type: ObservationType::Observation,
         seq,
         ts: current_timestamp_ms(),
-        playable: !game_state.game_over && !game_state.paused,
-        paused: game_state.paused,
-        game_over: game_state.game_over,
-        episode_id,
-        seed: game_state.piece_queue.seed(),
-        piece_id,
-        step_in_piece,
+        playable: snap.playable(),
+        paused: snap.paused,
+        game_over: snap.game_over,
+        episode_id: snap.episode_id,
+        seed: snap.seed,
+        piece_id: snap.piece_id,
+        step_in_piece: snap.step_in_piece,
         board: BoardSnapshot {
             width: 10,
             height: 20,
@@ -962,16 +937,16 @@ pub fn build_observation(
         next,
         next_queue,
         hold,
-        can_hold: game_state.can_hold,
+        can_hold: snap.can_hold,
         last_event,
         state_hash,
-        score: game_state.score,
-        level: game_state.level,
-        lines: game_state.lines,
+        score: snap.score,
+        level: snap.level,
+        lines: snap.lines,
         timers: TimersSnapshot {
-            drop_ms: game_state.drop_timer_ms,
-            lock_ms: game_state.lock_timer_ms,
-            line_clear_ms: game_state.line_clear_timer_ms,
+            drop_ms: snap.timers.drop_ms,
+            lock_ms: snap.timers.lock_ms,
+            line_clear_ms: snap.timers.line_clear_ms,
         },
     }
 }
@@ -988,6 +963,7 @@ fn current_timestamp_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::GameState;
 
     #[test]
     fn test_map_command_action_mode() {
@@ -1015,8 +991,17 @@ mod tests {
         let mut gs = GameState::new(1);
         gs.start();
 
-        let obs1 = build_observation(&gs, 1, 0, 1, 0, None);
-        let obs2 = build_observation(&gs, 2, 1, 2, 3, None);
+        let mut s1 = gs.snapshot();
+        s1.episode_id = 0;
+        s1.piece_id = 1;
+        s1.step_in_piece = 0;
+        let obs1 = build_observation(1, &s1, None);
+
+        let mut s2 = gs.snapshot();
+        s2.episode_id = 1;
+        s2.piece_id = 2;
+        s2.step_in_piece = 3;
+        let obs2 = build_observation(2, &s2, None);
         assert_ne!(obs1.state_hash, obs2.state_hash);
     }
 
@@ -1025,9 +1010,12 @@ mod tests {
         let mut gs = GameState::new(1);
         gs.start();
 
-        let obs1 = build_observation(&gs, 1, gs.episode_id, gs.piece_id, gs.step_in_piece, None);
+        let s1 = gs.snapshot();
+        let obs1 = build_observation(1, &s1, None);
         assert!(gs.apply_action(GameAction::Hold));
-        let obs2 = build_observation(&gs, 2, gs.episode_id, gs.piece_id, gs.step_in_piece, None);
+
+        let s2 = gs.snapshot();
+        let obs2 = build_observation(2, &s2, None);
         assert_ne!(obs1.state_hash, obs2.state_hash);
     }
 }

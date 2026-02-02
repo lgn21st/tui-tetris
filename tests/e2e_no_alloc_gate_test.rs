@@ -68,7 +68,8 @@ fn e2e_hot_path_is_allocation_free_without_io() {
         let _ = gs.apply_action(a);
     }
     let _ = gs.tick(16, false);
-    let obs0 = build_observation(&gs, seq, gs.episode_id, gs.piece_id, gs.step_in_piece, None);
+    let snap0 = gs.snapshot();
+    let obs0 = build_observation(seq, &snap0, None);
     buf.clear();
     serde_json::to_writer(&mut buf, &obs0).unwrap();
     view.render_into(&gs, viewport, &mut fb);
@@ -93,8 +94,8 @@ fn e2e_hot_path_is_allocation_free_without_io() {
 
             // Observation build + serialize to preallocated buffer.
             seq = seq.wrapping_add(1);
-            let obs =
-                build_observation(&gs, seq, gs.episode_id, gs.piece_id, gs.step_in_piece, None);
+            let snap = gs.snapshot();
+            let obs = build_observation(seq, &snap, None);
             buf.clear();
             serde_json::to_writer(&mut buf, &obs).unwrap();
 

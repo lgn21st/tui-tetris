@@ -137,6 +137,57 @@ impl GameState {
         self.spawn_piece();
     }
 
+    pub fn snapshot_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
+        use crate::core::snapshot::{ActiveSnapshot, TimersSnapshot};
+        use crate::types::{BOARD_HEIGHT, BOARD_WIDTH};
+
+        // Board
+        for y in 0..BOARD_HEIGHT as usize {
+            for x in 0..BOARD_WIDTH as usize {
+                let v = self
+                    .board
+                    .get(x as i8, y as i8)
+                    .unwrap_or(None)
+                    .map(|kind| match kind {
+                        PieceKind::I => 1,
+                        PieceKind::O => 2,
+                        PieceKind::T => 3,
+                        PieceKind::S => 4,
+                        PieceKind::Z => 5,
+                        PieceKind::J => 6,
+                        PieceKind::L => 7,
+                    })
+                    .unwrap_or(0);
+                out.board[y][x] = v;
+            }
+        }
+
+        out.active = self.active.map(ActiveSnapshot::from);
+        out.hold = self.hold;
+        out.next_queue = self.next_queue;
+        out.can_hold = self.can_hold;
+        out.paused = self.paused;
+        out.game_over = self.game_over;
+        out.episode_id = self.episode_id;
+        out.seed = self.piece_queue.seed();
+        out.piece_id = self.piece_id;
+        out.step_in_piece = self.step_in_piece;
+        out.score = self.score;
+        out.level = self.level;
+        out.lines = self.lines;
+        out.timers = TimersSnapshot {
+            drop_ms: self.drop_timer_ms,
+            lock_ms: self.lock_timer_ms,
+            line_clear_ms: self.line_clear_timer_ms,
+        };
+    }
+
+    pub fn snapshot(&self) -> crate::core::snapshot::GameSnapshot {
+        let mut s = crate::core::snapshot::GameSnapshot::default();
+        self.snapshot_into(&mut s);
+        s
+    }
+
     /// Spawn a new piece from the queue
     pub fn spawn_piece(&mut self) -> bool {
         // Check if spawn position is blocked

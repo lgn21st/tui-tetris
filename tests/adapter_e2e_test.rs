@@ -192,7 +192,8 @@ async fn adapter_hello_command_ack_and_observation() {
     // broadcast observation
     let mut gs = GameState::new(1);
     gs.start();
-    let obs = build_observation(&gs, 10, 0, 1, 0, None);
+    let snap = gs.snapshot();
+    let obs = build_observation(10, &snap, None);
     out_tx
         .send(OutboundMessage::Broadcast {
             line: serde_json::to_string(&obs).unwrap(),

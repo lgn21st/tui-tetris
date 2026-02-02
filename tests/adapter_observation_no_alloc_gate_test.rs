@@ -52,15 +52,16 @@ fn adapter_observation_build_and_serialize_is_allocation_free() {
     let mut seq: u64 = 1;
 
     // Warm-up.
-    let obs0 = build_observation(&gs, seq, gs.episode_id, gs.piece_id, gs.step_in_piece, None);
+    let snap0 = gs.snapshot();
+    let obs0 = build_observation(seq, &snap0, None);
     buf.clear();
     serde_json::to_writer(&mut buf, &obs0).unwrap();
 
     let allocs = with_alloc_counting(|| {
         for _ in 0..200 {
             seq = seq.wrapping_add(1);
-            let obs =
-                build_observation(&gs, seq, gs.episode_id, gs.piece_id, gs.step_in_piece, None);
+            let snap = gs.snapshot();
+            let obs = build_observation(seq, &snap, None);
             buf.clear();
             serde_json::to_writer(&mut buf, &obs).unwrap();
         }
