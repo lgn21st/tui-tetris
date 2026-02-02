@@ -44,6 +44,17 @@ fn extract_seq_best_effort(s: &str) -> Option<u64> {
     rest[..end].parse::<u64>().ok()
 }
 
+fn clear_stale_controller_id<F>(controller: &mut Option<usize>, is_live: F)
+where
+    F: Fn(usize) -> bool,
+{
+    if let Some(stale_id) = *controller {
+        if !is_live(stale_id) {
+            *controller = None;
+        }
+    }
+}
+
 impl Fnv1aHasher {
     const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
     const PRIME: u64 = 0x100000001b3;
@@ -636,6 +647,12 @@ async fn handle_client(
                 // First client to hello becomes controller.
                 {
                     let mut controller = state.controller.write().await;
+                    // If a prior controller disconnected unexpectedly, we may have a stale controller_id
+                    // that blocks future claims. Clear it when it no longer exists in the client list.
+                    {
+                        let clients = state.clients.read().await;
+                        clear_stale_controller_id(&mut *controller, |id| clients.iter().any(|c| c.id == id));
+                    }
                     if controller.is_none() {
                         *controller = Some(client_id);
                         let mut clients = state.clients.write().await;
@@ -758,6 +775,11 @@ async fn handle_client(
                     }
 
                     let mut controller = state.controller.write().await;
+                    // Clear stale controller_id (e.g. if the controller client crashed/disconnected).
+                    {
+                        let clients = state.clients.read().await;
+                        clear_stale_controller_id(&mut *controller, |id| clients.iter().any(|c| c.id == id));
+                    }
                     if controller.is_none() {
                         *controller = Some(client_id);
                         let mut clients = state.clients.write().await;
@@ -1059,6 +1081,20 @@ mod tests {
     fn test_server_config_from_env() {
         // This test just ensures it doesn't panic
         let _config = ServerConfig::from_env();
+    }
+
+    #[test]
+    fn test_clear_stale_controller_id_clears() {
+        let mut controller = Some(42usize);
+        clear_stale_controller_id(&mut controller, |id| id == 7);
+        assert_eq!(controller, None);
+    }
+
+    #[test]
+    fn test_clear_stale_controller_id_keeps() {
+        let mut controller = Some(42usize);
+        clear_stale_controller_id(&mut controller, |id| id == 42);
+        assert_eq!(controller, Some(42));
     }
 
     #[test]
