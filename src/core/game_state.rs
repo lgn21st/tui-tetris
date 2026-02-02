@@ -195,10 +195,6 @@ impl GameState {
         self.active
     }
 
-    pub fn board(&self) -> &Board {
-        &self.board
-    }
-
     pub fn board_id(&self) -> u32 {
         self.board_id
     }
@@ -249,7 +245,7 @@ impl GameState {
     }
 
     /// Spawn a new piece from the queue
-    pub fn spawn_piece(&mut self) -> bool {
+    fn spawn_piece(&mut self) -> bool {
         // Check if spawn position is blocked
         if self.board.is_spawn_blocked() {
             self.game_over = true;
@@ -414,7 +410,7 @@ impl GameState {
     }
 
     /// Swap active piece with hold piece
-    pub fn hold(&mut self) -> bool {
+    fn hold(&mut self) -> bool {
         if !self.can_hold {
             return false;
         }
@@ -460,7 +456,7 @@ impl GameState {
     }
 
     /// Lock the active piece onto the board and handle line clears
-    pub fn lock_piece(&mut self) {
+    fn lock_piece(&mut self) {
         let Some(active) = self.active else {
             return;
         };
@@ -607,7 +603,7 @@ impl GameState {
     }
 
     /// Check if the active piece is on the ground
-    pub fn is_grounded(&self) -> bool {
+    fn is_grounded(&self) -> bool {
         match self.active {
             Some(ref piece) => piece.is_grounded(&self.board),
             None => false,
@@ -615,7 +611,7 @@ impl GameState {
     }
 
     /// Calculate the ghost piece Y position (where piece would land)
-    pub fn ghost_y(&self) -> Option<i8> {
+    fn ghost_y(&self) -> Option<i8> {
         let active = self.active?;
         let shape = active.shape();
 
@@ -754,12 +750,14 @@ impl GameState {
     }
 
     /// Get the shape of the active piece (for rendering)
-    pub fn active_shape(&self) -> Option<[(i8, i8); 4]> {
+    #[cfg(test)]
+    pub(crate) fn active_shape(&self) -> Option<[(i8, i8); 4]> {
         self.active.map(|p| p.shape())
     }
 
     /// Check if piece can move in given direction
-    pub fn can_move(&self, dx: i8, dy: i8) -> bool {
+    #[cfg(test)]
+    pub(crate) fn can_move(&self, dx: i8, dy: i8) -> bool {
         let Some(active) = self.active else {
             return false;
         };
