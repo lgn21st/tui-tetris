@@ -180,6 +180,24 @@ impl Board {
         &self.cells
     }
 
+    pub fn write_u8_grid(&self, out: &mut [[u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize]) {
+        for y in 0..BOARD_HEIGHT as usize {
+            let row = &self.cells[(y * BOARD_WIDTH as usize)..((y + 1) * BOARD_WIDTH as usize)];
+            for x in 0..BOARD_WIDTH as usize {
+                out[y][x] = match row[x] {
+                    None => 0,
+                    Some(PieceKind::I) => 1,
+                    Some(PieceKind::O) => 2,
+                    Some(PieceKind::T) => 3,
+                    Some(PieceKind::S) => 4,
+                    Some(PieceKind::Z) => 5,
+                    Some(PieceKind::J) => 6,
+                    Some(PieceKind::L) => 7,
+                };
+            }
+        }
+    }
+
     /// Get a mutable reference to the internal cells array (for testing)
     #[cfg(test)]
     pub fn cells_mut(&mut self) -> &mut [Cell] {

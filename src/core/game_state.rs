@@ -204,28 +204,8 @@ impl GameState {
 
     pub fn snapshot_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
         use crate::core::snapshot::{ActiveSnapshot, TimersSnapshot};
-        use crate::types::{BOARD_HEIGHT, BOARD_WIDTH};
 
-        // Board
-        for y in 0..BOARD_HEIGHT as usize {
-            for x in 0..BOARD_WIDTH as usize {
-                let v = self
-                    .board
-                    .get(x as i8, y as i8)
-                    .unwrap_or(None)
-                    .map(|kind| match kind {
-                        PieceKind::I => 1,
-                        PieceKind::O => 2,
-                        PieceKind::T => 3,
-                        PieceKind::S => 4,
-                        PieceKind::Z => 5,
-                        PieceKind::J => 6,
-                        PieceKind::L => 7,
-                    })
-                    .unwrap_or(0);
-                out.board[y][x] = v;
-            }
-        }
+        self.board.write_u8_grid(&mut out.board);
 
         out.active = self.active.map(ActiveSnapshot::from);
         out.ghost_y = self.ghost_y();
