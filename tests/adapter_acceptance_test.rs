@@ -10,6 +10,7 @@ use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
 use tui_tetris::core::GameState;
+use tui_tetris::types::GameAction;
 
 async fn read_json_line(lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>) -> serde_json::Value {
     let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
@@ -19,6 +20,7 @@ async fn read_json_line(lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::
         .expect("expected line");
     serde_json::from_str(&line).expect("invalid json")
 }
+
 
 async fn spawn_server(
     config: ServerConfig,
@@ -211,6 +213,83 @@ async fn acceptance_backpressure_does_not_stop_observations() {
 
     obs_handle.abort();
     server_handle.abort();
+}
+
+#[test]
+fn acceptance_determinism_fixed_seed_reproduces_state_hash_sequence() {
+    let seed = 12345;
+
+    let mut a = GameState::new(seed);
+    let mut b = GameState::new(seed);
+    a.start();
+    b.start();
+
+    let mut hashes_a = Vec::new();
+    let mut hashes_b = Vec::new();
+
+    // Drive a deterministic sequence: hard-drop the current active piece each step.
+    for i in 0..50u64 {
+        if a.game_over || b.game_over || a.active.is_none() || b.active.is_none() {
+            break;
+        }
+
+        assert!(a.apply_action(GameAction::HardDrop));
+        assert!(b.apply_action(GameAction::HardDrop));
+
+        // Consume line-clear pause so timers stay in sync.
+        let _ = a.tick(1000, false);
+        let _ = b.tick(1000, false);
+
+        let last_a = a
+            .take_last_event()
+            .map(|ev| tui_tetris::adapter::protocol::LastEvent {
+                locked: ev.locked,
+                lines_cleared: ev.lines_cleared,
+                line_clear_score: ev.line_clear_score,
+                tspin: ev
+                    .tspin
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string()),
+                combo: ev.combo,
+                back_to_back: ev.back_to_back,
+            });
+        let last_b = b
+            .take_last_event()
+            .map(|ev| tui_tetris::adapter::protocol::LastEvent {
+                locked: ev.locked,
+                lines_cleared: ev.lines_cleared,
+                line_clear_score: ev.line_clear_score,
+                tspin: ev
+                    .tspin
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string()),
+                combo: ev.combo,
+                back_to_back: ev.back_to_back,
+            });
+
+        let obs_a = build_observation(
+            &a,
+            i,
+            a.episode_id,
+            a.piece_id,
+            a.step_in_piece,
+            last_a,
+        );
+        let obs_b = build_observation(
+            &b,
+            i,
+            b.episode_id,
+            b.piece_id,
+            b.step_in_piece,
+            last_b,
+        );
+
+        hashes_a.push(obs_a.state_hash);
+        hashes_b.push(obs_b.state_hash);
+    }
+
+    assert!(!hashes_a.is_empty());
+    assert_eq!(hashes_a, hashes_b);
 }
 
 #[tokio::test]
