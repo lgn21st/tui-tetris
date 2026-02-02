@@ -72,8 +72,10 @@
 //! ```
 
 pub mod protocol;
+pub mod runtime;
 pub mod server;
 
 // Re-export protocol types for convenience
 pub use protocol::*;
+pub use runtime::{Adapter, ClientCommand, InboundCommand, OutboundMessage};
 pub use server::*;

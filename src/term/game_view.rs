@@ -42,9 +42,12 @@ impl GameView {
         Self { cell_w, cell_h }
     }
 
-    /// Render the current game state into a framebuffer.
-    pub fn render(&self, state: &GameState, viewport: Viewport) -> FrameBuffer {
-        let mut fb = FrameBuffer::new(viewport.width, viewport.height);
+    /// Render the current game state into an existing framebuffer.
+    ///
+    /// This is the allocation-free hot path. Callers can reuse a framebuffer
+    /// across frames and only resize when the terminal size changes.
+    pub fn render_into(&self, state: &GameState, viewport: Viewport, fb: &mut FrameBuffer) {
+        fb.resize(viewport.width, viewport.height);
         fb.clear(CellStyle::default().into_cell(' '));
 
         let board_px_w = (BOARD_WIDTH as u16) * self.cell_w;
@@ -72,17 +75,17 @@ impl GameView {
         fb.fill_rect(start_x + 1, start_y + 1, board_px_w, board_px_h, ' ', bg);
 
         // Border.
-        self.draw_border(&mut fb, start_x, start_y, frame_w, frame_h, border);
+        self.draw_border(fb, start_x, start_y, frame_w, frame_h, border);
 
         // Locked board cells.
         for y in 0..BOARD_HEIGHT as u16 {
             for x in 0..BOARD_WIDTH as u16 {
                 let cell = state.board.get(x as i8, y as i8).unwrap_or(None);
                 if let Some(kind) = cell {
-                    self.draw_board_cell(&mut fb, start_x, start_y, x, y, kind, true);
+                    self.draw_board_cell(fb, start_x, start_y, x, y, kind, true);
                 } else {
                     // Optional grid dot.
-                    self.draw_empty_cell(&mut fb, start_x, start_y, x, y);
+                    self.draw_empty_cell(fb, start_x, start_y, x, y);
                 }
             }
         }
@@ -99,15 +102,7 @@ impl GameView {
                 let x = active.x + dx;
                 let y = ghost_y + dy;
                 if x >= 0 && x < BOARD_WIDTH as i8 && y >= 0 && y < BOARD_HEIGHT as i8 {
-                    self.fill_cell_rect(
-                        &mut fb,
-                        start_x,
-                        start_y,
-                        x as u16,
-                        y as u16,
-                        '░',
-                        ghost_style,
-                    );
+                    self.fill_cell_rect(fb, start_x, start_y, x as u16, y as u16, '░', ghost_style);
                 }
             }
         }
@@ -119,7 +114,7 @@ impl GameView {
                 let y = active.y + dy;
                 if x >= 0 && x < BOARD_WIDTH as i8 && y >= 0 && y < BOARD_HEIGHT as i8 {
                     self.draw_board_cell(
-                        &mut fb,
+                        fb,
                         start_x,
                         start_y,
                         x as u16,
@@ -132,15 +127,20 @@ impl GameView {
         }
 
         // Side panel (score/next/hold).
-        self.draw_side_panel(&mut fb, state, viewport, start_x, start_y, frame_w);
+        self.draw_side_panel(fb, state, viewport, start_x, start_y, frame_w);
 
         // Overlays.
         if state.paused {
-            self.draw_overlay_text(&mut fb, start_x, start_y, frame_w, frame_h, "PAUSED");
+            self.draw_overlay_text(fb, start_x, start_y, frame_w, frame_h, "PAUSED");
         } else if state.game_over {
-            self.draw_overlay_text(&mut fb, start_x, start_y, frame_w, frame_h, "GAME OVER");
+            self.draw_overlay_text(fb, start_x, start_y, frame_w, frame_h, "GAME OVER");
         }
+    }
 
+    /// Convenience helper that allocates a new framebuffer.
+    pub fn render(&self, state: &GameState, viewport: Viewport) -> FrameBuffer {
+        let mut fb = FrameBuffer::new(viewport.width, viewport.height);
+        self.render_into(state, viewport, &mut fb);
         fb
     }
 

@@ -76,6 +76,19 @@ impl FrameBuffer {
         self.height
     }
 
+    /// Resize the framebuffer.
+    ///
+    /// This preserves the underlying allocation when possible.
+    pub fn resize(&mut self, width: u16, height: u16) {
+        if self.width == width && self.height == height {
+            return;
+        }
+        self.width = width;
+        self.height = height;
+        let len = (width as usize) * (height as usize);
+        self.cells.resize(len, Cell::default());
+    }
+
     pub fn cells(&self) -> &[Cell] {
         &self.cells
     }

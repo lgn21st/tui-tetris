@@ -7,9 +7,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::adapter::protocol::*;
+use crate::adapter::runtime::{ClientCommand, InboundCommand, OutboundMessage};
 use crate::core::GameState;
 use crate::types::{GameAction, PieceKind, Rotation};
 
@@ -44,11 +45,16 @@ impl ServerConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(7777);
 
+        let max_pending_commands = env::var("TETRIS_AI_MAX_PENDING")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
+
         Self {
             host,
             port,
             protocol_version: "2.0.0".to_string(),
-            max_pending_commands: 10,
+            max_pending_commands,
         }
     }
 
@@ -64,20 +70,14 @@ pub struct ServerState {
     config: ServerConfig,
     clients: Arc<RwLock<Vec<ClientHandle>>>,
     controller: Arc<RwLock<Option<usize>>>, // Index into clients vec
-    #[allow(dead_code)]
-    game_state: Arc<RwLock<GameState>>,
-    #[allow(dead_code)]
-    observation_seq: Arc<Mutex<u64>>,
 }
 
 impl ServerState {
-    pub fn new(config: ServerConfig, game_state: GameState) -> Self {
+    pub fn new(config: ServerConfig) -> Self {
         Self {
             config,
             clients: Arc::new(RwLock::new(Vec::new())),
             controller: Arc::new(RwLock::new(None)),
-            game_state: Arc::new(RwLock::new(game_state)),
-            observation_seq: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -94,26 +94,17 @@ pub struct ClientHandle {
     pub id: usize,
     pub addr: SocketAddr,
     pub is_controller: bool,
-    pub command_mode: String,              // "action" or "place"
+    pub command_mode: String, // "action" or "place"
+    pub stream_observations: bool,
     pub tx: mpsc::UnboundedSender<String>, // Channel to send messages to client
-}
-
-/// Command from a client to be executed
-#[derive(Debug, Clone)]
-pub enum ClientCommand {
-    Actions(Vec<GameAction>),
-    Place {
-        x: i8,
-        rotation: Rotation,
-        use_hold: bool,
-    },
 }
 
 /// Start the TCP server
 pub async fn run_server(
     config: ServerConfig,
-    game_state: Arc<RwLock<GameState>>,
-    _command_rx: mpsc::Receiver<ClientCommand>,
+    command_tx: mpsc::Sender<InboundCommand>,
+    mut out_rx: mpsc::UnboundedReceiver<OutboundMessage>,
+    ready_tx: Option<oneshot::Sender<SocketAddr>>,
 ) -> anyhow::Result<()> {
     if ServerState::is_disabled() {
         println!("[Adapter] AI control disabled via TETRIS_AI_DISABLED");
@@ -125,10 +116,39 @@ pub async fn run_server(
 
     let addr = config.socket_addr();
     let listener = TcpListener::bind(&addr).await?;
-    println!("[Adapter] TCP server listening on {}", addr);
+    let bound = listener.local_addr()?;
+    println!("[Adapter] TCP server listening on {}", bound);
+    if let Some(tx) = ready_tx {
+        let _ = tx.send(bound);
+    }
 
-    let state = Arc::new(ServerState::new(config, GameState::new(1)));
+    let state = Arc::new(ServerState::new(config));
     let mut client_id_counter = 0usize;
+
+    // Outbound dispatcher.
+    {
+        let state = Arc::clone(&state);
+        tokio::spawn(async move {
+            while let Some(msg) = out_rx.recv().await {
+                match msg {
+                    OutboundMessage::ToClient { client_id, line } => {
+                        let clients = state.clients.read().await;
+                        if let Some(c) = clients.iter().find(|c| c.id == client_id) {
+                            let _ = c.tx.send(line);
+                        }
+                    }
+                    OutboundMessage::Broadcast { line } => {
+                        let clients = state.clients.read().await;
+                        for c in clients.iter() {
+                            if c.stream_observations {
+                                let _ = c.tx.send(line.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     // Accept incoming connections
     loop {
@@ -139,13 +159,11 @@ pub async fn run_server(
         println!("[Adapter] Client {} connected from {}", client_id, addr);
 
         let state_clone = Arc::clone(&state);
-        let game_state_clone = Arc::clone(&game_state);
+        let command_tx = command_tx.clone();
 
         // Spawn task to handle this client
         tokio::spawn(async move {
-            if let Err(e) =
-                handle_client(socket, addr, client_id, state_clone, game_state_clone).await
-            {
+            if let Err(e) = handle_client(socket, addr, client_id, state_clone, command_tx).await {
                 eprintln!("[Adapter] Client {} error: {}", client_id, e);
             }
             println!("[Adapter] Client {} disconnected", client_id);
@@ -159,7 +177,7 @@ async fn handle_client(
     addr: SocketAddr,
     client_id: usize,
     state: Arc<ServerState>,
-    game_state: Arc<RwLock<GameState>>,
+    command_tx: mpsc::Sender<InboundCommand>,
 ) -> anyhow::Result<()> {
     let (reader, mut writer) = tokio::io::split(socket);
     let mut reader = BufReader::new(reader);
@@ -173,6 +191,7 @@ async fn handle_client(
         addr,
         is_controller: false,
         command_mode: "action".to_string(),
+        stream_observations: false,
         tx: tx.clone(),
     };
 
@@ -199,7 +218,6 @@ async fn handle_client(
     // Handle incoming messages
     let mut line = String::new();
     let mut _client_hello: Option<HelloMessage> = None;
-    let mut seq_counter = 0u64;
 
     loop {
         line.clear();
@@ -215,15 +233,13 @@ async fn handle_client(
             continue;
         }
 
-        seq_counter += 1;
-
         // Parse the message
         match parse_message(line) {
             Ok(ParsedMessage::Hello(hello)) => {
                 // Validate protocol version
                 if !hello.protocol_version.starts_with("2.") {
                     let error = create_error(
-                        seq_counter,
+                        hello.seq,
                         "protocol_mismatch",
                         &format!("Protocol version {} not supported", hello.protocol_version),
                     );
@@ -235,7 +251,7 @@ async fn handle_client(
                 _client_hello = Some(hello.clone());
 
                 // Send welcome
-                let welcome = create_welcome(seq_counter, &state.config.protocol_version);
+                let welcome = create_welcome(hello.seq, &state.config.protocol_version);
                 let json = serde_json::to_string(&welcome)?;
                 let _ = tx.send(json);
 
@@ -247,8 +263,16 @@ async fn handle_client(
                     if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
                         client.is_controller = true;
                         client.command_mode = hello.requested.command_mode.clone();
+                        client.stream_observations = hello.requested.stream_observations;
                     }
                     println!("[Adapter] Client {} is now controller", client_id);
+                } else {
+                    // Store capabilities for observers too.
+                    let mut clients = state.clients.write().await;
+                    if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
+                        client.command_mode = hello.requested.command_mode.clone();
+                        client.stream_observations = hello.requested.stream_observations;
+                    }
                 }
             }
 
@@ -265,7 +289,7 @@ async fn handle_client(
 
                 if !is_controller {
                     let error = create_error(
-                        seq_counter,
+                        cmd.seq,
                         "not_controller",
                         "Only controller may send commands",
                     );
@@ -274,15 +298,32 @@ async fn handle_client(
                     continue;
                 }
 
-                // Process command
-                let game_state_guard = game_state.read().await;
-                let _actions = process_command(&cmd, &game_state_guard);
-                drop(game_state_guard);
+                // Map command into an inbound command for the game loop.
+                let mapped = match map_command(&cmd) {
+                    Ok(c) => c,
+                    Err((code, message)) => {
+                        let error = create_error(cmd.seq, code, &message);
+                        let json = serde_json::to_string(&error)?;
+                        let _ = tx.send(json);
+                        continue;
+                    }
+                };
 
-                // Send acknowledgment
-                let ack = create_ack(seq_counter, cmd.seq);
-                let json = serde_json::to_string(&ack)?;
-                let _ = tx.send(json);
+                // Backpressure: bounded queue.
+                match command_tx.try_send(InboundCommand {
+                    client_id,
+                    seq: cmd.seq,
+                    command: mapped,
+                }) {
+                    Ok(()) => {
+                        // Ack will be sent by the game loop after the command is applied.
+                    }
+                    Err(_) => {
+                        let error = create_error(cmd.seq, "backpressure", "Command queue is full");
+                        let json = serde_json::to_string(&error)?;
+                        let _ = tx.send(json);
+                    }
+                }
             }
 
             Ok(ParsedMessage::Control(ctrl)) => match ctrl.action.as_str() {
@@ -294,12 +335,12 @@ async fn handle_client(
                         if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
                             client.is_controller = true;
                         }
-                        let ack = create_ack(seq_counter, ctrl.seq);
+                        let ack = create_ack(ctrl.seq, ctrl.seq);
                         let json = serde_json::to_string(&ack)?;
                         let _ = tx.send(json);
                     } else {
                         let error = create_error(
-                            seq_counter,
+                            ctrl.seq,
                             "controller_active",
                             "Controller already assigned",
                         );
@@ -315,22 +356,19 @@ async fn handle_client(
                         if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
                             client.is_controller = false;
                         }
-                        let ack = create_ack(seq_counter, ctrl.seq);
+                        let ack = create_ack(ctrl.seq, ctrl.seq);
                         let json = serde_json::to_string(&ack)?;
                         let _ = tx.send(json);
                     } else {
-                        let error = create_error(
-                            seq_counter,
-                            "not_controller",
-                            "Only controller may release",
-                        );
+                        let error =
+                            create_error(ctrl.seq, "not_controller", "Only controller may release");
                         let json = serde_json::to_string(&error)?;
                         let _ = tx.send(json);
                     }
                 }
                 _ => {
                     let error = create_error(
-                        seq_counter,
+                        ctrl.seq,
                         "invalid_command",
                         &format!("Unknown control action: {}", ctrl.action),
                     );
@@ -340,17 +378,13 @@ async fn handle_client(
             },
 
             Err(e) => {
-                let error = create_error(
-                    seq_counter,
-                    "invalid_command",
-                    &format!("JSON parse error: {}", e),
-                );
+                let error = create_error(0, "invalid_command", &format!("JSON parse error: {}", e));
                 let json = serde_json::to_string(&error)?;
                 let _ = tx.send(json);
             }
 
             _ => {
-                let error = create_error(seq_counter, "invalid_command", "Unknown message type");
+                let error = create_error(0, "invalid_command", "Unknown message type");
                 let json = serde_json::to_string(&error)?;
                 let _ = tx.send(json);
             }
@@ -378,35 +412,46 @@ async fn handle_client(
     Ok(())
 }
 
-/// Process a command and return game actions
-fn process_command(cmd: &CommandMessage, _game_state: &GameState) -> Vec<GameAction> {
-    let mut actions = Vec::new();
-
+/// Map a protocol command into an engine command.
+fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (&'static str, String)> {
     match cmd.mode.as_str() {
         "action" => {
-            if let Some(ref action_strings) = cmd.actions {
-                for action_str in action_strings {
-                    if let Some(action) = parse_action(action_str) {
-                        actions.push(action);
-                    }
+            let Some(ref action_strings) = cmd.actions else {
+                return Err(("invalid_command", "Missing actions".to_string()));
+            };
+            let mut actions = Vec::with_capacity(action_strings.len());
+            for a in action_strings {
+                match parse_action(a) {
+                    Some(act) => actions.push(act),
+                    None => return Err(("invalid_command", format!("Unknown action: {}", a))),
                 }
             }
+            Ok(ClientCommand::Actions(actions))
         }
         "place" => {
-            // TODO: Implement place mode - calculate actions to reach target
-            // For now, just use the actions if provided
-            if let Some(ref action_strings) = cmd.actions {
-                for action_str in action_strings {
-                    if let Some(action) = parse_action(action_str) {
-                        actions.push(action);
-                    }
+            let Some(ref place) = cmd.place else {
+                return Err(("invalid_place", "Missing place".to_string()));
+            };
+            let rot = match place.rotation.to_lowercase().as_str() {
+                "north" => Rotation::North,
+                "east" => Rotation::East,
+                "south" => Rotation::South,
+                "west" => Rotation::West,
+                _ => {
+                    return Err((
+                        "invalid_place",
+                        format!("Invalid rotation: {}", place.rotation),
+                    ))
                 }
-            }
+            };
+            Ok(ClientCommand::Place {
+                x: place.x,
+                rotation: rot,
+                use_hold: place.use_hold,
+            })
         }
-        _ => {}
+        _ => Err(("invalid_command", format!("Unknown mode: {}", cmd.mode))),
     }
-
-    actions
 }
 
 /// Parse action string to GameAction
@@ -426,7 +471,14 @@ fn parse_action(action: &str) -> Option<GameAction> {
 }
 
 /// Build observation message from game state
-pub fn build_observation(game_state: &GameState, seq: u64) -> ObservationMessage {
+pub fn build_observation(
+    game_state: &GameState,
+    seq: u64,
+    episode_id: u32,
+    piece_id: u32,
+    step_in_piece: u32,
+    last_event: Option<LastEvent>,
+) -> ObservationMessage {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
@@ -499,10 +551,10 @@ pub fn build_observation(game_state: &GameState, seq: u64) -> ObservationMessage
         playable: !game_state.game_over && !game_state.paused,
         paused: game_state.paused,
         game_over: game_state.game_over,
-        episode_id: 0,    // TODO: Track episodes
-        seed: 0,          // TODO: Store seed in GameState
-        piece_id: 0,      // TODO: Track piece count
-        step_in_piece: 0, // TODO: Track steps
+        episode_id,
+        seed: game_state.piece_queue.seed(),
+        piece_id,
+        step_in_piece,
         board: BoardSnapshot {
             width: 10,
             height: 20,
@@ -513,7 +565,7 @@ pub fn build_observation(game_state: &GameState, seq: u64) -> ObservationMessage
         next_queue,
         hold,
         can_hold: game_state.can_hold,
-        last_event: None, // TODO: Track last event
+        last_event,
         state_hash,
         score: game_state.score,
         level: game_state.level,

@@ -11,6 +11,12 @@ Schema: `docs/adapter-protocol.schema.json`.
 - Sequencing: maintain monotonic `seq` per sender; echo command `seq` in `ack` or `error`.
 - Timestamps: `ts` in unix ms; keep monotonic but not necessarily synchronized.
 - Observations: send full snapshot (board + active + next + hold + score/level/lines/timers) at fixed step or throttled interval; include `playable` gate.
+  - Default cadence: 20Hz (50ms) via `TETRIS_AI_OBS_HZ`.
+  - Critical events MUST trigger an immediate observation (do not wait for the next timer):
+    - `piece_id` changes / piece spawn
+    - `last_event.locked = true`
+    - `paused` changes
+    - `game_over` changes
 - Piece kinds: accept lowercase or uppercase in incoming payloads; emit consistent case in outgoing snapshots.
 - Action mode: implement `moveLeft`, `moveRight`, `softDrop`, `hardDrop`, `rotateCw`, `rotateCcw`, `hold`, `pause`, `restart`.
 - Place mode: validate `x`, `rotation`, `useHold`; apply before tick; reply `invalid_command` on illegal placements.
@@ -98,3 +104,10 @@ Example:
 
 ## Defaults
 - Default bind: `127.0.0.1:7777` (override with `TETRIS_AI_HOST` / `TETRIS_AI_PORT`).
+
+## Environment Variables
+- `TETRIS_AI_HOST`: bind host (default: `127.0.0.1`)
+- `TETRIS_AI_PORT`: bind port (default: `7777`)
+- `TETRIS_AI_DISABLED`: disable adapter (`1`/`true`)
+- `TETRIS_AI_OBS_HZ`: observation frequency in Hz (default: `20`)
+- `TETRIS_AI_MAX_PENDING`: max queued controller commands before `backpressure` (default: `10`)

@@ -50,23 +50,37 @@ impl TerminalRenderer {
         Ok(())
     }
 
-    /// Full redraw of the framebuffer.
-    pub fn draw(&mut self, fb: &FrameBuffer) -> Result<()> {
-        let prev_opt = self.last.as_ref();
-        let needs_full = match prev_opt {
-            None => true,
-            Some(prev) => prev.width() != fb.width() || prev.height() != fb.height(),
-        };
+    /// Force the next draw to be a full redraw.
+    ///
+    /// Useful on terminal resize events.
+    pub fn invalidate(&mut self) {
+        self.last = None;
+    }
+
+    /// Draw a framebuffer, swapping it into internal state.
+    ///
+    /// Callers should keep one `FrameBuffer` and pass it in every frame.
+    /// The renderer will diff against the previous frame and then swap buffers
+    /// so the caller can reuse the old one without cloning.
+    pub fn draw_swap(&mut self, fb: &mut FrameBuffer) -> Result<()> {
+        if self.last.is_none() {
+            self.last = Some(FrameBuffer::new(fb.width(), fb.height()));
+        }
+
+        // Take previous out to avoid borrow conflicts (no cloning).
+        let mut prev = self.last.take().unwrap();
+        let needs_full = prev.width() != fb.width() || prev.height() != fb.height();
 
         if needs_full {
             self.full_redraw(fb)?;
+            prev.resize(fb.width(), fb.height());
         } else {
-            // Clone the previous framebuffer to avoid borrowing self immutably across a mutable call.
-            let prev = prev_opt.unwrap().clone();
             self.diff_redraw(fb, &prev)?;
         }
 
-        self.last = Some(fb.clone());
+        // Swap current into prev so next frame can diff without cloning.
+        std::mem::swap(&mut prev, fb);
+        self.last = Some(prev);
         Ok(())
     }
 
@@ -99,18 +113,19 @@ impl TerminalRenderer {
     fn diff_redraw(&mut self, next: &FrameBuffer, prev: &FrameBuffer) -> Result<()> {
         let mut current_style: Option<CellStyle> = None;
 
-        for idx in diff_indices(prev, next) {
-            let x = (idx % next.width() as usize) as u16;
-            let y = (idx / next.width() as usize) as u16;
-            let cell = next.cells()[idx];
-
+        for_each_changed_run(prev, next, |x, y, len| {
+            // Cursor move per run, then print cells in the run.
             self.stdout.queue(cursor::MoveTo(x, y))?;
-            if current_style != Some(cell.style) {
-                self.apply_style(cell.style)?;
-                current_style = Some(cell.style);
+            for dx in 0..len {
+                let cell = next.get(x + dx, y).unwrap_or_default();
+                if current_style != Some(cell.style) {
+                    self.apply_style(cell.style)?;
+                    current_style = Some(cell.style);
+                }
+                self.stdout.queue(Print(cell.ch))?;
             }
-            self.stdout.queue(Print(cell.ch))?;
-        }
+            Ok(())
+        })?;
 
         self.stdout.queue(ResetColor)?;
         self.stdout.queue(SetAttribute(Attribute::Reset))?;
@@ -142,18 +157,48 @@ fn rgb_to_color(rgb: Rgb) -> Color {
     }
 }
 
-fn diff_indices(prev: &FrameBuffer, next: &FrameBuffer) -> Vec<usize> {
+fn for_each_changed_run(
+    prev: &FrameBuffer,
+    next: &FrameBuffer,
+    mut f: impl FnMut(u16, u16, u16) -> Result<()>,
+) -> Result<()> {
     if prev.width() != next.width() || prev.height() != next.height() {
-        return (0..(next.width() as usize * next.height() as usize)).collect();
+        // Size changed: treat everything as dirty in a single pass (row runs).
+        for y in 0..next.height() {
+            f(0, y, next.width())?;
+        }
+        return Ok(());
     }
 
-    let mut out = Vec::new();
-    for (i, (a, b)) in prev.cells().iter().zip(next.cells().iter()).enumerate() {
-        if a != b {
-            out.push(i);
+    let w = next.width();
+    let h = next.height();
+
+    for y in 0..h {
+        let mut x = 0;
+        while x < w {
+            let a = prev.get(x, y).unwrap_or_default();
+            let b = next.get(x, y).unwrap_or_default();
+            if a == b {
+                x += 1;
+                continue;
+            }
+
+            let start = x;
+            x += 1;
+            while x < w {
+                let a2 = prev.get(x, y).unwrap_or_default();
+                let b2 = next.get(x, y).unwrap_or_default();
+                if a2 == b2 {
+                    break;
+                }
+                x += 1;
+            }
+            let len = x - start;
+            f(start, y, len)?;
         }
     }
-    out
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -185,16 +230,22 @@ mod tests {
     }
 
     #[test]
-    fn diff_indices_detects_changes() {
+    fn changed_run_iterator_coalesces_adjacent_cells() {
         let style = CellStyle::default();
-        let mut a = FrameBuffer::new(2, 2);
-        let mut b = FrameBuffer::new(2, 2);
+        let a = FrameBuffer::new(5, 1);
+        let mut b = FrameBuffer::new(5, 1);
 
-        a.set(0, 0, Cell { ch: 'A', style });
-        b.set(0, 0, Cell { ch: 'A', style });
-        b.set(1, 1, Cell { ch: 'X', style });
+        // Change cells [1..=3] into X.
+        for x in 1..=3 {
+            b.set(x, 0, Cell { ch: 'X', style });
+        }
 
-        let diff = diff_indices(&a, &b);
-        assert_eq!(diff, vec![3]);
+        let mut runs = Vec::new();
+        for_each_changed_run(&a, &b, |x, y, len| {
+            runs.push((x, y, len));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(runs, vec![(1, 0, 3)]);
     }
 }
