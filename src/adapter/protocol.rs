@@ -328,8 +328,13 @@ pub struct ObservationMessage {
     #[serde(rename = "step_in_piece")]
     pub step_in_piece: u32,
     pub board: BoardSnapshot,
+    #[serde(rename = "board_id")]
+    pub board_id: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<ActivePieceSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ghost_y")]
+    pub ghost_y: Option<i8>,
     pub next: PieceKindLower, // Single next piece (for compatibility)
     #[serde(rename = "next_queue")]
     pub next_queue: [PieceKindLower; 5], // Full next queue

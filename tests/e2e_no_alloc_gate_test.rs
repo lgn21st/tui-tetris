@@ -59,7 +59,7 @@ fn e2e_hot_path_is_allocation_free_without_io() {
     let viewport = Viewport::new(80, 24);
     let mut fb = FrameBuffer::new(viewport.width, viewport.height);
 
-    let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
+    let mut buf: Vec<u8> = Vec::with_capacity(64 * 1024);
     let mut seq: u64 = 1;
     let mut snap = gs.snapshot();
     let mut last_board_id = gs.board_id();

@@ -165,12 +165,14 @@
         "piece_id": { "type": "integer" },
         "step_in_piece": { "type": "integer" },
         "board": { "$ref": "#/definitions/board" },
+        "board_id": { "type": "integer" },
         "active": {
           "anyOf": [
             { "$ref": "#/definitions/active_piece" },
             { "type": "null" }
           ]
         },
+        "ghost_y": { "type": ["integer", "null"] },
         "next": { "type": "string" },
         "next_queue": { "type": "array", "items": { "type": "string" } },
         "hold": { "type": ["string", "null"] },
@@ -199,6 +201,7 @@
         "piece_id",
         "step_in_piece",
         "board",
+        "board_id",
         "next",
         "score",
         "level",

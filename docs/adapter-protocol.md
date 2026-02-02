@@ -76,10 +76,14 @@ Examples:
 
 ## Observations
 ### observation (game -> client)
-Fields: `type`, `seq`, `ts`, `playable`, `paused`, `game_over`, `episode_id`, `seed`, `piece_id`, `step_in_piece`, `board`, `active`, `next`, `next_queue`, `hold`, `can_hold`, `last_event`, `state_hash`, `score`, `level`, `lines`, `timers`.
+Fields: `type`, `seq`, `ts`, `playable`, `paused`, `game_over`, `episode_id`, `seed`, `piece_id`, `step_in_piece`, `board`, `board_id`, `active`, `ghost_y`, `next`, `next_queue`, `hold`, `can_hold`, `last_event`, `state_hash`, `score`, `level`, `lines`, `timers`.
+
+Notes:
+- `board_id` increments when the locked board changes (piece lock and/or line clear). It is stable while only the active/ghost/UI changes.
+- `ghost_y` is the landing y for the active piece (null if no active).
 Example:
 ```
-{"type":"observation","seq":20,"ts":1738291200600,"playable":true,"paused":false,"game_over":false,"episode_id":0,"seed":1,"piece_id":12,"step_in_piece":0,"board":{"width":10,"height":20,"cells":[[0,0,0,0,0,0,0,0,0,0]]},"active":{"kind":"t","rotation":"north","x":4,"y":19},"next":"i","next_queue":["i","o","t","s"],"hold":null,"can_hold":true,"last_event":{"locked":true,"lines_cleared":2,"line_clear_score":1200,"tspin":"full","combo":1,"back_to_back":true},"state_hash":"e1bca4d1b673b8c2","score":0,"level":1,"lines":0,"timers":{"drop_ms":1000,"lock_ms":0,"line_clear_ms":0}}
+{"type":"observation","seq":20,"ts":1738291200600,"playable":true,"paused":false,"game_over":false,"episode_id":0,"seed":1,"piece_id":12,"step_in_piece":0,"board":{"width":10,"height":20,"cells":[[0,0,0,0,0,0,0,0,0,0]]},"board_id":42,"active":{"kind":"t","rotation":"north","x":4,"y":19},"ghost_y":19,"next":"i","next_queue":["i","o","t","s"],"hold":null,"can_hold":true,"last_event":{"locked":true,"lines_cleared":2,"line_clear_score":1200,"tspin":"full","combo":1,"back_to_back":true},"state_hash":"e1bca4d1b673b8c2","score":0,"level":1,"lines":0,"timers":{"drop_ms":1000,"lock_ms":0,"line_clear_ms":0}}
 ```
 
 ## Error Codes (current)

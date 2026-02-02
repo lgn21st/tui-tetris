@@ -228,6 +228,12 @@ criterion_main!(benches);
 
 ```bash
 cargo bench
+
+Recommended benches to watch:
+- `build_observation+to_writer`
+- `render_into`
+- `snapshot_meta_into`
+- `snapshot_board_into`
 ```
 
 ### Memory Profiling
