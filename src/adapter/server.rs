@@ -872,6 +872,7 @@ pub fn build_observation(
     // Build state hash
     let mut hasher = Fnv1aHasher::new();
     snap.board.hash(&mut hasher);
+    snap.board_id.hash(&mut hasher);
     snap.active.hash(&mut hasher);
     snap.hold.hash(&mut hasher);
     snap.can_hold.hash(&mut hasher);
@@ -1016,6 +1017,21 @@ mod tests {
 
         let s2 = gs.snapshot();
         let obs2 = build_observation(2, &s2, None);
+        assert_ne!(obs1.state_hash, obs2.state_hash);
+    }
+
+    #[test]
+    fn test_state_hash_changes_when_board_id_changes() {
+        let mut gs = GameState::new(1);
+        gs.start();
+
+        let s1 = gs.snapshot();
+        let obs1 = build_observation(1, &s1, None);
+
+        let mut s2 = s1;
+        s2.board_id = s2.board_id.wrapping_add(1);
+        let obs2 = build_observation(2, &s2, None);
+
         assert_ne!(obs1.state_hash, obs2.state_hash);
     }
 }
