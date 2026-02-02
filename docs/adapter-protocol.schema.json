@@ -12,6 +12,70 @@
     { "$ref": "#/definitions/error" }
   ],
   "definitions": {
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "formats": { "type": "array", "items": { "type": "string" } },
+        "command_modes": { "type": "array", "items": { "type": "string" } },
+        "features": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["formats", "command_modes", "features"]
+    },
+    "place": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "integer" },
+        "rotation": { "type": "string" },
+        "useHold": { "type": "boolean" }
+      },
+      "required": ["x", "rotation", "useHold"]
+    },
+    "board": {
+      "type": "object",
+      "properties": {
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "integer" }
+          }
+        }
+      },
+      "required": ["width", "height", "cells"]
+    },
+    "active_piece": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string" },
+        "rotation": { "type": "string" },
+        "x": { "type": "integer" },
+        "y": { "type": "integer" }
+      },
+      "required": ["kind", "rotation", "x", "y"]
+    },
+    "last_event": {
+      "type": "object",
+      "properties": {
+        "locked": { "type": "boolean" },
+        "lines_cleared": { "type": "integer" },
+        "line_clear_score": { "type": "integer" },
+        "tspin": { "type": ["string", "null"] },
+        "combo": { "type": "integer" },
+        "back_to_back": { "type": "boolean" }
+      },
+      "required": ["locked", "lines_cleared", "line_clear_score", "combo", "back_to_back"]
+    },
+    "timers": {
+      "type": "object",
+      "properties": {
+        "drop_ms": { "type": "integer" },
+        "lock_ms": { "type": "integer" },
+        "line_clear_ms": { "type": "integer" }
+      },
+      "required": ["drop_ms", "lock_ms", "line_clear_ms"]
+    },
     "hello": {
       "type": "object",
       "properties": {
@@ -32,7 +96,7 @@
           "type": "object",
           "properties": {
             "stream_observations": { "type": "boolean" },
-            "command_mode": { "type": "string" }
+            "command_mode": { "type": "string", "enum": ["action", "place"] }
           },
           "required": ["stream_observations", "command_mode"]
         }
@@ -47,21 +111,35 @@
         "ts": { "type": "integer" },
         "protocol_version": { "type": "string" },
         "game_id": { "type": "string" },
-        "capabilities": { "type": "object" }
+        "capabilities": { "$ref": "#/definitions/capabilities" }
       },
       "required": ["type", "seq", "ts", "protocol_version", "game_id", "capabilities"]
     },
     "command": {
-      "type": "object",
-      "properties": {
-        "type": { "const": "command" },
-        "seq": { "type": "integer" },
-        "ts": { "type": "integer" },
-        "mode": { "type": "string" },
-        "actions": { "type": "array", "items": { "type": "string" } },
-        "place": { "type": "object" }
-      },
-      "required": ["type", "seq", "ts", "mode"]
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "command" },
+            "seq": { "type": "integer" },
+            "ts": { "type": "integer" },
+            "mode": { "const": "action" },
+            "actions": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["type", "seq", "ts", "mode", "actions"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "command" },
+            "seq": { "type": "integer" },
+            "ts": { "type": "integer" },
+            "mode": { "const": "place" },
+            "place": { "$ref": "#/definitions/place" }
+          },
+          "required": ["type", "seq", "ts", "mode", "place"]
+        }
+      ]
     },
     "control": {
       "type": "object",
@@ -86,18 +164,18 @@
         "seed": { "type": "integer" },
         "piece_id": { "type": "integer" },
         "step_in_piece": { "type": "integer" },
-        "board": { "type": "object" },
-        "active": { "type": ["object", "null"] },
-        "next": { "type": ["string", "null"] },
+        "board": { "$ref": "#/definitions/board" },
+        "active": { "$ref": "#/definitions/active_piece" },
+        "next": { "type": "string" },
         "next_queue": { "type": "array", "items": { "type": "string" } },
         "hold": { "type": ["string", "null"] },
         "can_hold": { "type": "boolean" },
-        "last_event": { "type": "object" },
+        "last_event": { "$ref": "#/definitions/last_event" },
         "state_hash": { "type": "string" },
         "score": { "type": "integer" },
         "level": { "type": "integer" },
         "lines": { "type": "integer" },
-        "timers": { "type": "object" }
+        "timers": { "$ref": "#/definitions/timers" }
       },
       "required": [
         "type",
@@ -111,13 +189,13 @@
         "piece_id",
         "step_in_piece",
         "board",
+        "next",
         "score",
         "level",
         "lines",
         "timers",
         "next_queue",
         "can_hold",
-        "last_event",
         "state_hash"
       ]
     },
@@ -137,7 +215,20 @@
         "type": { "const": "error" },
         "seq": { "type": "integer" },
         "ts": { "type": "integer" },
-        "code": { "type": "string" },
+        "code": {
+          "type": "string",
+          "enum": [
+            "handshake_required",
+            "protocol_mismatch",
+            "not_controller",
+            "controller_active",
+            "invalid_command",
+            "invalid_place",
+            "hold_unavailable",
+            "snapshot_required",
+            "backpressure"
+          ]
+        },
         "message": { "type": "string" }
       },
       "required": ["type", "seq", "ts", "code", "message"]
