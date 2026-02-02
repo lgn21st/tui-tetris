@@ -115,6 +115,104 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
     }
 }
 
+async fn broadcast_observations_task(out_tx: mpsc::UnboundedSender<OutboundMessage>) {
+    let mut gs = GameState::new(1);
+    gs.start();
+    let mut seq: u64 = 10_000;
+
+    loop {
+        let obs = build_observation(
+            &gs,
+            seq,
+            gs.episode_id,
+            gs.piece_id,
+            gs.step_in_piece,
+            None,
+        );
+        seq = seq.wrapping_add(1);
+        let _ = out_tx.send(OutboundMessage::Broadcast {
+            line: serde_json::to_string(&obs).unwrap(),
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test]
+async fn acceptance_backpressure_does_not_stop_observations() {
+    // Use a tiny inbound command channel and do not drain it.
+    // The hello-triggered SnapshotRequest will fill the channel and subsequent commands
+    // must return backpressure, while observations keep streaming.
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+    };
+
+    let (server_handle, addr, _cmd_rx, out_tx) = spawn_server(config, 1).await;
+    let obs_handle = tokio::spawn(broadcast_observations_task(out_tx));
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello
+    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    hello.requested.stream_observations = true;
+    hello.requested.command_mode = "place".to_string();
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let welcome = read_json_line(&mut lines).await;
+    assert_eq!(welcome["type"], "welcome");
+    assert_eq!(welcome["seq"], 1);
+
+    // Ensure observations are streaming before triggering backpressure.
+    let mut saw_obs = false;
+    for _ in 0..10 {
+        let v = read_json_line(&mut lines).await;
+        if v["type"] == "observation" {
+            saw_obs = true;
+            break;
+        }
+    }
+    assert!(saw_obs);
+
+    // Send a command. Since the inbound channel is full, expect backpressure.
+    let cmd = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let mut saw_backpressure = false;
+    let mut saw_obs_after_backpressure = false;
+    for _ in 0..50 {
+        let v = read_json_line(&mut lines).await;
+        if !saw_backpressure {
+            if v["type"] == "error" && v["seq"] == 2 && v["code"] == "backpressure" {
+                saw_backpressure = true;
+            }
+            continue;
+        }
+
+        if v["type"] == "observation" {
+            saw_obs_after_backpressure = true;
+            break;
+        }
+    }
+
+    assert!(saw_backpressure);
+    assert!(saw_obs_after_backpressure);
+
+    obs_handle.abort();
+    server_handle.abort();
+}
+
 #[tokio::test]
 async fn acceptance_handshake_ordering_command_before_hello_returns_handshake_required() {
     let config = ServerConfig {
