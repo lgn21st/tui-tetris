@@ -11,7 +11,7 @@ use crate::core::{
 use crate::types::*;
 
 /// Active falling piece
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash)]
 pub struct Tetromino {
     pub kind: PieceKind,
     pub rotation: Rotation,
@@ -330,10 +330,16 @@ impl GameState {
 
         // Lock piece to board
         let shape = active.shape();
-        self.board
+        let _success = self
+            .board
             .lock_piece(&shape, active.x, active.y, active.kind);
 
-        // Clear self.active first to avoid borrow issues
+        // Even if lock failed (position invalid), we should still try to spawn next piece
+        // This handles edge cases where piece overlaps with existing blocks
+        // The spawn_piece call below will detect game over if spawn area is blocked
+
+        // Always clear self.active to allow spawn_piece to run
+        // (even if lock failed, we need to try spawning next piece)
         self.active = None;
 
         // Clear full rows
@@ -754,7 +760,7 @@ mod tests {
         let mut state = GameState::new(12345);
         state.start();
 
-        let initial_y = state.active.unwrap().y;
+        let _initial_y = state.active.unwrap().y;
         let score_before = state.score;
 
         state.hard_drop();
@@ -1038,7 +1044,7 @@ mod tests {
             state.apply_action(GameAction::MoveRight);
         }
 
-        let old_score = state.score;
+        let _old_score = state.score;
 
         // Restart
         state.apply_action(GameAction::Restart);
@@ -1447,7 +1453,7 @@ mod tests {
         let mut state = GameState::new(12345);
         state.start();
 
-        let first_next = state.next_queue.clone();
+        let _first_next = state.next_queue.clone();
 
         // Lock piece
         state.lock_piece();

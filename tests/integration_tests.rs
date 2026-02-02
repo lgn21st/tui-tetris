@@ -91,8 +91,8 @@ fn test_hold_piece() {
     let mut state = GameState::new(12345);
     state.start();
 
-    let initial_hold = state.hold;
-    let initial_piece = state.active.unwrap().kind;
+    let _initial_hold = state.hold;
+    let _initial_piece = state.active.unwrap().kind;
 
     // Hold piece
     state.apply_action(GameAction::Hold);
@@ -114,7 +114,7 @@ fn test_line_clear() {
         state.board.set(x, 19, Some(PieceKind::I));
     }
 
-    let initial_lines = state.lines;
+    let _initial_lines = state.lines;
 
     // Clear lines
     let cleared = state.board.clear_full_rows();

@@ -1,33 +1,55 @@
-//! Input handling with DAS/ARR (Delayed Auto Shift / Auto Repeat Rate)
+//! Input handling for terminals that may not support key release events (like Ghostty)
 //!
-//! DAS: Time before auto-repeat starts when holding a key (default: 167ms)
-//! ARR: Rate of auto-repeat after DAS triggers (default: 33ms)
+//! Design principles:
+//! 1. Each key press generates exactly ONE immediate action
+//! 2. DAS/ARR is simulated using timing - if a key is "held" for DAS time, ARR kicks in
+//! 3. Key "release" is detected when a different key is pressed or after timeout
+//! 4. This works on terminals with or without Release event support
 
 use crossterm::event::KeyCode;
 
 use crate::types::{GameAction, DEFAULT_ARR_MS, DEFAULT_DAS_MS};
 
+/// Direction for horizontal movement
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HorizontalDirection {
+    Left,
+    Right,
+    None,
+}
+
 /// Tracks input state for DAS/ARR handling
 #[derive(Debug, Clone)]
 pub struct InputHandler {
-    // Key hold states
-    left_held: bool,
-    right_held: bool,
+    /// Current horizontal direction (None, Left, or Right)
+    horizontal: HorizontalDirection,
+
+    /// Whether down key is currently "held"
     down_held: bool,
 
-    // DAS timers (time held, triggers at DEFAULT_DAS_MS)
-    left_das_timer: u32,
-    right_das_timer: u32,
+    /// Last key press timestamp (for detecting key release by timeout)
+    last_key_time: std::time::Instant,
+
+    /// DAS timer for horizontal movement
+    horizontal_das_timer: u32,
+
+    /// DAS timer for down movement
     down_das_timer: u32,
 
-    // ARR timers (accumulator for repeat rate)
-    left_arr_accumulator: u32,
-    right_arr_accumulator: u32,
+    /// ARR accumulator for horizontal
+    horizontal_arr_accumulator: u32,
+
+    /// ARR accumulator for down
     down_arr_accumulator: u32,
 
-    // DAS/ARR configuration
+    /// DAS delay in milliseconds
     das_delay: u32,
+
+    /// ARR rate in milliseconds
     arr_rate: u32,
+
+    /// Key release timeout (if no new press in this time, consider key released)
+    key_release_timeout_ms: u32,
 }
 
 impl InputHandler {
@@ -39,97 +61,91 @@ impl InputHandler {
     /// Create with custom DAS/ARR configuration
     pub fn with_config(das_delay: u32, arr_rate: u32) -> Self {
         Self {
-            left_held: false,
-            right_held: false,
+            horizontal: HorizontalDirection::None,
             down_held: false,
-            left_das_timer: 0,
-            right_das_timer: 0,
+            last_key_time: std::time::Instant::now(),
+            horizontal_das_timer: 0,
             down_das_timer: 0,
-            left_arr_accumulator: 0,
-            right_arr_accumulator: 0,
+            horizontal_arr_accumulator: 0,
             down_arr_accumulator: 0,
             das_delay,
             arr_rate,
+            key_release_timeout_ms: 150, // 150ms timeout for key "release"
         }
     }
 
     /// Handle key press event
-    /// Returns Some(action) if the key was handled (for immediate execution)
+    /// Returns Some(action) for immediate execution
+    /// Also updates internal "held" state for DAS/ARR simulation
     pub fn handle_key_press(&mut self, code: KeyCode) -> Option<GameAction> {
+        self.last_key_time = std::time::Instant::now();
+
         match code {
-            // Arrow keys
-            KeyCode::Left => {
-                self.left_held = true;
-                self.left_das_timer = 0;
-                self.left_arr_accumulator = 0;
-                Some(GameAction::MoveLeft)
+            // Left movement
+            KeyCode::Left | KeyCode::Char('a') | KeyCode::Char('A') => {
+                let action = if self.horizontal == HorizontalDirection::Left {
+                    // Same key pressed again - this is the "repeat" behavior
+                    // Return None because DAS/ARR will handle continuous movement
+                    None
+                } else {
+                    // First press or switched from another key
+                    self.horizontal = HorizontalDirection::Left;
+                    self.horizontal_das_timer = 0;
+                    self.horizontal_arr_accumulator = 0;
+                    Some(GameAction::MoveLeft)
+                };
+                action
             }
-            KeyCode::Right => {
-                self.right_held = true;
-                self.right_das_timer = 0;
-                self.right_arr_accumulator = 0;
-                Some(GameAction::MoveRight)
+
+            // Right movement
+            KeyCode::Right | KeyCode::Char('d') | KeyCode::Char('D') => {
+                let action = if self.horizontal == HorizontalDirection::Right {
+                    None
+                } else {
+                    self.horizontal = HorizontalDirection::Right;
+                    self.horizontal_das_timer = 0;
+                    self.horizontal_arr_accumulator = 0;
+                    Some(GameAction::MoveRight)
+                };
+                action
             }
-            KeyCode::Down => {
-                self.down_held = true;
-                self.down_das_timer = 0;
-                self.down_arr_accumulator = 0;
-                Some(GameAction::SoftDrop)
+
+            // Down movement
+            KeyCode::Down | KeyCode::Char('s') | KeyCode::Char('S') => {
+                let action = if self.down_held {
+                    None
+                } else {
+                    self.down_held = true;
+                    self.down_das_timer = 0;
+                    self.down_arr_accumulator = 0;
+                    Some(GameAction::SoftDrop)
+                };
+                action
             }
-            // WASD keys (also need DAS/ARR)
-            KeyCode::Char('a') | KeyCode::Char('A') => {
-                self.left_held = true;
-                self.left_das_timer = 0;
-                self.left_arr_accumulator = 0;
-                Some(GameAction::MoveLeft)
-            }
-            KeyCode::Char('d') | KeyCode::Char('D') => {
-                self.right_held = true;
-                self.right_das_timer = 0;
-                self.right_arr_accumulator = 0;
-                Some(GameAction::MoveRight)
-            }
-            KeyCode::Char('s') | KeyCode::Char('S') => {
-                self.down_held = true;
-                self.down_das_timer = 0;
-                self.down_arr_accumulator = 0;
-                Some(GameAction::SoftDrop)
-            }
+
             _ => None,
         }
     }
 
-    /// Handle key release event
+    /// Handle key release event (for terminals that support it)
+    /// For Ghostty and similar terminals, this may never be called
     pub fn handle_key_release(&mut self, code: KeyCode) {
         match code {
-            // Arrow keys
-            KeyCode::Left => {
-                self.left_held = false;
-                self.left_das_timer = 0;
-                self.left_arr_accumulator = 0;
+            KeyCode::Left | KeyCode::Char('a') | KeyCode::Char('A') => {
+                if self.horizontal == HorizontalDirection::Left {
+                    self.horizontal = HorizontalDirection::None;
+                    self.horizontal_das_timer = 0;
+                    self.horizontal_arr_accumulator = 0;
+                }
             }
-            KeyCode::Right => {
-                self.right_held = false;
-                self.right_das_timer = 0;
-                self.right_arr_accumulator = 0;
+            KeyCode::Right | KeyCode::Char('d') | KeyCode::Char('D') => {
+                if self.horizontal == HorizontalDirection::Right {
+                    self.horizontal = HorizontalDirection::None;
+                    self.horizontal_das_timer = 0;
+                    self.horizontal_arr_accumulator = 0;
+                }
             }
-            KeyCode::Down => {
-                self.down_held = false;
-                self.down_das_timer = 0;
-                self.down_arr_accumulator = 0;
-            }
-            // WASD keys
-            KeyCode::Char('a') | KeyCode::Char('A') => {
-                self.left_held = false;
-                self.left_das_timer = 0;
-                self.left_arr_accumulator = 0;
-            }
-            KeyCode::Char('d') | KeyCode::Char('D') => {
-                self.right_held = false;
-                self.right_das_timer = 0;
-                self.right_arr_accumulator = 0;
-            }
-            KeyCode::Char('s') | KeyCode::Char('S') => {
+            KeyCode::Down | KeyCode::Char('s') | KeyCode::Char('S') => {
                 self.down_held = false;
                 self.down_das_timer = 0;
                 self.down_arr_accumulator = 0;
@@ -140,69 +156,82 @@ impl InputHandler {
 
     /// Update timers and generate auto-repeat actions
     /// Call this every game tick with elapsed milliseconds
+    /// Also handles automatic key "release" detection
     pub fn update(&mut self, elapsed_ms: u32) -> Vec<GameAction> {
         let mut actions = Vec::new();
 
-        // Handle left direction
-        if self.left_held {
-            let prev_das = self.left_das_timer;
-            self.left_das_timer += elapsed_ms;
-
-            // Check if DAS has triggered (either newly or already triggered)
-            if self.left_das_timer >= self.das_delay {
-                // Only add time that exceeds DAS delay to ARR accumulator
-                if prev_das < self.das_delay {
-                    // DAS just triggered this frame - add only the overflow time
-                    self.left_arr_accumulator += self.left_das_timer - self.das_delay;
-                } else {
-                    // DAS already triggered - add full elapsed time
-                    self.left_arr_accumulator += elapsed_ms;
-                }
-
-                // Generate actions based on ARR rate
-                while self.left_arr_accumulator >= self.arr_rate {
-                    actions.push(GameAction::MoveLeft);
-                    self.left_arr_accumulator -= self.arr_rate;
-                }
+        // Check for key "release" via timeout (for terminals without Release events)
+        let time_since_last_key = self.last_key_time.elapsed().as_millis() as u32;
+        if time_since_last_key > self.key_release_timeout_ms {
+            // Key has been "released" due to timeout
+            if self.horizontal != HorizontalDirection::None {
+                self.horizontal = HorizontalDirection::None;
+                self.horizontal_das_timer = 0;
+                self.horizontal_arr_accumulator = 0;
+            }
+            if self.down_held {
+                self.down_held = false;
+                self.down_das_timer = 0;
+                self.down_arr_accumulator = 0;
             }
         }
 
-        // Handle right direction
-        if self.right_held {
-            let prev_das = self.right_das_timer;
-            self.right_das_timer += elapsed_ms;
+        // Handle horizontal movement (left or right)
+        match self.horizontal {
+            HorizontalDirection::Left | HorizontalDirection::Right => {
+                // Accumulate DAS time
+                let prev_das = self.horizontal_das_timer;
+                self.horizontal_das_timer += elapsed_ms;
 
-            if self.right_das_timer >= self.das_delay {
-                if prev_das < self.das_delay {
-                    self.right_arr_accumulator += self.right_das_timer - self.das_delay;
-                } else {
-                    self.right_arr_accumulator += elapsed_ms;
-                }
+                // Only start ARR after DAS delay
+                if self.horizontal_das_timer >= self.das_delay {
+                    // Calculate time available for ARR
+                    let excess_time = if prev_das < self.das_delay {
+                        self.horizontal_das_timer - self.das_delay
+                    } else {
+                        elapsed_ms
+                    };
+                    self.horizontal_arr_accumulator += excess_time;
 
-                while self.right_arr_accumulator >= self.arr_rate {
-                    actions.push(GameAction::MoveRight);
-                    self.right_arr_accumulator -= self.arr_rate;
+                    // Generate repeat actions based on ARR rate
+                    while self.horizontal_arr_accumulator >= self.arr_rate {
+                        match self.horizontal {
+                            HorizontalDirection::Left => actions.push(GameAction::MoveLeft),
+                            HorizontalDirection::Right => actions.push(GameAction::MoveRight),
+                            HorizontalDirection::None => {}
+                        }
+                        self.horizontal_arr_accumulator -= self.arr_rate;
+                    }
                 }
+            }
+            HorizontalDirection::None => {
+                // Reset timers when no horizontal input
+                self.horizontal_das_timer = 0;
+                self.horizontal_arr_accumulator = 0;
             }
         }
 
-        // Handle down direction (soft drop)
+        // Handle down movement
         if self.down_held {
             let prev_das = self.down_das_timer;
             self.down_das_timer += elapsed_ms;
 
             if self.down_das_timer >= self.das_delay {
-                if prev_das < self.das_delay {
-                    self.down_arr_accumulator += self.down_das_timer - self.das_delay;
+                let excess_time = if prev_das < self.das_delay {
+                    self.down_das_timer - self.das_delay
                 } else {
-                    self.down_arr_accumulator += elapsed_ms;
-                }
+                    elapsed_ms
+                };
+                self.down_arr_accumulator += excess_time;
 
                 while self.down_arr_accumulator >= self.arr_rate {
                     actions.push(GameAction::SoftDrop);
                     self.down_arr_accumulator -= self.arr_rate;
                 }
             }
+        } else {
+            self.down_das_timer = 0;
+            self.down_arr_accumulator = 0;
         }
 
         actions
@@ -210,14 +239,12 @@ impl InputHandler {
 
     /// Reset all state (e.g., on game over or pause)
     pub fn reset(&mut self) {
-        self.left_held = false;
-        self.right_held = false;
+        self.horizontal = HorizontalDirection::None;
         self.down_held = false;
-        self.left_das_timer = 0;
-        self.right_das_timer = 0;
+        self.last_key_time = std::time::Instant::now();
+        self.horizontal_das_timer = 0;
         self.down_das_timer = 0;
-        self.left_arr_accumulator = 0;
-        self.right_arr_accumulator = 0;
+        self.horizontal_arr_accumulator = 0;
         self.down_arr_accumulator = 0;
     }
 
@@ -240,6 +267,16 @@ impl InputHandler {
     pub fn set_arr_rate(&mut self, rate: u32) {
         self.arr_rate = rate;
     }
+
+    /// Get current horizontal direction
+    pub fn horizontal_direction(&self) -> HorizontalDirection {
+        self.horizontal
+    }
+
+    /// Check if down is held
+    pub fn is_down_held(&self) -> bool {
+        self.down_held
+    }
 }
 
 impl Default for InputHandler {
@@ -253,48 +290,93 @@ mod tests {
     use super::*;
     use crossterm::event::KeyCode;
 
-    #[test]
-    fn test_key_press_generates_action() {
-        let mut handler = InputHandler::new();
+    // === Basic Key Press Tests ===
 
-        // First press should generate action immediately
+    #[test]
+    fn test_initial_state() {
+        let handler = InputHandler::new();
+        assert_eq!(handler.horizontal_direction(), HorizontalDirection::None);
+        assert!(!handler.is_down_held());
+    }
+
+    #[test]
+    fn test_left_key_press() {
+        let mut handler = InputHandler::new();
         assert_eq!(
             handler.handle_key_press(KeyCode::Left),
             Some(GameAction::MoveLeft)
         );
+        assert_eq!(handler.horizontal_direction(), HorizontalDirection::Left);
+    }
+
+    #[test]
+    fn test_right_key_press() {
+        let mut handler = InputHandler::new();
         assert_eq!(
             handler.handle_key_press(KeyCode::Right),
             Some(GameAction::MoveRight)
         );
+        assert_eq!(handler.horizontal_direction(), HorizontalDirection::Right);
+    }
+
+    #[test]
+    fn test_down_key_press() {
+        let mut handler = InputHandler::new();
         assert_eq!(
             handler.handle_key_press(KeyCode::Down),
             Some(GameAction::SoftDrop)
         );
+        assert!(handler.is_down_held());
     }
 
     #[test]
-    fn test_key_release_clears_state() {
+    fn test_wasd_keys() {
         let mut handler = InputHandler::new();
-
-        // Press and hold
-        handler.handle_key_press(KeyCode::Left);
-        assert!(handler.left_held);
-
-        // Release
-        handler.handle_key_release(KeyCode::Left);
-        assert!(!handler.left_held);
-        assert_eq!(handler.left_das_timer, 0);
+        assert_eq!(
+            handler.handle_key_press(KeyCode::Char('a')),
+            Some(GameAction::MoveLeft)
+        );
+        assert_eq!(
+            handler.handle_key_press(KeyCode::Char('d')),
+            Some(GameAction::MoveRight)
+        );
+        assert_eq!(
+            handler.handle_key_press(KeyCode::Char('s')),
+            Some(GameAction::SoftDrop)
+        );
     }
 
+    // === Key Release via Timeout Tests ===
+
     #[test]
-    fn test_das_delay_no_repeat() {
-        let mut handler = InputHandler::with_config(167, 33);
+    fn test_key_release_by_timeout() {
+        let mut handler = InputHandler::with_config(50, 50);
 
         // Press left
         handler.handle_key_press(KeyCode::Left);
+        assert_eq!(handler.horizontal_direction(), HorizontalDirection::Left);
 
-        // Update before DAS triggers (166ms < 167ms)
-        let actions = handler.update(166);
+        // Wait for timeout (simulate by not pressing any key)
+        // Set last_key_time to past
+        handler.last_key_time = std::time::Instant::now() - std::time::Duration::from_millis(200);
+
+        // Update should detect "release" and stop horizontal movement
+        let actions = handler.update(16);
+        assert_eq!(handler.horizontal_direction(), HorizontalDirection::None);
+        // Should not generate ARR actions after "release"
+        assert!(actions.is_empty());
+    }
+
+    // === DAS/ARR Tests ===
+
+    #[test]
+    fn test_das_not_triggered_before_delay() {
+        let mut handler = InputHandler::with_config(167, 33);
+
+        handler.handle_key_press(KeyCode::Left);
+
+        // Update before DAS triggers (100ms < 167ms)
+        let actions = handler.update(100);
         assert!(actions.is_empty());
     }
 
@@ -302,49 +384,75 @@ mod tests {
     fn test_das_triggers_arr() {
         let mut handler = InputHandler::with_config(100, 50);
 
-        // Press left
         handler.handle_key_press(KeyCode::Left);
 
-        // Update past DAS threshold
-        let actions = handler.update(150);
+        // Update past DAS threshold (200ms >= 100ms DAS)
+        // Reset last_key_time to prevent timeout
+        handler.last_key_time = std::time::Instant::now();
+        let actions = handler.update(200);
 
-        // Should have at least one repeat action
-        // DAS triggers at 100ms, remaining 50ms generates one ARR
-        assert!(!actions.is_empty());
-        assert_eq!(actions[0], GameAction::MoveLeft);
+        // DAS triggers at 100ms, remaining 100ms = 2 ARR cycles
+        assert_eq!(actions.len(), 2);
+        assert!(actions.contains(&GameAction::MoveLeft));
     }
 
     #[test]
     fn test_arr_repeat_rate() {
         let mut handler = InputHandler::with_config(50, 50);
 
-        // Press left
         handler.handle_key_press(KeyCode::Left);
+        handler.last_key_time = std::time::Instant::now();
 
-        // First update triggers DAS + 2 ARR cycles
-        let actions = handler.update(150); // 50ms DAS + 100ms = 2 ARR
-
+        // 150ms: 50ms DAS + 100ms ARR = 2 repeats
+        let actions = handler.update(150);
         assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0], GameAction::MoveLeft);
-        assert_eq!(actions[1], GameAction::MoveLeft);
+        assert!(actions.iter().all(|&a| a == GameAction::MoveLeft));
     }
 
     #[test]
-    fn test_multiple_directions() {
-        let mut handler = InputHandler::with_config(50, 50);
+    fn test_das_reset_on_key_release() {
+        let mut handler = InputHandler::with_config(100, 50);
 
-        // Hold both left and right
         handler.handle_key_press(KeyCode::Left);
-        handler.handle_key_press(KeyCode::Right);
+        handler.update(50); // Partial DAS
 
-        // Update with enough time for DAS + 1 ARR each
-        let actions = handler.update(100);
+        handler.handle_key_release(KeyCode::Left);
+        handler.handle_key_press(KeyCode::Left); // Press again
 
-        // Should have actions from both directions
-        assert_eq!(actions.len(), 2);
-        assert!(actions.contains(&GameAction::MoveLeft));
-        assert!(actions.contains(&GameAction::MoveRight));
+        // Should have full DAS again
+        let actions = handler.update(60);
+        assert!(actions.is_empty()); // 60ms < 100ms DAS
     }
+
+    #[test]
+    fn test_down_das_arr() {
+        let mut handler = InputHandler::with_config(100, 50);
+
+        handler.handle_key_press(KeyCode::Down);
+        handler.last_key_time = std::time::Instant::now();
+
+        let actions = handler.update(200);
+        assert_eq!(actions.len(), 2);
+        assert!(actions.contains(&GameAction::SoftDrop));
+    }
+
+    // === Reset Tests ===
+
+    #[test]
+    fn test_reset_clears_all_state() {
+        let mut handler = InputHandler::new();
+
+        handler.handle_key_press(KeyCode::Left);
+        handler.handle_key_press(KeyCode::Down);
+        handler.update(100);
+
+        handler.reset();
+
+        assert_eq!(handler.horizontal_direction(), HorizontalDirection::None);
+        assert!(!handler.is_down_held());
+    }
+
+    // === Configuration Tests ===
 
     #[test]
     fn test_default_config() {
@@ -359,24 +467,67 @@ mod tests {
         assert_eq!(handler.das_delay(), 100);
         assert_eq!(handler.arr_rate(), 20);
 
-        // Test setters
         handler.set_das_delay(150);
         handler.set_arr_rate(25);
         assert_eq!(handler.das_delay(), 150);
         assert_eq!(handler.arr_rate(), 25);
     }
 
+    // === Edge Case Tests ===
+
     #[test]
-    fn test_reset() {
+    fn test_quick_alternation_no_jitter() {
+        let mut handler = InputHandler::with_config(50, 50);
+
+        // Rapid left-right-left-right alternation
+        let action1 = handler.handle_key_press(KeyCode::Left);
+        let action2 = handler.handle_key_press(KeyCode::Right);
+        let action3 = handler.handle_key_press(KeyCode::Left);
+        let action4 = handler.handle_key_press(KeyCode::Right);
+
+        // Each press generates exactly one action
+        assert_eq!(action1, Some(GameAction::MoveLeft));
+        assert_eq!(action2, Some(GameAction::MoveRight));
+        assert_eq!(action3, Some(GameAction::MoveLeft));
+        assert_eq!(action4, Some(GameAction::MoveRight));
+
+        // ARR should only generate actions for the last direction
+        handler.last_key_time = std::time::Instant::now();
+        let actions = handler.update(200);
+        assert!(!actions.is_empty());
+        // All ARR actions should be in the last pressed direction
+        assert!(actions.iter().all(|&a| a == GameAction::MoveRight));
+    }
+
+    #[test]
+    fn test_no_actions_when_no_key_held() {
         let mut handler = InputHandler::new();
 
-        handler.handle_key_press(KeyCode::Left);
-        handler.update(100);
+        // No keys pressed
+        let actions = handler.update(1000);
+        assert!(actions.is_empty());
+    }
 
-        handler.reset();
+    #[test]
+    fn test_unhandled_keys_return_none() {
+        let mut handler = InputHandler::new();
 
-        assert!(!handler.left_held);
-        assert_eq!(handler.left_das_timer, 0);
-        assert_eq!(handler.left_arr_accumulator, 0);
+        assert_eq!(handler.handle_key_press(KeyCode::Up), None);
+        assert_eq!(handler.handle_key_press(KeyCode::Char(' ')), None);
+        assert_eq!(handler.handle_key_press(KeyCode::Esc), None);
+    }
+
+    #[test]
+    fn test_same_key_again_no_duplicate() {
+        let mut handler = InputHandler::new();
+
+        // First press
+        let action1 = handler.handle_key_press(KeyCode::Left);
+        assert_eq!(action1, Some(GameAction::MoveLeft));
+
+        // Same key pressed again while "held" - no duplicate action
+        // This simulates pressing the key rapidly
+        let action2 = handler.handle_key_press(KeyCode::Left);
+        assert_eq!(action2, None);
     }
 }

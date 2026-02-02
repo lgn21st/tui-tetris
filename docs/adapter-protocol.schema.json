@@ -1,0 +1,146 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Tetris AI Adapter Protocol",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/definitions/hello" },
+    { "$ref": "#/definitions/welcome" },
+    { "$ref": "#/definitions/command" },
+    { "$ref": "#/definitions/control" },
+    { "$ref": "#/definitions/observation" },
+    { "$ref": "#/definitions/ack" },
+    { "$ref": "#/definitions/error" }
+  ],
+  "definitions": {
+    "hello": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "hello" },
+        "seq": { "type": "integer" },
+        "ts": { "type": "integer" },
+        "client": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "version": { "type": "string" }
+          },
+          "required": ["name", "version"]
+        },
+        "protocol_version": { "type": "string" },
+        "formats": { "type": "array", "items": { "type": "string" } },
+        "requested": {
+          "type": "object",
+          "properties": {
+            "stream_observations": { "type": "boolean" },
+            "command_mode": { "type": "string" }
+          },
+          "required": ["stream_observations", "command_mode"]
+        }
+      },
+      "required": ["type", "seq", "ts", "client", "protocol_version", "formats", "requested"]
+    },
+    "welcome": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "welcome" },
+        "seq": { "type": "integer" },
+        "ts": { "type": "integer" },
+        "protocol_version": { "type": "string" },
+        "game_id": { "type": "string" },
+        "capabilities": { "type": "object" }
+      },
+      "required": ["type", "seq", "ts", "protocol_version", "game_id", "capabilities"]
+    },
+    "command": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "command" },
+        "seq": { "type": "integer" },
+        "ts": { "type": "integer" },
+        "mode": { "type": "string" },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "place": { "type": "object" }
+      },
+      "required": ["type", "seq", "ts", "mode"]
+    },
+    "control": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "control" },
+        "seq": { "type": "integer" },
+        "ts": { "type": "integer" },
+        "action": { "type": "string", "enum": ["claim", "release"] }
+      },
+      "required": ["type", "seq", "ts", "action"]
+    },
+    "observation": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "observation" },
+        "seq": { "type": "integer" },
+        "ts": { "type": "integer" },
+        "playable": { "type": "boolean" },
+        "paused": { "type": "boolean" },
+        "game_over": { "type": "boolean" },
+        "episode_id": { "type": "integer" },
+        "seed": { "type": "integer" },
+        "piece_id": { "type": "integer" },
+        "step_in_piece": { "type": "integer" },
+        "board": { "type": "object" },
+        "active": { "type": ["object", "null"] },
+        "next": { "type": ["string", "null"] },
+        "next_queue": { "type": "array", "items": { "type": "string" } },
+        "hold": { "type": ["string", "null"] },
+        "can_hold": { "type": "boolean" },
+        "last_event": { "type": "object" },
+        "state_hash": { "type": "string" },
+        "score": { "type": "integer" },
+        "level": { "type": "integer" },
+        "lines": { "type": "integer" },
+        "timers": { "type": "object" }
+      },
+      "required": [
+        "type",
+        "seq",
+        "ts",
+        "playable",
+        "paused",
+        "game_over",
+        "episode_id",
+        "seed",
+        "piece_id",
+        "step_in_piece",
+        "board",
+        "score",
+        "level",
+        "lines",
+        "timers",
+        "next_queue",
+        "can_hold",
+        "last_event",
+        "state_hash"
+      ]
+    },
+    "ack": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "ack" },
+        "seq": { "type": "integer" },
+        "ts": { "type": "integer" },
+        "status": { "type": "string" }
+      },
+      "required": ["type", "seq", "ts", "status"]
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "error" },
+        "seq": { "type": "integer" },
+        "ts": { "type": "integer" },
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["type", "seq", "ts", "code", "message"]
+    }
+  }
+}

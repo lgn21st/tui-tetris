@@ -1,7 +1,7 @@
 //! Pieces module - Tetromino shapes and SRS rotation system
 //!
 //! Implements Standard Rotation System (SRS) with wall kick tables.
-//! Reference: https://tetris.wiki/SRS
+//! Reference: <https://tetris.wiki/SRS>
 
 use crate::types::{PieceKind, Rotation};
 

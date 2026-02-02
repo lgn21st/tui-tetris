@@ -98,7 +98,7 @@ fn run_game_loop<B: Backend>(
                             return Ok(());
                         }
 
-                        // Handle DAS/ARR for movement keys
+                        // Handle initial key press
                         if let Some(action) = input_handler.handle_key_press(key.code) {
                             match action {
                                 GameAction::SoftDrop => {
@@ -127,11 +127,14 @@ fn run_game_loop<B: Backend>(
                             }
                         }
                     }
+                    KeyEventKind::Repeat => {
+                        // Ignore terminal auto-repeat - DAS/ARR handles repeats internally
+                        // Do nothing, let the game loop's update() handle auto-repeat
+                    }
                     KeyEventKind::Release => {
                         // Handle key release for DAS/ARR
                         input_handler.handle_key_release(key.code);
                     }
-                    _ => {}
                 }
             }
         }

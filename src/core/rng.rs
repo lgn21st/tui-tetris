@@ -226,11 +226,11 @@ mod tests {
         let mut queue = PieceQueue::new(1);
 
         // Draw 8 pieces (one more than bag size)
-        let first = queue.draw();
+        let _first = queue.draw();
         for _ in 0..6 {
             queue.draw();
         }
-        let eighth = queue.draw();
+        let _eighth = queue.draw();
 
         // Eighth piece should be from new bag
         // It might or might not equal first, but there should be no panic

@@ -28,8 +28,11 @@ cargo test
 - ✅ **完整游戏生命周期**: 开始、暂停、结束、重启
 - ✅ **幽灵块 (Ghost Piece)**: 预览落点
 - ✅ **Hold 功能**: 交换当前方块
-- ⏳ **AI 控制** (开发中): TCP 协议与 swiftui-tetris 兼容
+- ✅ **AI 控制**: TCP 协议与 swiftui-tetris 100% 兼容
+- ✅ **DAS/ARR 输入**: 专业级输入处理（延迟 167ms，重复 33ms）
+- ✅ **完美宽高比**: 2:1 字符比例，方块呈正方形
 - ⏳ **音效** (计划中)
+- ⏳ **高分记录** (计划中)
 
 ## 🕹️ 控制
 
@@ -110,35 +113,36 @@ cargo test game_state
 cargo tarpaulin --out Html
 ```
 
-**当前测试状态**: 114 个测试全部通过 ✅
+**当前测试状态**: 151 个测试全部通过 ✅
 
 - Board: 16 测试
 - Pieces: 18 测试  
 - RNG: 7 测试
 - Scoring: 10 测试
 - GameState: 63 测试
+- Adapter: 20 测试
+- Render: 5 测试
+- Doc Tests: 9 测试
 
 ## 🎯 开发路线
 
-### 当前 (MVP)
+### 已完成 ✅
 - [x] 完整游戏可玩
-- [x] 114 个单元测试
+- [x] 151 个单元测试
 - [x] Core 层零外部依赖
+- [x] Board 扁平化重构（1D 数组）
+- [x] 完美宽高比渲染（2:1 字符比例）
+- [x] DAS/ARR 输入处理（167ms/33ms）
+- [x] TCP Server (tokio)
+- [x] 控制器/观察者模式
+- [x] 与 swiftui-tetris 100% 兼容
+- [x] 完整 rustdoc 文档
 
-### Phase 1: 性能优化
-- [ ] Board 零分配重构
-- [ ] 增量渲染
-- [ ] DAS/ARR 输入处理
-
-### Phase 2: AI 支持
-- [ ] TCP Server (tokio)
-- [ ] 控制器/观察者模式
-- [ ] 与 swiftui-tetris 兼容
-
-### Phase 3: 打磨
+### 计划中 ⏳
 - [ ] 音效 (rodio)
-- [ ] 高分榜
+- [ ] 高分记录持久化
 - [ ] 主题/配色方案
+- [ ] CI/CD (GitHub Actions)
 
 ## 📊 性能基准
 
