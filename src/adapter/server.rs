@@ -538,6 +538,16 @@ async fn handle_client(
                     break;
                 }
 
+                if !hello.formats.json {
+                    let error = create_error(
+                        hello.seq,
+                        ErrorCode::InvalidCommand,
+                        "formats must include json",
+                    );
+                    let _ = tx.send(ClientOutbound::Error(error));
+                    continue;
+                }
+
                 // Mark client as handshaken.
                 {
                     let mut clients = state.clients.write().await;

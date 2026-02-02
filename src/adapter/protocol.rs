@@ -17,10 +17,22 @@ pub enum HelloType {
     Hello,
 }
 
+impl Default for HelloType {
+    fn default() -> Self {
+        Self::Hello
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CommandType {
     #[serde(rename = "command")]
     Command,
+}
+
+impl Default for CommandType {
+    fn default() -> Self {
+        Self::Command
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -29,10 +41,17 @@ pub enum ControlType {
     Control,
 }
 
+impl Default for ControlType {
+    fn default() -> Self {
+        Self::Control
+    }
+}
+
 /// Client hello message (first message to establish connection)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HelloMessage {
     #[serde(rename = "type")]
+    #[serde(default)]
     pub msg_type: HelloType,
     pub seq: u64,
     pub ts: u64,
@@ -110,6 +129,7 @@ pub struct RequestedCapabilities {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CommandMessage {
     #[serde(rename = "type")]
+    #[serde(default)]
     pub msg_type: CommandType,
     pub seq: u64,
     pub ts: u64,
@@ -242,6 +262,7 @@ pub struct PlaceCommand {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ControlMessage {
     #[serde(rename = "type")]
+    #[serde(default)]
     pub msg_type: ControlType,
     pub seq: u64,
     pub ts: u64,
@@ -640,27 +661,39 @@ pub struct TimersSnapshot {
 /// Parse a JSON message from a string
 pub fn parse_message(json: &str) -> Result<ParsedMessage, serde_json::Error> {
     #[derive(Debug, Deserialize)]
-    struct TypeOnly<'a> {
-        #[serde(rename = "type")]
-        msg_type: Option<&'a str>,
+    #[serde(tag = "type")]
+    enum InboundMessage {
+        #[serde(rename = "hello")]
+        Hello(HelloMessage),
+        #[serde(rename = "command")]
+        Command(CommandMessage),
+        #[serde(rename = "control")]
+        Control(ControlMessage),
     }
 
-    // Fast path: decode just `type` without building a `serde_json::Value` tree.
-    let msg_type = serde_json::from_str::<TypeOnly>(json)?
-        .msg_type
-        .unwrap_or("unknown");
-
-    match msg_type {
-        "hello" => Ok(ParsedMessage::Hello(serde_json::from_str(json)?)),
-        "command" => Ok(ParsedMessage::Command(serde_json::from_str(json)?)),
-        "control" => Ok(ParsedMessage::Control(serde_json::from_str(json)?)),
-        _ => {
+    match serde_json::from_str::<InboundMessage>(json) {
+        Ok(InboundMessage::Hello(m)) => Ok(ParsedMessage::Hello(m)),
+        Ok(InboundMessage::Command(m)) => Ok(ParsedMessage::Command(m)),
+        Ok(InboundMessage::Control(m)) => Ok(ParsedMessage::Control(m)),
+        Err(e) => {
+            // Unknown message type is not a hard parse error for the protocol.
             #[derive(Debug, Deserialize)]
-            struct SeqOnly {
-                seq: Option<u64>,
+            struct TypeOnly<'a> {
+                #[serde(rename = "type")]
+                msg_type: Option<&'a str>,
             }
-            let seq = serde_json::from_str::<SeqOnly>(json)?.seq.unwrap_or(0);
-            Ok(ParsedMessage::Unknown(UnknownMessage { seq }))
+            let msg_type = serde_json::from_str::<TypeOnly>(json)?
+                .msg_type
+                .unwrap_or("unknown");
+            if msg_type != "hello" && msg_type != "command" && msg_type != "control" {
+                #[derive(Debug, Deserialize)]
+                struct SeqOnly {
+                    seq: Option<u64>,
+                }
+                let seq = serde_json::from_str::<SeqOnly>(json)?.seq.unwrap_or(0);
+                return Ok(ParsedMessage::Unknown(UnknownMessage { seq }));
+            }
+            Err(e)
         }
     }
 }
