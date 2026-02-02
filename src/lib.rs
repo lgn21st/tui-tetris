@@ -72,6 +72,7 @@
 
 pub mod adapter;
 pub mod core;
+pub mod engine;
 pub mod input;
 pub mod term;
 pub mod types;
