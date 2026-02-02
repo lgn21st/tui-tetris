@@ -20,6 +20,8 @@ pub struct IncrementalRenderer {
     last_active: Option<Tetromino>,
     /// Last rendered ghost Y position
     last_ghost_y: Option<i8>,
+    /// Frame counter for first-frame detection
+    frame_count: u32,
 }
 
 impl IncrementalRenderer {
@@ -29,6 +31,7 @@ impl IncrementalRenderer {
             last_board: [None; (BOARD_WIDTH * BOARD_HEIGHT) as usize],
             last_active: None,
             last_ghost_y: None,
+            frame_count: 0,
         }
     }
 
@@ -69,8 +72,17 @@ impl IncrementalRenderer {
         let start_x = area.x + (area.width - total_width) / 2;
         let start_y = area.y + (area.height - total_height) / 2;
 
-        // Render board cells (only changed ones)
-        self.render_changed_board_cells(state, start_x, start_y, cell_size, buf);
+        // On first frame, do a full render
+        let is_first_frame = self.frame_count == 0;
+
+        // Render board cells
+        if is_first_frame {
+            // Full render on first frame
+            self.render_all_board_cells(state, start_x, start_y, cell_size, buf);
+        } else {
+            // Incremental render on subsequent frames
+            self.render_changed_board_cells(state, start_x, start_y, cell_size, buf);
+        }
 
         // Render ghost piece (clear old if moved)
         self.render_ghost_piece(state, start_x, start_y, cell_size, buf);
@@ -79,10 +91,46 @@ impl IncrementalRenderer {
         self.render_active_piece(state, start_x, start_y, cell_size, buf);
 
         // Render border (static, only once)
-        self.render_border(start_x, start_y, total_width, total_height, buf);
+        if is_first_frame {
+            self.render_border(start_x, start_y, total_width, total_height, buf);
+        }
 
         // Update state for next frame
         self.update_state(state);
+        self.frame_count += 1;
+    }
+
+    /// Render all board cells (for first frame)
+    fn render_all_board_cells(
+        &self,
+        state: &GameState,
+        start_x: u16,
+        start_y: u16,
+        cell_size: u16,
+        buf: &mut Buffer,
+    ) {
+        let cells = state.board.cells();
+
+        for y in 0..BOARD_HEIGHT {
+            for x in 0..BOARD_WIDTH {
+                let idx = Self::index(x, y);
+                let cell = cells.get(idx as usize).copied().flatten();
+
+                let screen_x = start_x + (x as u16) * cell_size;
+                let screen_y = start_y + (y as u16) * cell_size;
+
+                if let Some(kind) = cell {
+                    // Cell is occupied
+                    let (ch, color) = Self::piece_style(kind);
+                    let style = Style::default().fg(color);
+                    self.fill_cell(buf, screen_x, screen_y, cell_size, ch, style);
+                } else {
+                    // Cell is empty
+                    let style = Style::default().fg(Color::DarkGray);
+                    self.fill_cell(buf, screen_x, screen_y, cell_size, '·', style);
+                }
+            }
+        }
     }
 
     /// Render only board cells that have changed
@@ -132,19 +180,20 @@ impl IncrementalRenderer {
         buf: &mut Buffer,
     ) {
         if let (Some(active), Some(ghost_y)) = (state.active, state.ghost_y()) {
-            let _current_ghost = Some(ghost_y);
-
-            // Clear old ghost if position changed
-            if let Some(last_y) = self.last_ghost_y {
-                if last_y != ghost_y {
-                    self.clear_piece_at(
-                        state.active.unwrap(),
-                        last_y,
-                        start_x,
-                        start_y,
-                        cell_size,
-                        buf,
-                    );
+            // On first frame, always draw ghost (no clearing needed)
+            if self.frame_count > 0 {
+                // Clear old ghost if position changed
+                if let Some(last_y) = self.last_ghost_y {
+                    if last_y != ghost_y {
+                        self.clear_piece_at(
+                            state.active.unwrap(),
+                            last_y,
+                            start_x,
+                            start_y,
+                            cell_size,
+                            buf,
+                        );
+                    }
                 }
             }
 
@@ -172,10 +221,14 @@ impl IncrementalRenderer {
         buf: &mut Buffer,
     ) {
         if let Some(active) = state.active {
-            // Clear old active piece if position changed
-            if let Some(last) = self.last_active {
-                if last.x != active.x || last.y != active.y || last.rotation != active.rotation {
-                    self.clear_piece_at(last, last.y, start_x, start_y, cell_size, buf);
+            // On first frame, always draw piece (no clearing needed)
+            if self.frame_count > 0 {
+                // Clear old active piece if position changed
+                if let Some(last) = self.last_active {
+                    if last.x != active.x || last.y != active.y || last.rotation != active.rotation
+                    {
+                        self.clear_piece_at(last, last.y, start_x, start_y, cell_size, buf);
+                    }
                 }
             }
 
@@ -197,7 +250,7 @@ impl IncrementalRenderer {
 
     /// Clear a piece at a specific position (restore background)
     fn clear_piece_at(
-        &mut self,
+        &self,
         piece: Tetromino,
         y_pos: i8,
         start_x: u16,
@@ -331,6 +384,7 @@ mod tests {
         let renderer = IncrementalRenderer::new();
         assert!(renderer.last_active.is_none());
         assert!(renderer.last_ghost_y.is_none());
+        assert_eq!(renderer.frame_count, 0);
     }
 
     #[test]
@@ -339,5 +393,15 @@ mod tests {
         assert_eq!(IncrementalRenderer::index(9, 0), 9);
         assert_eq!(IncrementalRenderer::index(0, 1), 10);
         assert_eq!(IncrementalRenderer::index(9, 19), 199);
+    }
+
+    #[test]
+    fn test_first_frame_detection() {
+        let mut renderer = IncrementalRenderer::new();
+        assert_eq!(renderer.frame_count, 0);
+
+        // Simulate one frame
+        renderer.frame_count += 1;
+        assert_eq!(renderer.frame_count, 1);
     }
 }

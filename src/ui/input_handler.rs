@@ -54,8 +54,10 @@ impl InputHandler {
     }
 
     /// Handle key press event
+    /// Returns Some(action) if the key was handled (for immediate execution)
     pub fn handle_key_press(&mut self, code: KeyCode) -> Option<GameAction> {
         match code {
+            // Arrow keys
             KeyCode::Left => {
                 self.left_held = true;
                 self.left_das_timer = 0;
@@ -74,6 +76,25 @@ impl InputHandler {
                 self.down_arr_accumulator = 0;
                 Some(GameAction::SoftDrop)
             }
+            // WASD keys (also need DAS/ARR)
+            KeyCode::Char('a') | KeyCode::Char('A') => {
+                self.left_held = true;
+                self.left_das_timer = 0;
+                self.left_arr_accumulator = 0;
+                Some(GameAction::MoveLeft)
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                self.right_held = true;
+                self.right_das_timer = 0;
+                self.right_arr_accumulator = 0;
+                Some(GameAction::MoveRight)
+            }
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                self.down_held = true;
+                self.down_das_timer = 0;
+                self.down_arr_accumulator = 0;
+                Some(GameAction::SoftDrop)
+            }
             _ => None,
         }
     }
@@ -81,6 +102,7 @@ impl InputHandler {
     /// Handle key release event
     pub fn handle_key_release(&mut self, code: KeyCode) {
         match code {
+            // Arrow keys
             KeyCode::Left => {
                 self.left_held = false;
                 self.left_das_timer = 0;
@@ -92,6 +114,22 @@ impl InputHandler {
                 self.right_arr_accumulator = 0;
             }
             KeyCode::Down => {
+                self.down_held = false;
+                self.down_das_timer = 0;
+                self.down_arr_accumulator = 0;
+            }
+            // WASD keys
+            KeyCode::Char('a') | KeyCode::Char('A') => {
+                self.left_held = false;
+                self.left_das_timer = 0;
+                self.left_arr_accumulator = 0;
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                self.right_held = false;
+                self.right_das_timer = 0;
+                self.right_arr_accumulator = 0;
+            }
+            KeyCode::Char('s') | KeyCode::Char('S') => {
                 self.down_held = false;
                 self.down_das_timer = 0;
                 self.down_arr_accumulator = 0;
