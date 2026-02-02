@@ -13,7 +13,7 @@ use tui_tetris::adapter::{Adapter, OutboundMessage};
 use tui_tetris::core::GameState;
 use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
 use tui_tetris::term::{GameView, TerminalRenderer, Viewport};
-use tui_tetris::types::{GameAction, SOFT_DROP_GRACE_MS, TICK_MS};
+use tui_tetris::types::{GameAction, Rotation, BOARD_WIDTH, SOFT_DROP_GRACE_MS, TICK_MS};
 
 fn main() -> Result<()> {
     let mut term = TerminalRenderer::new();
@@ -297,7 +297,7 @@ impl PlaceError {
 fn apply_place(
     state: &mut GameState,
     target_x: i8,
-    target_rot: tui_tetris::types::Rotation,
+    target_rot: Rotation,
     use_hold: bool,
 ) -> Result<(), PlaceError> {
     // Hold first if requested.
@@ -354,6 +354,18 @@ fn apply_place(
     };
     if active.rotation != target_rot {
         return Err(PlaceError::RotationBlocked);
+    }
+
+    // Validate target x won't go out of bounds for the rotated shape.
+    let shape = active.shape();
+    let mut min_dx = i8::MAX;
+    let mut max_dx = i8::MIN;
+    for (dx, _) in shape {
+        min_dx = min_dx.min(dx);
+        max_dx = max_dx.max(dx);
+    }
+    if target_x + min_dx < 0 || target_x + max_dx >= BOARD_WIDTH as i8 {
+        return Err(PlaceError::XUnreachable);
     }
 
     let dx = target_x - active.x;
