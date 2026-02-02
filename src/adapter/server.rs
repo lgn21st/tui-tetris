@@ -195,6 +195,9 @@ pub struct ClientHandle {
 #[derive(Debug, Clone)]
 pub enum ClientOutbound {
     Line(String),
+    Ack(AckMessage),
+    Error(ErrorMessage),
+    Welcome(WelcomeMessage),
     Observation(ObservationMessage),
 }
 
@@ -285,6 +288,18 @@ pub async fn run_server(
                             }
                         }
                     }
+                    OutboundMessage::ToClientAck { client_id, ack } => {
+                        let clients = state.clients.read().await;
+                        if let Some(c) = clients.iter().find(|c| c.id == client_id) {
+                            let _ = c.tx.send(ClientOutbound::Ack(ack));
+                        }
+                    }
+                    OutboundMessage::ToClientError { client_id, err } => {
+                        let clients = state.clients.read().await;
+                        if let Some(c) = clients.iter().find(|c| c.id == client_id) {
+                            let _ = c.tx.send(ClientOutbound::Error(err));
+                        }
+                    }
                 }
             }
         });
@@ -354,10 +369,47 @@ async fn handle_client(
         while let Some(msg) = rx.recv().await {
             match msg {
                 ClientOutbound::Line(line) => {
+                    let bytes = line.into_bytes();
                     if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(line.as_bytes().to_vec());
+                        let _ = tx.send(bytes.clone());
                     }
-                    if writer.write_all(line.as_bytes()).await.is_err() {
+                    if writer.write_all(&bytes).await.is_err() {
+                        break;
+                    }
+                }
+                ClientOutbound::Ack(ack) => {
+                    buf.clear();
+                    if serde_json::to_writer(&mut buf, &ack).is_err() {
+                        continue;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(buf.clone());
+                    }
+                    if writer.write_all(&buf).await.is_err() {
+                        break;
+                    }
+                }
+                ClientOutbound::Error(err) => {
+                    buf.clear();
+                    if serde_json::to_writer(&mut buf, &err).is_err() {
+                        continue;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(buf.clone());
+                    }
+                    if writer.write_all(&buf).await.is_err() {
+                        break;
+                    }
+                }
+                ClientOutbound::Welcome(welcome) => {
+                    buf.clear();
+                    if serde_json::to_writer(&mut buf, &welcome).is_err() {
+                        continue;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(buf.clone());
+                    }
+                    if writer.write_all(&buf).await.is_err() {
                         break;
                     }
                 }
@@ -416,11 +468,10 @@ async fn handle_client(
                 {
                     let error = create_error(
                         hello.seq,
-                        "invalid_command",
+                        ErrorCode::InvalidCommand,
                         "seq must be strictly increasing",
                     );
-                    let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(ClientOutbound::Line(json));
+                    let _ = tx.send(ClientOutbound::Error(error));
                     continue;
                 }
 
@@ -428,11 +479,10 @@ async fn handle_client(
                 if !hello.protocol_version.starts_with("2.") {
                     let error = create_error(
                         hello.seq,
-                        "protocol_mismatch",
+                        ErrorCode::ProtocolMismatch,
                         &format!("Protocol version {} not supported", hello.protocol_version),
                     );
-                    let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(ClientOutbound::Line(json));
+                    let _ = tx.send(ClientOutbound::Error(error));
                     break;
                 }
 
@@ -449,8 +499,7 @@ async fn handle_client(
 
                 // Send welcome
                 let welcome = create_welcome(hello.seq, &state.config.protocol_version);
-                let json = serde_json::to_string(&welcome)?;
-                let _ = tx.send(ClientOutbound::Line(json));
+                let _ = tx.send(ClientOutbound::Welcome(welcome));
 
                 // Request an immediate snapshot for this client if desired.
                 if hello.requested.stream_observations {
@@ -487,9 +536,12 @@ async fn handle_client(
                 let handshaken = is_handshaken(&state, client_id).await;
                 if !handshaken {
                     let error =
-                        create_error(cmd.seq, "handshake_required", "Send hello before command");
-                    let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(ClientOutbound::Line(json));
+                        create_error(
+                            cmd.seq,
+                            ErrorCode::HandshakeRequired,
+                            "Send hello before command",
+                        );
+                    let _ = tx.send(ClientOutbound::Error(error));
                     continue;
                 }
 
@@ -497,11 +549,10 @@ async fn handle_client(
                 if !check_and_update_seq(&state, client_id, cmd.seq).await {
                     let error = create_error(
                         cmd.seq,
-                        "invalid_command",
+                        ErrorCode::InvalidCommand,
                         "seq must be strictly increasing",
                     );
-                    let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(ClientOutbound::Line(json));
+                    let _ = tx.send(ClientOutbound::Error(error));
                     continue;
                 }
 
@@ -518,11 +569,10 @@ async fn handle_client(
                 if !is_controller {
                     let error = create_error(
                         cmd.seq,
-                        "not_controller",
+                        ErrorCode::NotController,
                         "Only controller may send commands",
                     );
-                    let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(ClientOutbound::Line(json));
+                    let _ = tx.send(ClientOutbound::Error(error));
                     continue;
                 }
 
@@ -531,8 +581,7 @@ async fn handle_client(
                     Ok(c) => c,
                     Err((code, message)) => {
                         let error = create_error(cmd.seq, code, &message);
-                        let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                        let _ = tx.send(ClientOutbound::Error(error));
                         continue;
                     }
                 };
@@ -547,9 +596,12 @@ async fn handle_client(
                         // Ack will be sent by the game loop after the command is applied.
                     }
                     Err(_) => {
-                        let error = create_error(cmd.seq, "backpressure", "Command queue is full");
-                        let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                        let error = create_error(
+                            cmd.seq,
+                            ErrorCode::Backpressure,
+                            "Command queue is full",
+                        );
+                        let _ = tx.send(ClientOutbound::Error(error));
                     }
                 }
             }
@@ -561,11 +613,10 @@ async fn handle_client(
                     if !handshaken {
                         let error = create_error(
                             ctrl.seq,
-                            "handshake_required",
+                            ErrorCode::HandshakeRequired,
                             "Send hello before control",
                         );
-                        let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                        let _ = tx.send(ClientOutbound::Error(error));
                         continue;
                     }
 
@@ -573,11 +624,10 @@ async fn handle_client(
                     if !check_and_update_seq(&state, client_id, ctrl.seq).await {
                         let error = create_error(
                             ctrl.seq,
-                            "invalid_command",
+                            ErrorCode::InvalidCommand,
                             "seq must be strictly increasing",
                         );
-                        let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                        let _ = tx.send(ClientOutbound::Error(error));
                         continue;
                     }
 
@@ -589,16 +639,14 @@ async fn handle_client(
                             client.is_controller = true;
                         }
                         let ack = create_ack(ctrl.seq, ctrl.seq);
-                        let json = serde_json::to_string(&ack)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                        let _ = tx.send(ClientOutbound::Ack(ack));
                     } else {
                         let error = create_error(
                             ctrl.seq,
-                            "controller_active",
+                            ErrorCode::ControllerActive,
                             "Controller already assigned",
                         );
-                        let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                        let _ = tx.send(ClientOutbound::Error(error));
                     }
                 }
                 "release" => {
@@ -607,11 +655,10 @@ async fn handle_client(
                     if !handshaken {
                         let error = create_error(
                             ctrl.seq,
-                            "handshake_required",
+                            ErrorCode::HandshakeRequired,
                             "Send hello before control",
                         );
-                        let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                        let _ = tx.send(ClientOutbound::Error(error));
                         continue;
                     }
 
@@ -619,11 +666,10 @@ async fn handle_client(
                     if !check_and_update_seq(&state, client_id, ctrl.seq).await {
                         let error = create_error(
                             ctrl.seq,
-                            "invalid_command",
+                            ErrorCode::InvalidCommand,
                             "seq must be strictly increasing",
                         );
-                        let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                        let _ = tx.send(ClientOutbound::Error(error));
                         continue;
                     }
 
@@ -635,31 +681,35 @@ async fn handle_client(
                             client.is_controller = false;
                         }
                         let ack = create_ack(ctrl.seq, ctrl.seq);
-                        let json = serde_json::to_string(&ack)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                        let _ = tx.send(ClientOutbound::Ack(ack));
                     } else {
                         let error =
-                            create_error(ctrl.seq, "not_controller", "Only controller may release");
-                        let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(ClientOutbound::Line(json));
+                            create_error(
+                                ctrl.seq,
+                                ErrorCode::NotController,
+                                "Only controller may release",
+                            );
+                        let _ = tx.send(ClientOutbound::Error(error));
                     }
                 }
                 _ => {
                     let error = create_error(
                         ctrl.seq,
-                        "invalid_command",
+                        ErrorCode::InvalidCommand,
                         &format!("Unknown control action: {}", ctrl.action),
                     );
-                    let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(ClientOutbound::Line(json));
+                    let _ = tx.send(ClientOutbound::Error(error));
                 }
             },
 
             Err(e) => {
                 let seq = extract_seq_best_effort(trimmed).unwrap_or(0);
-                let error = create_error(seq, "invalid_command", &format!("JSON parse error: {}", e));
-                let json = serde_json::to_string(&error)?;
-                let _ = tx.send(ClientOutbound::Line(json));
+                let error = create_error(
+                    seq,
+                    ErrorCode::InvalidCommand,
+                    &format!("JSON parse error: {}", e),
+                );
+                let _ = tx.send(ClientOutbound::Error(error));
             }
 
             Ok(ParsedMessage::Unknown(value)) => {
@@ -667,16 +717,14 @@ async fn handle_client(
                 if is_handshaken(&state, client_id).await && !check_and_update_seq(&state, client_id, seq).await {
                     let error = create_error(
                         seq,
-                        "invalid_command",
+                        ErrorCode::InvalidCommand,
                         "seq must be strictly increasing",
                     );
-                    let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(ClientOutbound::Line(json));
+                    let _ = tx.send(ClientOutbound::Error(error));
                     continue;
                 }
-                let error = create_error(seq, "invalid_command", "Unknown message type");
-                let json = serde_json::to_string(&error)?;
-                let _ = tx.send(ClientOutbound::Line(json));
+                let error = create_error(seq, ErrorCode::InvalidCommand, "Unknown message type");
+                let _ = tx.send(ClientOutbound::Error(error));
             }
         }
     }
@@ -712,24 +760,26 @@ async fn handle_client(
 }
 
 /// Map a protocol command into an engine command.
-fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (&'static str, String)> {
+fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (ErrorCode, String)> {
     match cmd.mode.as_str() {
         "action" => {
             let Some(ref action_strings) = cmd.actions else {
-                return Err(("invalid_command", "Missing actions".to_string()));
+                return Err((ErrorCode::InvalidCommand, "Missing actions".to_string()));
             };
             let mut actions = Vec::with_capacity(action_strings.len());
             for a in action_strings {
                 match parse_action(a) {
                     Some(act) => actions.push(act),
-                    None => return Err(("invalid_command", format!("Unknown action: {}", a))),
+                    None => {
+                        return Err((ErrorCode::InvalidCommand, format!("Unknown action: {}", a)))
+                    }
                 }
             }
             Ok(ClientCommand::Actions(actions))
         }
         "place" => {
             let Some(ref place) = cmd.place else {
-                return Err(("invalid_place", "Missing place".to_string()));
+                return Err((ErrorCode::InvalidPlace, "Missing place".to_string()));
             };
             let rot = match place.rotation.to_lowercase().as_str() {
                 "north" => Rotation::North,
@@ -738,7 +788,7 @@ fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (&'static str, Str
                 "west" => Rotation::West,
                 _ => {
                     return Err((
-                        "invalid_place",
+                        ErrorCode::InvalidPlace,
                         format!("Invalid rotation: {}", place.rotation),
                     ))
                 }
@@ -749,7 +799,7 @@ fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (&'static str, Str
                 use_hold: place.use_hold,
             })
         }
-        _ => Err(("invalid_command", format!("Unknown mode: {}", cmd.mode))),
+        _ => Err((ErrorCode::InvalidCommand, format!("Unknown mode: {}", cmd.mode))),
     }
 }
 

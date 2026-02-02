@@ -70,11 +70,57 @@ pub struct ControlMessage {
 
 // ============== Game -> Client Messages ==============
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WelcomeType {
+    #[serde(rename = "welcome")]
+    Welcome,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AckType {
+    #[serde(rename = "ack")]
+    Ack,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AckStatus {
+    #[serde(rename = "ok")]
+    Ok,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ErrorType {
+    #[serde(rename = "error")]
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ErrorCode {
+    #[serde(rename = "handshake_required")]
+    HandshakeRequired,
+    #[serde(rename = "protocol_mismatch")]
+    ProtocolMismatch,
+    #[serde(rename = "not_controller")]
+    NotController,
+    #[serde(rename = "controller_active")]
+    ControllerActive,
+    #[serde(rename = "invalid_command")]
+    InvalidCommand,
+    #[serde(rename = "invalid_place")]
+    InvalidPlace,
+    #[serde(rename = "hold_unavailable")]
+    HoldUnavailable,
+    #[serde(rename = "snapshot_required")]
+    SnapshotRequired,
+    #[serde(rename = "backpressure")]
+    Backpressure,
+}
+
 /// Welcome message (response to hello)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WelcomeMessage {
     #[serde(rename = "type")]
-    pub msg_type: String,
+    pub msg_type: WelcomeType,
     pub seq: u64,
     pub ts: u64,
     pub protocol_version: String,
@@ -94,20 +140,20 @@ pub struct ServerCapabilities {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AckMessage {
     #[serde(rename = "type")]
-    pub msg_type: String,
+    pub msg_type: AckType,
     pub seq: u64,
     pub ts: u64,
-    pub status: String,
+    pub status: AckStatus,
 }
 
 /// Error message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorMessage {
     #[serde(rename = "type")]
-    pub msg_type: String,
+    pub msg_type: ErrorType,
     pub seq: u64,
     pub ts: u64,
-    pub code: String,
+    pub code: ErrorCode,
     pub message: String,
 }
 
@@ -353,7 +399,7 @@ pub fn create_hello(seq: u64, client_name: &str, protocol_version: &str) -> Hell
 /// Create a welcome message
 pub fn create_welcome(seq: u64, protocol_version: &str) -> WelcomeMessage {
     WelcomeMessage {
-        msg_type: "welcome".to_string(),
+        msg_type: WelcomeType::Welcome,
         seq,
         ts: current_timestamp_ms(),
         protocol_version: protocol_version.to_string(),
@@ -378,20 +424,20 @@ pub fn create_welcome(seq: u64, protocol_version: &str) -> WelcomeMessage {
 /// Create an acknowledgment
 pub fn create_ack(seq: u64, _command_seq: u64) -> AckMessage {
     AckMessage {
-        msg_type: "ack".to_string(),
+        msg_type: AckType::Ack,
         seq,
         ts: current_timestamp_ms(),
-        status: "ok".to_string(),
+        status: AckStatus::Ok,
     }
 }
 
 /// Create an error message
-pub fn create_error(seq: u64, code: &str, message: &str) -> ErrorMessage {
+pub fn create_error(seq: u64, code: ErrorCode, message: &str) -> ErrorMessage {
     ErrorMessage {
-        msg_type: "error".to_string(),
+        msg_type: ErrorType::Error,
         seq,
         ts: current_timestamp_ms(),
-        code: code.to_string(),
+        code,
         message: message.to_string(),
     }
 }
@@ -455,7 +501,7 @@ mod tests {
     #[test]
     fn test_create_welcome() {
         let welcome = create_welcome(1, "2.0.0");
-        assert_eq!(welcome.msg_type, "welcome");
+        assert_eq!(welcome.msg_type, WelcomeType::Welcome);
         assert_eq!(welcome.seq, 1);
         assert_eq!(welcome.protocol_version, "2.0.0");
         assert_eq!(welcome.game_id, "tui-tetris");
@@ -463,9 +509,13 @@ mod tests {
 
     #[test]
     fn test_create_error() {
-        let error = create_error(5, "not_controller", "Only controller may send commands");
-        assert_eq!(error.msg_type, "error");
-        assert_eq!(error.code, "not_controller");
+        let error = create_error(
+            5,
+            ErrorCode::NotController,
+            "Only controller may send commands",
+        );
+        assert_eq!(error.msg_type, ErrorType::Error);
+        assert_eq!(error.code, ErrorCode::NotController);
     }
 
     #[test]

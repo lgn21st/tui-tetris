@@ -6,7 +6,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::adapter::server::{run_server, ServerConfig, ServerState};
-use crate::adapter::protocol::ObservationMessage;
+use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage};
 use crate::types::{GameAction, Rotation};
 
 /// Message delivered to the game loop.
@@ -44,6 +44,8 @@ pub enum OutboundMessage {
     Broadcast { line: String },
     ToClientObservation { client_id: usize, obs: ObservationMessage },
     BroadcastObservation { obs: ObservationMessage },
+    ToClientAck { client_id: usize, ack: AckMessage },
+    ToClientError { client_id: usize, err: ErrorMessage },
 }
 
 /// Running adapter instance.

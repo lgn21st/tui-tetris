@@ -5,7 +5,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello, TSpinLower};
+use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello, ErrorCode, TSpinLower};
 use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
@@ -87,7 +87,11 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                         });
                     }
                     ClientCommand::Place { .. } => {
-                        let err = create_error(inbound.seq, "invalid_place", "place not supported in acceptance harness");
+                        let err = create_error(
+                            inbound.seq,
+                            ErrorCode::InvalidPlace,
+                            "place not supported in acceptance harness",
+                        );
                         let _ = out_tx.send(OutboundMessage::ToClient {
                             client_id: inbound.client_id,
                             line: serde_json::to_string(&err).unwrap(),

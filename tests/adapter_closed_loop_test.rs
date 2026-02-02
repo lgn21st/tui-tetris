@@ -4,7 +4,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello, LastEvent, TSpinLower};
+use tui_tetris::adapter::protocol::{
+    create_ack, create_error, create_hello, ErrorCode, LastEvent, TSpinLower,
+};
 use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
@@ -89,7 +91,12 @@ async fn engine_loop(
                         });
                     }
                     Err(e) => {
-                        let err = create_error(inbound.seq, e.code(), e.message());
+                        let code = match e.code() {
+                            "hold_unavailable" => ErrorCode::HoldUnavailable,
+                            "invalid_place" => ErrorCode::InvalidPlace,
+                            _ => ErrorCode::InvalidCommand,
+                        };
+                        let err = create_error(inbound.seq, code, e.message());
                         let _ = out_tx.send(OutboundMessage::ToClient {
                             client_id: inbound.client_id,
                             line: serde_json::to_string(&err).unwrap(),

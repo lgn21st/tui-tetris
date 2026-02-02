@@ -186,25 +186,30 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                                 Ok(()) => {
                                     let ack =
                                         tui_tetris::adapter::protocol::create_ack(cmd.seq, cmd.seq);
-                                    if let Ok(line) = serde_json::to_string(&ack) {
-                                        ad.send(OutboundMessage::ToClient {
-                                            client_id: cmd.client_id,
-                                            line,
-                                        });
-                                    }
+                                    ad.send(OutboundMessage::ToClientAck {
+                                        client_id: cmd.client_id,
+                                        ack,
+                                    });
                                 }
                                 Err(e) => {
+                                    let code = match e.code() {
+                                        "hold_unavailable" => {
+                                            tui_tetris::adapter::protocol::ErrorCode::HoldUnavailable
+                                        }
+                                        "invalid_place" => {
+                                            tui_tetris::adapter::protocol::ErrorCode::InvalidPlace
+                                        }
+                                        _ => tui_tetris::adapter::protocol::ErrorCode::InvalidCommand,
+                                    };
                                     let err = tui_tetris::adapter::protocol::create_error(
                                         cmd.seq,
-                                        e.code(),
+                                        code,
                                         e.message(),
                                     );
-                                    if let Ok(line) = serde_json::to_string(&err) {
-                                        ad.send(OutboundMessage::ToClient {
-                                            client_id: cmd.client_id,
-                                            line,
-                                        });
-                                    }
+                                    ad.send(OutboundMessage::ToClientError {
+                                        client_id: cmd.client_id,
+                                        err,
+                                    });
                                 }
                             }
                         }
