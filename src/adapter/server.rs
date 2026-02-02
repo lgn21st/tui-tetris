@@ -14,6 +14,8 @@ use crate::adapter::runtime::{ClientCommand, InboundCommand, InboundPayload, Out
 use crate::core::GameState;
 use crate::types::{GameAction, PieceKind, Rotation};
 
+use arrayvec::ArrayVec;
+
 /// Stable 64-bit FNV-1a hasher for deterministic `state_hash`.
 ///
 /// We avoid `DefaultHasher` here since its output is not guaranteed stable across
@@ -201,6 +203,15 @@ pub enum ClientOutbound {
     Observation(ObservationMessage),
 }
 
+#[derive(Debug, Clone)]
+enum WireRecord {
+    Bytes(Vec<u8>),
+    Welcome(WelcomeMessage),
+    Ack(AckMessage),
+    Error(ErrorMessage),
+    Observation(ObservationMessage),
+}
+
 /// Start the TCP server
 pub async fn run_server(
     config: ServerConfig,
@@ -216,8 +227,8 @@ pub async fn run_server(
         }
     }
 
-    let wire_log_tx: Option<mpsc::UnboundedSender<Vec<u8>>> = if let Some(path) = config.log_path.clone() {
-        let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let wire_log_tx: Option<mpsc::UnboundedSender<WireRecord>> = if let Some(path) = config.log_path.clone() {
+        let (tx, mut rx) = mpsc::unbounded_channel::<WireRecord>();
         tokio::spawn(async move {
             use tokio::fs::OpenOptions;
             use tokio::io::AsyncWriteExt;
@@ -227,9 +238,51 @@ pub async fn run_server(
                 Err(_) => return,
             };
 
-            while let Some(line) = rx.recv().await {
-                if file.write_all(&line).await.is_err() {
-                    break;
+            let mut buf: Vec<u8> = Vec::with_capacity(4096);
+
+            while let Some(rec) = rx.recv().await {
+                match rec {
+                    WireRecord::Bytes(b) => {
+                        if file.write_all(&b).await.is_err() {
+                            break;
+                        }
+                    }
+                    WireRecord::Welcome(v) => {
+                        buf.clear();
+                        if serde_json::to_writer(&mut buf, &v).is_err() {
+                            continue;
+                        }
+                        if file.write_all(&buf).await.is_err() {
+                            break;
+                        }
+                    }
+                    WireRecord::Ack(v) => {
+                        buf.clear();
+                        if serde_json::to_writer(&mut buf, &v).is_err() {
+                            continue;
+                        }
+                        if file.write_all(&buf).await.is_err() {
+                            break;
+                        }
+                    }
+                    WireRecord::Error(v) => {
+                        buf.clear();
+                        if serde_json::to_writer(&mut buf, &v).is_err() {
+                            continue;
+                        }
+                        if file.write_all(&buf).await.is_err() {
+                            break;
+                        }
+                    }
+                    WireRecord::Observation(v) => {
+                        buf.clear();
+                        if serde_json::to_writer(&mut buf, &v).is_err() {
+                            continue;
+                        }
+                        if file.write_all(&buf).await.is_err() {
+                            break;
+                        }
+                    }
                 }
                 if file.write_all(b"\n").await.is_err() {
                     break;
@@ -336,7 +389,7 @@ async fn handle_client(
     client_id: usize,
     state: Arc<ServerState>,
     command_tx: mpsc::Sender<InboundCommand>,
-    wire_log_tx: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    wire_log_tx: Option<mpsc::UnboundedSender<WireRecord>>,
 ) -> anyhow::Result<()> {
     let (reader, mut writer) = tokio::io::split(socket);
     let mut reader = BufReader::new(reader);
@@ -370,11 +423,11 @@ async fn handle_client(
             match msg {
                 ClientOutbound::Line(line) => {
                     let bytes = line.into_bytes();
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(bytes.clone());
-                    }
                     if writer.write_all(&bytes).await.is_err() {
                         break;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(WireRecord::Bytes(bytes));
                     }
                 }
                 ClientOutbound::Ack(ack) => {
@@ -382,11 +435,11 @@ async fn handle_client(
                     if serde_json::to_writer(&mut buf, &ack).is_err() {
                         continue;
                     }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(buf.clone());
-                    }
                     if writer.write_all(&buf).await.is_err() {
                         break;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(WireRecord::Ack(ack));
                     }
                 }
                 ClientOutbound::Error(err) => {
@@ -394,11 +447,11 @@ async fn handle_client(
                     if serde_json::to_writer(&mut buf, &err).is_err() {
                         continue;
                     }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(buf.clone());
-                    }
                     if writer.write_all(&buf).await.is_err() {
                         break;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(WireRecord::Error(err));
                     }
                 }
                 ClientOutbound::Welcome(welcome) => {
@@ -406,11 +459,11 @@ async fn handle_client(
                     if serde_json::to_writer(&mut buf, &welcome).is_err() {
                         continue;
                     }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(buf.clone());
-                    }
                     if writer.write_all(&buf).await.is_err() {
                         break;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(WireRecord::Welcome(welcome));
                     }
                 }
                 ClientOutbound::Observation(obs) => {
@@ -418,11 +471,11 @@ async fn handle_client(
                     if serde_json::to_writer(&mut buf, &obs).is_err() {
                         continue;
                     }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(buf.clone());
-                    }
                     if writer.write_all(&buf).await.is_err() {
                         break;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(WireRecord::Observation(obs));
                     }
                 }
             }
@@ -456,7 +509,7 @@ async fn handle_client(
         }
 
         if let Some(tx) = wire_log_tx.as_ref() {
-            let _ = tx.send(raw_line.as_bytes().to_vec());
+            let _ = tx.send(WireRecord::Bytes(raw_line.as_bytes().to_vec()));
         }
 
         // Parse the message
@@ -766,10 +819,17 @@ fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (ErrorCode, String
             let Some(ref action_strings) = cmd.actions else {
                 return Err((ErrorCode::InvalidCommand, "Missing actions".to_string()));
             };
-            let mut actions = Vec::with_capacity(action_strings.len());
+            let mut actions = ArrayVec::<GameAction, 32>::new();
             for a in action_strings {
                 match parse_action(a) {
-                    Some(act) => actions.push(act),
+                    Some(act) => {
+                        if actions.try_push(act).is_err() {
+                            return Err((
+                                ErrorCode::InvalidCommand,
+                                "Too many actions".to_string(),
+                            ));
+                        }
+                    }
                     None => {
                         return Err((ErrorCode::InvalidCommand, format!("Unknown action: {}", a)))
                     }

@@ -5,6 +5,8 @@
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
+use arrayvec::ArrayVec;
+
 use crate::adapter::server::{run_server, ServerConfig, ServerState};
 use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage};
 use crate::types::{GameAction, Rotation};
@@ -29,7 +31,7 @@ pub enum InboundPayload {
 /// Command payload.
 #[derive(Debug, Clone)]
 pub enum ClientCommand {
-    Actions(Vec<GameAction>),
+    Actions(ArrayVec<GameAction, 32>),
     Place {
         x: i8,
         rotation: Rotation,

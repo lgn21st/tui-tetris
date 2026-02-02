@@ -166,7 +166,7 @@ async fn adapter_hello_command_ack_and_observation() {
     assert_eq!(inbound.seq, 2);
     match inbound.payload {
         InboundPayload::Command(ClientCommand::Actions(a)) => {
-            assert_eq!(a, vec![GameAction::MoveLeft]);
+            assert_eq!(a.as_slice(), [GameAction::MoveLeft]);
         }
         _ => panic!("unexpected inbound payload"),
     }
@@ -174,9 +174,9 @@ async fn adapter_hello_command_ack_and_observation() {
     // ack after apply
     let ack = create_ack(2, 2);
     out_tx
-        .send(OutboundMessage::ToClient {
+        .send(OutboundMessage::ToClientAck {
             client_id: inbound.client_id,
-            line: serde_json::to_string(&ack).unwrap(),
+            ack,
         })
         .unwrap();
 
