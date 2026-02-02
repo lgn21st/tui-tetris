@@ -491,7 +491,6 @@ async fn handle_client(
 
     // Handle incoming messages
     let mut line = String::new();
-    let mut _client_hello: Option<HelloMessage> = None;
 
     loop {
         line.clear();
@@ -538,8 +537,6 @@ async fn handle_client(
                     let _ = tx.send(ClientOutbound::Error(error));
                     break;
                 }
-
-                _client_hello = Some(hello.clone());
 
                 // Mark client as handshaken.
                 {
