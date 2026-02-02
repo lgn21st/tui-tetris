@@ -181,3 +181,120 @@ async fn adapter_backpressure_returns_error() {
 
     server_handle.abort();
 }
+
+#[tokio::test]
+async fn adapter_requires_hello_before_command() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+    };
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // command before hello
+    let cmd = r#"{"type":"command","seq":1,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["type"], "error");
+    assert_eq!(v["seq"], 1);
+    assert_eq!(v["code"], "handshake_required");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn controller_disconnect_promotes_next_client() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+    };
+
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Client 1 (becomes controller)
+    let s1 = TcpStream::connect(addr).await.unwrap();
+    let (r1, mut w1) = s1.into_split();
+    let mut l1 = BufReader::new(r1).lines();
+    let hello1 = create_hello(1, "c1", "2.0.0");
+    w1.write_all(serde_json::to_string(&hello1).unwrap().as_bytes())
+        .await
+        .unwrap();
+    w1.write_all(b"\n").await.unwrap();
+    w1.flush().await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(2), l1.next_line())
+        .await
+        .unwrap();
+
+    // Client 2 (observer initially)
+    let s2 = TcpStream::connect(addr).await.unwrap();
+    let (r2, mut w2) = s2.into_split();
+    let mut l2 = BufReader::new(r2).lines();
+    let hello2 = create_hello(1, "c2", "2.0.0");
+    w2.write_all(serde_json::to_string(&hello2).unwrap().as_bytes())
+        .await
+        .unwrap();
+    w2.write_all(b"\n").await.unwrap();
+    w2.flush().await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(2), l2.next_line())
+        .await
+        .unwrap();
+
+    // Drop client1 connection to trigger promotion.
+    drop(w1);
+    drop(l1);
+
+    // Give server a moment to process disconnect.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Client2 sends a command; should now be accepted and queued.
+    let cmd = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    w2.write_all(cmd.as_bytes()).await.unwrap();
+    w2.write_all(b"\n").await.unwrap();
+    w2.flush().await.unwrap();
+
+    let inbound = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(inbound.seq, 2);
+
+    server_handle.abort();
+}

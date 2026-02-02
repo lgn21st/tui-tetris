@@ -96,6 +96,7 @@ pub struct ClientHandle {
     pub is_controller: bool,
     pub command_mode: String, // "action" or "place"
     pub stream_observations: bool,
+    pub handshaken: bool,
     pub tx: mpsc::UnboundedSender<String>, // Channel to send messages to client
 }
 
@@ -192,6 +193,7 @@ async fn handle_client(
         is_controller: false,
         command_mode: "action".to_string(),
         stream_observations: false,
+        handshaken: false,
         tx: tx.clone(),
     };
 
@@ -250,6 +252,14 @@ async fn handle_client(
 
                 _client_hello = Some(hello.clone());
 
+                // Mark client as handshaken.
+                {
+                    let mut clients = state.clients.write().await;
+                    if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
+                        client.handshaken = true;
+                    }
+                }
+
                 // Send welcome
                 let welcome = create_welcome(hello.seq, &state.config.protocol_version);
                 let json = serde_json::to_string(&welcome)?;
@@ -277,6 +287,22 @@ async fn handle_client(
             }
 
             Ok(ParsedMessage::Command(cmd)) => {
+                // Handshake required.
+                let handshaken = {
+                    let clients = state.clients.read().await;
+                    clients
+                        .iter()
+                        .find(|c| c.id == client_id)
+                        .map(|c| c.handshaken)
+                        .unwrap_or(false)
+                };
+                if !handshaken {
+                    let error = create_error(cmd.seq, "handshake_required", "Send hello before command");
+                    let json = serde_json::to_string(&error)?;
+                    let _ = tx.send(json);
+                    continue;
+                }
+
                 // Check if client is controller
                 let is_controller = {
                     let clients = state.clients.read().await;
@@ -328,6 +354,22 @@ async fn handle_client(
 
             Ok(ParsedMessage::Control(ctrl)) => match ctrl.action.as_str() {
                 "claim" => {
+                    // Handshake required.
+                    let handshaken = {
+                        let clients = state.clients.read().await;
+                        clients
+                            .iter()
+                            .find(|c| c.id == client_id)
+                            .map(|c| c.handshaken)
+                            .unwrap_or(false)
+                    };
+                    if !handshaken {
+                        let error = create_error(ctrl.seq, "handshake_required", "Send hello before control");
+                        let json = serde_json::to_string(&error)?;
+                        let _ = tx.send(json);
+                        continue;
+                    }
+
                     let mut controller = state.controller.write().await;
                     if controller.is_none() {
                         *controller = Some(client_id);
@@ -349,6 +391,22 @@ async fn handle_client(
                     }
                 }
                 "release" => {
+                    // Handshake required.
+                    let handshaken = {
+                        let clients = state.clients.read().await;
+                        clients
+                            .iter()
+                            .find(|c| c.id == client_id)
+                            .map(|c| c.handshaken)
+                            .unwrap_or(false)
+                    };
+                    if !handshaken {
+                        let error = create_error(ctrl.seq, "handshake_required", "Send hello before control");
+                        let json = serde_json::to_string(&error)?;
+                        let _ = tx.send(json);
+                        continue;
+                    }
+
                     let mut controller = state.controller.write().await;
                     if *controller == Some(client_id) {
                         *controller = None;
@@ -391,18 +449,27 @@ async fn handle_client(
         }
     }
 
-    // Clean up: remove client and release controller if needed
+    // Clean up: remove client and release/promote controller if needed.
     {
         let mut controller = state.controller.write().await;
-        if *controller == Some(client_id) {
-            *controller = None;
-            println!("[Adapter] Controller {} released", client_id);
-        }
-    }
-
-    {
         let mut clients = state.clients.write().await;
+
+        let was_controller = *controller == Some(client_id);
         clients.retain(|c| c.id != client_id);
+
+        if was_controller {
+            // Promote the next available client (lowest id) to controller.
+            let next_id = clients.iter().map(|c| c.id).min();
+            *controller = next_id;
+            if let Some(new_id) = next_id {
+                if let Some(c) = clients.iter_mut().find(|c| c.id == new_id) {
+                    c.is_controller = true;
+                }
+                println!("[Adapter] Controller {} promoted", new_id);
+            } else {
+                println!("[Adapter] Controller {} released", client_id);
+            }
+        }
     }
 
     // Cancel write task
