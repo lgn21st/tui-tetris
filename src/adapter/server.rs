@@ -187,7 +187,7 @@ pub struct ClientHandle {
     pub id: usize,
     pub addr: SocketAddr,
     pub is_controller: bool,
-    pub command_mode: String, // "action" or "place"
+    pub command_mode: CommandMode,
     pub stream_observations: bool,
     pub handshaken: bool,
     pub last_seq: Option<u64>,
@@ -402,7 +402,7 @@ async fn handle_client(
         id: client_id,
         addr,
         is_controller: false,
-        command_mode: "action".to_string(),
+        command_mode: CommandMode::Action,
         stream_observations: false,
         handshaken: false,
         last_seq: None,
@@ -570,7 +570,7 @@ async fn handle_client(
                     let mut clients = state.clients.write().await;
                     if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
                         client.is_controller = true;
-                        client.command_mode = hello.requested.command_mode.clone();
+                        client.command_mode = hello.requested.command_mode;
                         client.stream_observations = hello.requested.stream_observations;
                     }
                     println!("[Adapter] Client {} is now controller", client_id);
@@ -578,7 +578,7 @@ async fn handle_client(
                     // Store capabilities for observers too.
                     let mut clients = state.clients.write().await;
                     if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
-                        client.command_mode = hello.requested.command_mode.clone();
+                        client.command_mode = hello.requested.command_mode;
                         client.stream_observations = hello.requested.stream_observations;
                     }
                 }

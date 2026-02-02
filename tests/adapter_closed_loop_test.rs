@@ -154,7 +154,7 @@ async fn closed_loop_stability_3x50_reconnects() {
             let mut seq: u64 = 1;
             let mut hello = create_hello(seq, "closed-loop", "2.0.0");
             hello.requested.stream_observations = true;
-            hello.requested.command_mode = "place".to_string();
+            hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
             write_half
                 .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
                 .await
@@ -256,7 +256,7 @@ async fn closed_loop_long_run_200_episodes() {
         let mut seq: u64 = 1;
         let mut hello = create_hello(seq, "closed-loop-long", "2.0.0");
         hello.requested.stream_observations = true;
-        hello.requested.command_mode = "place".to_string();
+        hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
         write_half
             .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
             .await

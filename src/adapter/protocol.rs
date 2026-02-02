@@ -38,8 +38,58 @@ pub struct HelloMessage {
     pub ts: u64,
     pub client: ClientInfo,
     pub protocol_version: String,
-    pub formats: Vec<String>,
+    pub formats: FormatsList,
     pub requested: RequestedCapabilities,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormatsList {
+    pub json: bool,
+}
+
+impl<'de> Deserialize<'de> for FormatsList {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = FormatsList;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "an array of format strings")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut json = false;
+                while let Some(v) = seq.next_element::<&str>()? {
+                    if v.eq_ignore_ascii_case("json") {
+                        json = true;
+                    }
+                }
+                Ok(FormatsList { json })
+            }
+        }
+
+        deserializer.deserialize_seq(V)
+    }
+}
+
+impl Serialize for FormatsList {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(if self.json { 1 } else { 0 }))?;
+        if self.json {
+            seq.serialize_element("json")?;
+        }
+        seq.end()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,7 +103,7 @@ pub struct RequestedCapabilities {
     #[serde(rename = "stream_observations")]
     pub stream_observations: bool,
     #[serde(rename = "command_mode")]
-    pub command_mode: String, // "action" or "place"
+    pub command_mode: CommandMode,
 }
 
 /// Command message (controller only)
@@ -592,10 +642,10 @@ pub fn create_hello(seq: u64, client_name: &str, protocol_version: &str) -> Hell
             version: env!("CARGO_PKG_VERSION").to_string(),
         },
         protocol_version: protocol_version.to_string(),
-        formats: vec!["json".to_string()],
+        formats: FormatsList { json: true },
         requested: RequestedCapabilities {
             stream_observations: true,
-            command_mode: "action".to_string(),
+            command_mode: CommandMode::Action,
         },
     }
 }

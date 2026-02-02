@@ -164,7 +164,7 @@ async fn acceptance_backpressure_does_not_stop_observations() {
     // hello
     let mut hello = create_hello(1, "acceptance", "2.0.0");
     hello.requested.stream_observations = true;
-    hello.requested.command_mode = "place".to_string();
+    hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -464,7 +464,7 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
     // hello requesting place + streaming observations
     let mut hello = create_hello(1, "acceptance", "2.0.0");
     hello.requested.stream_observations = true;
-    hello.requested.command_mode = "place".to_string();
+    hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
