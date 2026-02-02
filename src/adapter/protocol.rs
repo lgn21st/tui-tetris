@@ -252,6 +252,8 @@ pub fn create_welcome(seq: u64, protocol_version: &str) -> WelcomeMessage {
                 "next".to_string(),
                 "next_queue".to_string(),
                 "can_hold".to_string(),
+                "last_event".to_string(),
+                "state_hash".to_string(),
                 "score".to_string(),
                 "timers".to_string(),
             ],

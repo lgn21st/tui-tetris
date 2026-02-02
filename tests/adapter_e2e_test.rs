@@ -1,4 +1,5 @@
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -21,12 +22,103 @@ async fn recv_next_command(rx: &mut mpsc::Receiver<InboundCommand>) -> InboundCo
 }
 
 #[tokio::test]
+async fn adapter_wire_logging_writes_raw_frames() {
+    let mut log_path = std::env::temp_dir();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    log_path.push(format!(
+        "tui-tetris-wire-{}-{}.log",
+        std::process::id(),
+        stamp
+    ));
+
+    let _ = tokio::fs::remove_file(&log_path).await;
+
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: Some(log_path.to_string_lossy().to_string()),
+    };
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .expect("server did not signal ready")
+        .expect("ready channel dropped");
+
+    let stream = TcpStream::connect(addr).await.expect("connect failed");
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello
+    let hello = create_hello(1, "wire-log-test", "2.0.0");
+    let hello_line = serde_json::to_string(&hello).unwrap();
+    write_half.write_all(hello_line.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let welcome_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("expected welcome line");
+    let welcome_v: serde_json::Value = serde_json::from_str(&welcome_line).unwrap();
+    assert_eq!(welcome_v["type"], "welcome");
+    assert_eq!(welcome_v["seq"], 1);
+
+    drop(write_half);
+
+    // Wait until the wire log contains both frames.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if let Ok(contents) = tokio::fs::read_to_string(&log_path).await {
+            if contents.contains("\"type\":\"hello\"")
+                && contents.contains("\"type\":\"welcome\"")
+            {
+                // Ensure raw JSON lines only (no prefixes).
+                for line in contents.lines() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    assert!(line.starts_with('{'));
+                    assert!(line.ends_with('}'));
+                }
+                break;
+            }
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            let contents = tokio::fs::read_to_string(&log_path)
+                .await
+                .unwrap_or_default();
+            panic!("wire log did not contain expected frames: {}", contents);
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let _ = tokio::fs::remove_file(&log_path).await;
+    server_handle.abort();
+}
+
+#[tokio::test]
 async fn adapter_hello_command_ack_and_observation() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
+        log_path: None,
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -126,6 +218,7 @@ async fn adapter_hello_enqueues_snapshot_request() {
         port: 0,
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
+        log_path: None,
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -169,6 +262,7 @@ async fn adapter_place_maps_to_place_command() {
         port: 0,
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
+        log_path: None,
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -231,6 +325,7 @@ async fn adapter_place_invalid_rotation_returns_error() {
         port: 0,
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
+        log_path: None,
     };
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -286,6 +381,7 @@ async fn adapter_backpressure_returns_error() {
         port: 0,
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 1,
+        log_path: None,
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(1);
@@ -357,6 +453,7 @@ async fn adapter_requires_hello_before_command() {
         port: 0,
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
+        log_path: None,
     };
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -396,12 +493,87 @@ async fn adapter_requires_hello_before_command() {
 }
 
 #[tokio::test]
+async fn adapter_rejects_out_of_order_seq_after_hello() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+    };
+
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello with seq=2
+    let hello = create_hello(2, "seq-test", "2.0.0");
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let _welcome = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+
+    // Drain the hello-triggered snapshot request.
+    let inbound = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
+        .await
+        .unwrap()
+        .expect("expected inbound message");
+    assert_eq!(inbound.seq, 2);
+    assert!(matches!(inbound.payload, InboundPayload::SnapshotRequest));
+
+    // command with seq=1 (out of order)
+    let cmd = r#"{"type":"command","seq":1,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["type"], "error");
+    assert_eq!(v["seq"], 1);
+    assert_eq!(v["code"], "invalid_command");
+
+    // Ensure it was not enqueued.
+    assert!(tokio::time::timeout(Duration::from_millis(100), recv_next_command(&mut cmd_rx))
+        .await
+        .is_err());
+
+    server_handle.abort();
+}
+
+#[tokio::test]
 async fn controller_disconnect_promotes_next_client() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
+        log_path: None,
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
@@ -473,6 +645,7 @@ async fn adapter_unknown_message_type_echoes_seq() {
         port: 0,
         protocol_version: "2.0.0".to_string(),
         max_pending_commands: 8,
+        log_path: None,
     };
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);

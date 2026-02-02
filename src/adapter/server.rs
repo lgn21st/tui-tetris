@@ -14,6 +14,39 @@ use crate::adapter::runtime::{ClientCommand, InboundCommand, InboundPayload, Out
 use crate::core::GameState;
 use crate::types::{GameAction, PieceKind, Rotation};
 
+/// Stable 64-bit FNV-1a hasher for deterministic `state_hash`.
+///
+/// We avoid `DefaultHasher` here since its output is not guaranteed stable across
+/// Rust versions/platforms.
+#[derive(Debug, Clone)]
+struct Fnv1aHasher {
+    state: u64,
+}
+
+impl Fnv1aHasher {
+    const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+
+    fn new() -> Self {
+        Self {
+            state: Self::OFFSET_BASIS,
+        }
+    }
+}
+
+impl std::hash::Hasher for Fnv1aHasher {
+    fn finish(&self) -> u64 {
+        self.state
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.state ^= b as u64;
+            self.state = self.state.wrapping_mul(Self::PRIME);
+        }
+    }
+}
+
 /// Server configuration
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
@@ -21,6 +54,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub protocol_version: String,
     pub max_pending_commands: usize,
+    pub log_path: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -30,6 +64,7 @@ impl Default for ServerConfig {
             port: 7777,
             protocol_version: "2.0.0".to_string(),
             max_pending_commands: 10,
+            log_path: None,
         }
     }
 }
@@ -50,11 +85,17 @@ impl ServerConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
+        let log_path = env::var("TETRIS_AI_LOG_PATH")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .and_then(|s| if s.is_empty() { None } else { Some(s) });
+
         Self {
             host,
             port,
             protocol_version: "2.0.0".to_string(),
             max_pending_commands,
+            log_path,
         }
     }
 
@@ -89,6 +130,37 @@ impl ServerState {
     }
 }
 
+async fn is_handshaken(state: &Arc<ServerState>, client_id: usize) -> bool {
+    let clients = state.clients.read().await;
+    clients
+        .iter()
+        .find(|c| c.id == client_id)
+        .map(|c| c.handshaken)
+        .unwrap_or(false)
+}
+
+async fn check_and_update_seq(state: &Arc<ServerState>, client_id: usize, seq: u64) -> bool {
+    let mut clients = state.clients.write().await;
+    let Some(client) = clients.iter_mut().find(|c| c.id == client_id) else {
+        return true;
+    };
+
+    match client.last_seq {
+        None => {
+            client.last_seq = Some(seq);
+            true
+        }
+        Some(prev) => {
+            if seq <= prev {
+                false
+            } else {
+                client.last_seq = Some(seq);
+                true
+            }
+        }
+    }
+}
+
 /// Handle to a connected client
 pub struct ClientHandle {
     pub id: usize,
@@ -97,6 +169,7 @@ pub struct ClientHandle {
     pub command_mode: String, // "action" or "place"
     pub stream_observations: bool,
     pub handshaken: bool,
+    pub last_seq: Option<u64>,
     pub tx: mpsc::UnboundedSender<String>, // Channel to send messages to client
 }
 
@@ -114,6 +187,33 @@ pub async fn run_server(
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
     }
+
+    let wire_log_tx: Option<mpsc::UnboundedSender<String>> = if let Some(path) = config.log_path.clone() {
+        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        tokio::spawn(async move {
+            use tokio::fs::OpenOptions;
+            use tokio::io::AsyncWriteExt;
+
+            let mut file = match OpenOptions::new().create(true).append(true).open(&path).await {
+                Ok(f) => f,
+                Err(_) => return,
+            };
+
+            while let Some(line) = rx.recv().await {
+                if file.write_all(line.as_bytes()).await.is_err() {
+                    break;
+                }
+                if file.write_all(b"\n").await.is_err() {
+                    break;
+                }
+            }
+
+            let _ = file.flush().await;
+        });
+        Some(tx)
+    } else {
+        None
+    };
 
     let addr = config.socket_addr();
     let listener = TcpListener::bind(&addr).await?;
@@ -161,10 +261,13 @@ pub async fn run_server(
 
         let state_clone = Arc::clone(&state);
         let command_tx = command_tx.clone();
+        let wire_log_tx = wire_log_tx.clone();
 
         // Spawn task to handle this client
         tokio::spawn(async move {
-            if let Err(e) = handle_client(socket, addr, client_id, state_clone, command_tx).await {
+            if let Err(e) =
+                handle_client(socket, addr, client_id, state_clone, command_tx, wire_log_tx).await
+            {
                 eprintln!("[Adapter] Client {} error: {}", client_id, e);
             }
             println!("[Adapter] Client {} disconnected", client_id);
@@ -179,6 +282,7 @@ async fn handle_client(
     client_id: usize,
     state: Arc<ServerState>,
     command_tx: mpsc::Sender<InboundCommand>,
+    wire_log_tx: Option<mpsc::UnboundedSender<String>>,
 ) -> anyhow::Result<()> {
     let (reader, mut writer) = tokio::io::split(socket);
     let mut reader = BufReader::new(reader);
@@ -194,6 +298,7 @@ async fn handle_client(
         command_mode: "action".to_string(),
         stream_observations: false,
         handshaken: false,
+        last_seq: None,
         tx: tx.clone(),
     };
 
@@ -202,9 +307,14 @@ async fn handle_client(
         clients.push(client_handle);
     }
 
+    let wire_log_tx_out = wire_log_tx.clone();
+
     // Spawn task to write messages to client
     let write_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
+            if let Some(tx) = wire_log_tx_out.as_ref() {
+                let _ = tx.send(msg.clone());
+            }
             if writer.write_all(msg.as_bytes()).await.is_err() {
                 break;
             }
@@ -230,14 +340,33 @@ async fn handle_client(
             break;
         }
 
-        let line = line.trim();
-        if line.is_empty() {
+        let raw_line = line.trim_end_matches(|c| c == '\n' || c == '\r');
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
             continue;
         }
 
+        if let Some(tx) = wire_log_tx.as_ref() {
+            let _ = tx.send(raw_line.to_string());
+        }
+
         // Parse the message
-        match parse_message(line) {
+        match parse_message(trimmed) {
             Ok(ParsedMessage::Hello(hello)) => {
+                // Sequencing: enforce monotonic seq per sender.
+                if is_handshaken(&state, client_id).await
+                    && !check_and_update_seq(&state, client_id, hello.seq).await
+                {
+                    let error = create_error(
+                        hello.seq,
+                        "invalid_command",
+                        "seq must be strictly increasing",
+                    );
+                    let json = serde_json::to_string(&error)?;
+                    let _ = tx.send(json);
+                    continue;
+                }
+
                 // Validate protocol version
                 if !hello.protocol_version.starts_with("2.") {
                     let error = create_error(
@@ -257,6 +386,7 @@ async fn handle_client(
                     let mut clients = state.clients.write().await;
                     if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
                         client.handshaken = true;
+                        client.last_seq = Some(hello.seq);
                     }
                 }
 
@@ -297,17 +427,22 @@ async fn handle_client(
 
             Ok(ParsedMessage::Command(cmd)) => {
                 // Handshake required.
-                let handshaken = {
-                    let clients = state.clients.read().await;
-                    clients
-                        .iter()
-                        .find(|c| c.id == client_id)
-                        .map(|c| c.handshaken)
-                        .unwrap_or(false)
-                };
+                let handshaken = is_handshaken(&state, client_id).await;
                 if !handshaken {
                     let error =
                         create_error(cmd.seq, "handshake_required", "Send hello before command");
+                    let json = serde_json::to_string(&error)?;
+                    let _ = tx.send(json);
+                    continue;
+                }
+
+                // Sequencing: enforce monotonic seq per sender.
+                if !check_and_update_seq(&state, client_id, cmd.seq).await {
+                    let error = create_error(
+                        cmd.seq,
+                        "invalid_command",
+                        "seq must be strictly increasing",
+                    );
                     let json = serde_json::to_string(&error)?;
                     let _ = tx.send(json);
                     continue;
@@ -365,19 +500,24 @@ async fn handle_client(
             Ok(ParsedMessage::Control(ctrl)) => match ctrl.action.as_str() {
                 "claim" => {
                     // Handshake required.
-                    let handshaken = {
-                        let clients = state.clients.read().await;
-                        clients
-                            .iter()
-                            .find(|c| c.id == client_id)
-                            .map(|c| c.handshaken)
-                            .unwrap_or(false)
-                    };
+                    let handshaken = is_handshaken(&state, client_id).await;
                     if !handshaken {
                         let error = create_error(
                             ctrl.seq,
                             "handshake_required",
                             "Send hello before control",
+                        );
+                        let json = serde_json::to_string(&error)?;
+                        let _ = tx.send(json);
+                        continue;
+                    }
+
+                    // Sequencing: enforce monotonic seq per sender.
+                    if !check_and_update_seq(&state, client_id, ctrl.seq).await {
+                        let error = create_error(
+                            ctrl.seq,
+                            "invalid_command",
+                            "seq must be strictly increasing",
                         );
                         let json = serde_json::to_string(&error)?;
                         let _ = tx.send(json);
@@ -406,19 +546,24 @@ async fn handle_client(
                 }
                 "release" => {
                     // Handshake required.
-                    let handshaken = {
-                        let clients = state.clients.read().await;
-                        clients
-                            .iter()
-                            .find(|c| c.id == client_id)
-                            .map(|c| c.handshaken)
-                            .unwrap_or(false)
-                    };
+                    let handshaken = is_handshaken(&state, client_id).await;
                     if !handshaken {
                         let error = create_error(
                             ctrl.seq,
                             "handshake_required",
                             "Send hello before control",
+                        );
+                        let json = serde_json::to_string(&error)?;
+                        let _ = tx.send(json);
+                        continue;
+                    }
+
+                    // Sequencing: enforce monotonic seq per sender.
+                    if !check_and_update_seq(&state, client_id, ctrl.seq).await {
+                        let error = create_error(
+                            ctrl.seq,
+                            "invalid_command",
+                            "seq must be strictly increasing",
                         );
                         let json = serde_json::to_string(&error)?;
                         let _ = tx.send(json);
@@ -461,6 +606,16 @@ async fn handle_client(
 
             Ok(ParsedMessage::Unknown(value)) => {
                 let seq = value.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
+                if is_handshaken(&state, client_id).await && !check_and_update_seq(&state, client_id, seq).await {
+                    let error = create_error(
+                        seq,
+                        "invalid_command",
+                        "seq must be strictly increasing",
+                    );
+                    let json = serde_json::to_string(&error)?;
+                    let _ = tx.send(json);
+                    continue;
+                }
                 let error = create_error(seq, "invalid_command", "Unknown message type");
                 let json = serde_json::to_string(&error)?;
                 let _ = tx.send(json);
@@ -565,7 +720,6 @@ pub fn build_observation(
     step_in_piece: u32,
     last_event: Option<LastEvent>,
 ) -> ObservationMessage {
-    use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
     // Build board snapshot
@@ -595,12 +749,36 @@ pub fn build_observation(
         .collect();
 
     // Build state hash
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = Fnv1aHasher::new();
     game_state.board.cells().hash(&mut hasher);
     if let Some(active) = game_state.active {
         active.hash(&mut hasher);
     }
+    game_state.hold.hash(&mut hasher);
+    game_state.can_hold.hash(&mut hasher);
+    game_state.next_queue.iter().take(5).for_each(|k| k.hash(&mut hasher));
+    game_state.paused.hash(&mut hasher);
+    game_state.game_over.hash(&mut hasher);
+    episode_id.hash(&mut hasher);
+    piece_id.hash(&mut hasher);
+    step_in_piece.hash(&mut hasher);
+    game_state.piece_queue.seed().hash(&mut hasher);
     game_state.score.hash(&mut hasher);
+    game_state.level.hash(&mut hasher);
+    game_state.lines.hash(&mut hasher);
+    game_state.drop_timer_ms.hash(&mut hasher);
+    game_state.lock_timer_ms.hash(&mut hasher);
+    game_state.line_clear_timer_ms.hash(&mut hasher);
+    // Include last_event since it is part of the observation payload.
+    last_event.is_some().hash(&mut hasher);
+    if let Some(ev) = last_event.as_ref() {
+        ev.locked.hash(&mut hasher);
+        ev.lines_cleared.hash(&mut hasher);
+        ev.line_clear_score.hash(&mut hasher);
+        ev.tspin.hash(&mut hasher);
+        ev.combo.hash(&mut hasher);
+        ev.back_to_back.hash(&mut hasher);
+    }
     let state_hash = format!("{:x}", hasher.finish());
 
     // Build next queue
@@ -688,5 +866,26 @@ mod tests {
     fn test_server_config_from_env() {
         // This test just ensures it doesn't panic
         let _config = ServerConfig::from_env();
+    }
+
+    #[test]
+    fn test_state_hash_changes_when_meta_changes() {
+        let mut gs = GameState::new(1);
+        gs.start();
+
+        let obs1 = build_observation(&gs, 1, 0, 1, 0, None);
+        let obs2 = build_observation(&gs, 2, 1, 2, 3, None);
+        assert_ne!(obs1.state_hash, obs2.state_hash);
+    }
+
+    #[test]
+    fn test_state_hash_changes_when_hold_changes() {
+        let mut gs = GameState::new(1);
+        gs.start();
+
+        let obs1 = build_observation(&gs, 1, gs.episode_id, gs.piece_id, gs.step_in_piece, None);
+        assert!(gs.apply_action(GameAction::Hold));
+        let obs2 = build_observation(&gs, 2, gs.episode_id, gs.piece_id, gs.step_in_piece, None);
+        assert_ne!(obs1.state_hash, obs2.state_hash);
     }
 }
