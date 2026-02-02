@@ -48,9 +48,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut last_piece_id = game_state.piece_id;
     let mut last_paused = game_state.paused;
     let mut last_game_over = game_state.game_over;
-    let mut last_lines = game_state.lines;
-    let mut last_score = game_state.score;
-    let mut last_filled = board_filled_count(&game_state);
+    let mut pending_last_event: Option<tui_tetris::adapter::protocol::LastEvent> = None;
 
     let mut last_tick = Instant::now();
     let tick_duration = Duration::from_millis(TICK_MS as u64);
@@ -143,6 +141,18 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         }
                     }
 
+                    // If applying a command caused a lock/clear event, mark it for immediate observation.
+                    if let Some(ev) = game_state.take_last_event() {
+                        pending_last_event = Some(tui_tetris::adapter::protocol::LastEvent {
+                            locked: ev.locked,
+                            lines_cleared: ev.lines_cleared,
+                            line_clear_score: ev.line_clear_score,
+                            tspin: ev.tspin.and_then(|t| t.as_str().map(|s| s.to_string())),
+                            combo: ev.combo,
+                            back_to_back: ev.back_to_back,
+                        });
+                    }
+
                     // Ack/error after apply.
                     if ok {
                         let ack = tui_tetris::adapter::protocol::create_ack(cmd.seq, cmd.seq);
@@ -208,44 +218,25 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 critical = true;
             }
 
-            // Board/score/lines changes imply a meaningful update (lock/clear).
-            let filled = board_filled_count(&game_state);
-            let board_changed = filled != last_filled;
-            if board_changed {
-                last_filled = filled;
+            // Pull core last-event (accurate lock/clear).
+            if let Some(ev) = game_state.take_last_event() {
+                pending_last_event = Some(tui_tetris::adapter::protocol::LastEvent {
+                    locked: ev.locked,
+                    lines_cleared: ev.lines_cleared,
+                    line_clear_score: ev.line_clear_score,
+                    tspin: ev.tspin.and_then(|t| t.as_str().map(|s| s.to_string())),
+                    combo: ev.combo,
+                    back_to_back: ev.back_to_back,
+                });
                 critical = true;
             }
-
-            let lines_delta = game_state.lines.saturating_sub(last_lines);
-            if lines_delta != 0 {
-                last_lines = game_state.lines;
-                critical = true;
-            }
-            let score_delta = game_state.score.saturating_sub(last_score);
-            if score_delta != 0 {
-                last_score = game_state.score;
-            }
-
-            // Heuristic: a lock event is a board change (typically from locking/clearing).
-            let locked_event = board_changed;
 
             obs_accum_ms = obs_accum_ms.saturating_add(TICK_MS);
             if critical || obs_accum_ms >= obs_interval_ms {
                 obs_accum_ms = 0;
                 obs_seq = obs_seq.wrapping_add(1);
 
-                let last_event = if locked_event || lines_delta != 0 {
-                    Some(tui_tetris::adapter::protocol::LastEvent {
-                        locked: locked_event,
-                        lines_cleared: lines_delta,
-                        line_clear_score: if lines_delta > 0 { score_delta } else { 0 },
-                        tspin: None,
-                        combo: game_state.combo,
-                        back_to_back: game_state.back_to_back,
-                    })
-                } else {
-                    None
-                };
+                let last_event = pending_last_event.take();
 
                 if let Some(ad) = adapter.as_ref() {
                     let obs = tui_tetris::adapter::server::build_observation(
@@ -311,8 +302,4 @@ fn apply_place(
 
     state.apply_action(GameAction::HardDrop);
     Ok(())
-}
-
-fn board_filled_count(state: &GameState) -> u16 {
-    state.board.cells().iter().filter(|c| c.is_some()).count() as u16
 }

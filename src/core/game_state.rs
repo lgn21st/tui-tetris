@@ -63,6 +63,8 @@ pub struct GameState {
     pub piece_id: u32,
     /// Step counter within the current active piece (increments once per fixed tick).
     pub step_in_piece: u32,
+    /// Last lock/line-clear event (consumed by observers).
+    last_event: Option<CoreLastEvent>,
     pub score: u32,
     pub level: u32,
     pub lines: u32,
@@ -97,6 +99,7 @@ impl GameState {
             piece_queue,
             piece_id: 0,
             step_in_piece: 0,
+            last_event: None,
             score: 0,
             level: 0,
             lines: 0,
@@ -368,6 +371,7 @@ impl GameState {
         };
 
         // Update game state
+        let mut line_clear_score: u32 = 0;
         if lines_cleared > 0 {
             // Update combo
             self.combo += 1;
@@ -386,6 +390,7 @@ impl GameState {
             );
 
             self.score += score_result.total;
+            line_clear_score = score_result.total;
             self.back_to_back =
                 score_result.is_back_to_back || qualifies_for_b2b(tspin, lines_cleared);
 
@@ -398,10 +403,25 @@ impl GameState {
             self.back_to_back = false;
         }
 
+        // Emit last event (for adapter observation immediate flush).
+        self.last_event = Some(CoreLastEvent {
+            locked: true,
+            lines_cleared: lines_cleared as u32,
+            line_clear_score,
+            tspin: tspin.as_str().map(|_| tspin),
+            combo: self.combo,
+            back_to_back: self.back_to_back,
+        });
+
         // Spawn next piece (unless game over)
         if !self.game_over {
             self.spawn_piece();
         }
+    }
+
+    /// Take and clear the last lock/line-clear event.
+    pub fn take_last_event(&mut self) -> Option<CoreLastEvent> {
+        self.last_event.take()
     }
 
     /// Detect T-spin type based on corner occupancy
@@ -708,6 +728,18 @@ mod tests {
         assert!(state.apply_action(GameAction::Hold));
         assert!(state.piece_id > first_id);
         assert_eq!(state.step_in_piece, 0);
+    }
+
+    #[test]
+    fn test_last_event_set_on_hard_drop() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        assert!(state.apply_action(GameAction::HardDrop));
+        let ev = state.take_last_event();
+        assert!(ev.is_some());
+        let ev = ev.unwrap();
+        assert!(ev.locked);
     }
 
     #[test]

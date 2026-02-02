@@ -364,6 +364,19 @@ pub enum TSpinKind {
     Full,
 }
 
+/// Core-side event emitted after a piece locks.
+///
+/// This is engine-internal and can be mapped to adapter protocol `last_event`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoreLastEvent {
+    pub locked: bool,
+    pub lines_cleared: u32,
+    pub line_clear_score: u32,
+    pub tspin: Option<TSpinKind>,
+    pub combo: u32,
+    pub back_to_back: bool,
+}
+
 impl TSpinKind {
     /// Convert to optional string representation
     ///
