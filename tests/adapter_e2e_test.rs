@@ -661,8 +661,8 @@ async fn adapter_rejects_out_of_order_seq_after_hello() {
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
 
-    // hello with seq=2
-    let hello = create_hello(2, "seq-test", "2.0.0");
+    // hello with seq=1
+    let hello = create_hello(1, "seq-test", "2.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -681,7 +681,7 @@ async fn adapter_rejects_out_of_order_seq_after_hello() {
         .await
         .unwrap()
         .expect("expected inbound message");
-    assert_eq!(inbound.seq, 2);
+    assert_eq!(inbound.seq, 1);
     assert!(matches!(inbound.payload, InboundPayload::SnapshotRequest));
 
     // command with seq=1 (out of order)
@@ -702,6 +702,64 @@ async fn adapter_rejects_out_of_order_seq_after_hello() {
 
     // Ensure it was not enqueued.
     assert!(tokio::time::timeout(Duration::from_millis(100), recv_next_command(&mut cmd_rx))
+        .await
+        .is_err());
+
+    
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn adapter_rejects_hello_seq_not_one() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+        log_every_n: 1,
+        log_max_lines: None,
+    };
+
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello with seq!=1 must be rejected.
+    let hello = create_hello(2, "seq-test", "2.0.0");
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["type"], "error");
+    assert_eq!(v["seq"], 2);
+    assert_eq!(v["code"], "invalid_command");
+
+    // Ensure it did not trigger snapshot request.
+    assert!(tokio::time::timeout(Duration::from_millis(100), cmd_rx.recv())
         .await
         .is_err());
 

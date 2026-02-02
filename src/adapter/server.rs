@@ -566,6 +566,17 @@ async fn handle_client(
         // Parse the message
         match parse_message(trimmed) {
             Ok(ParsedMessage::Hello(hello)) => {
+                // Require hello to start the per-sender sequence at 1.
+                if hello.seq != 1 {
+                    let error = create_error(
+                        hello.seq,
+                        ErrorCode::InvalidCommand,
+                        "hello seq must be 1",
+                    );
+                    let _ = tx.send(ClientOutbound::Error(error));
+                    continue;
+                }
+
                 // Sequencing: enforce monotonic seq per sender.
                 if is_handshaken(&state, client_id).await
                     && !check_and_update_seq(&state, client_id, hello.seq).await

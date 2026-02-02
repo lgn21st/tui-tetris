@@ -21,11 +21,15 @@
       },
       "required": ["formats", "command_modes", "features"]
     },
+    "piece_kind": { "type": "string", "enum": ["i","o","t","s","z","j","l"] },
+    "rotation": { "type": "string", "enum": ["north","east","south","west"] },
+    "action_name": { "type": "string", "enum": ["moveLeft","moveRight","softDrop","hardDrop","rotateCw","rotateCcw","hold","pause","restart"] },
+    "tspin": { "type": "string", "enum": ["mini","full"] },
     "place": {
       "type": "object",
       "properties": {
         "x": { "type": "integer" },
-        "rotation": { "type": "string" },
+        "rotation": { "$ref": "#/definitions/rotation" },
         "useHold": { "type": "boolean" }
       },
       "required": ["x", "rotation", "useHold"]
@@ -48,8 +52,8 @@
     "active_piece": {
       "type": "object",
       "properties": {
-        "kind": { "type": "string" },
-        "rotation": { "type": "string" },
+        "kind": { "$ref": "#/definitions/piece_kind" },
+        "rotation": { "$ref": "#/definitions/rotation" },
         "x": { "type": "integer" },
         "y": { "type": "integer" }
       },
@@ -61,7 +65,7 @@
         "locked": { "type": "boolean" },
         "lines_cleared": { "type": "integer" },
         "line_clear_score": { "type": "integer" },
-        "tspin": { "type": ["string", "null"] },
+        "tspin": { "oneOf": [ { "$ref": "#/definitions/tspin" }, { "type": "null" } ] },
         "combo": { "type": "integer" },
         "back_to_back": { "type": "boolean" }
       },
@@ -125,7 +129,7 @@
             "seq": { "type": "integer" },
             "ts": { "type": "integer" },
             "mode": { "const": "action" },
-            "actions": { "type": "array", "items": { "type": "string" } }
+            "actions": { "type": "array", "items": { "$ref": "#/definitions/action_name" } }
           },
           "required": ["type", "seq", "ts", "mode", "actions"]
         },
@@ -174,8 +178,8 @@
           ]
         },
         "ghost_y": { "type": ["integer", "null"] },
-        "next": { "type": "string" },
-        "next_queue": { "type": "array", "items": { "type": "string" } },
+        "next": { "$ref": "#/definitions/piece_kind" },
+        "next_queue": { "type": "array", "items": { "$ref": "#/definitions/piece_kind" } },
         "hold": { "type": ["string", "null"] },
         "can_hold": { "type": "boolean" },
         "last_event": {
