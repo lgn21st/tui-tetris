@@ -59,8 +59,12 @@ pub struct GameState {
     pub hold: Option<PieceKind>,
     pub next_queue: Vec<PieceKind>,
     pub piece_queue: PieceQueue,
-    /// Monotonic id for the currently active piece (increments on spawn/hold swaps).
+    /// Monotonic id for spawned pieces (increments only on successful spawn).
+    ///
+    /// This is the value exported to the adapter protocol as `piece_id`.
     pub piece_id: u32,
+    /// Monotonic id for the active piece instance (increments on spawn and hold swaps).
+    pub active_id: u32,
     /// Step counter within the current active piece (increments once per fixed tick).
     pub step_in_piece: u32,
     /// Last lock/line-clear event (consumed by observers).
@@ -98,6 +102,7 @@ impl GameState {
             next_queue,
             piece_queue,
             piece_id: 0,
+            active_id: 0,
             step_in_piece: 0,
             last_event: None,
             score: 0,
@@ -151,6 +156,7 @@ impl GameState {
 
         // Update piece id and step counter.
         self.piece_id = self.piece_id.wrapping_add(1);
+        self.active_id = self.active_id.wrapping_add(1);
         self.step_in_piece = 0;
         self.can_hold = true;
         self.lock_timer_ms = 0;
@@ -312,7 +318,7 @@ impl GameState {
                 self.hold = Some(current_kind);
 
                 // Active piece changed.
-                self.piece_id = self.piece_id.wrapping_add(1);
+                self.active_id = self.active_id.wrapping_add(1);
                 self.step_in_piece = 0;
 
                 // Check if spawn is valid
@@ -404,11 +410,15 @@ impl GameState {
         }
 
         // Emit last event (for adapter observation immediate flush).
+        let tspin_opt = match tspin {
+            TSpinKind::None => None,
+            _ => Some(tspin),
+        };
         self.last_event = Some(CoreLastEvent {
             locked: true,
             lines_cleared: lines_cleared as u32,
             line_clear_score,
-            tspin: tspin.as_str().map(|_| tspin),
+            tspin: tspin_opt,
             combo: self.combo,
             back_to_back: self.back_to_back,
         });
@@ -514,15 +524,15 @@ impl GameState {
             return false;
         }
 
-        // Step counter for the current active piece.
-        if self.active.is_some() {
-            self.step_in_piece = self.step_in_piece.wrapping_add(1);
-        }
-
         // Handle line clear pause
         if self.line_clear_timer_ms > 0 {
             self.line_clear_timer_ms = self.line_clear_timer_ms.saturating_sub(elapsed_ms);
             return false;
+        }
+
+        // Step counter for the current active piece (only when gameplay advances).
+        if self.active.is_some() {
+            self.step_in_piece = self.step_in_piece.wrapping_add(1);
         }
 
         // Handle landing flash
@@ -683,6 +693,7 @@ mod tests {
         state.start();
 
         assert_eq!(state.piece_id, 1);
+        assert_eq!(state.active_id, 1);
         assert_eq!(state.step_in_piece, 0);
 
         let first_kind = state.active.unwrap().kind;
@@ -700,6 +711,7 @@ mod tests {
 
         assert!(state.active.is_some());
         assert_eq!(state.piece_id, 2);
+        assert_eq!(state.active_id, 2);
         assert_eq!(state.step_in_piece, 0);
         // The next active piece should match what was in next_queue[0]
         assert_eq!(state.active.unwrap().kind, next_kind);
@@ -724,9 +736,33 @@ mod tests {
     fn test_hold_increments_piece_id() {
         let mut state = GameState::new(12345);
         state.start();
-        let first_id = state.piece_id;
+        // First hold when hold is empty spawns a new piece (piece_id increments).
+        let first_piece_id = state.piece_id;
+        let first_active_id = state.active_id;
         assert!(state.apply_action(GameAction::Hold));
-        assert!(state.piece_id > first_id);
+        assert!(state.piece_id > first_piece_id);
+        assert!(state.active_id > first_active_id);
+        assert_eq!(state.step_in_piece, 0);
+
+        // Lock to allow holding again, then hold swap should NOT change piece_id.
+        state.lock_piece();
+        if state.game_over {
+            return;
+        }
+        let spawn_piece_id = state.piece_id;
+        let swap_active_id = state.active_id;
+        assert!(state.apply_action(GameAction::Hold));
+        assert_eq!(state.piece_id, spawn_piece_id);
+        assert!(state.active_id > swap_active_id);
+    }
+
+    #[test]
+    fn test_step_in_piece_does_not_increment_during_line_clear_pause() {
+        let mut state = GameState::new(12345);
+        state.start();
+        // Force a pause.
+        state.line_clear_timer_ms = 16;
+        state.tick(16, false);
         assert_eq!(state.step_in_piece, 0);
     }
 

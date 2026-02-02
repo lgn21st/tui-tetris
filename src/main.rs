@@ -46,6 +46,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     // Observation meta tracking.
     let episode_id: u32 = 0;
     let mut last_piece_id = game_state.piece_id;
+    let mut last_active_id = game_state.active_id;
     let mut last_paused = game_state.paused;
     let mut last_game_over = game_state.game_over;
     let mut pending_last_event: Option<tui_tetris::adapter::protocol::LastEvent> = None;
@@ -206,6 +207,12 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             // Detect piece changes via core piece_id.
             if game_state.piece_id != last_piece_id {
                 last_piece_id = game_state.piece_id;
+                critical = true;
+            }
+
+            // Detect active-instance changes (e.g. hold swaps) and flush immediately.
+            if game_state.active_id != last_active_id {
+                last_active_id = game_state.active_id;
                 critical = true;
             }
 
