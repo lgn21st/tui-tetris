@@ -3,12 +3,18 @@
 Transport: line-delimited JSON (one message per line).
 Schema: `docs/adapter-protocol.schema.json`.
 
+Note on schema reading: `definitions.command` is a `oneOf` (action vs place).
+That means `definitions.command.required` may be empty at the top-level; required fields live in each branch.
+
+
 ## Integration Checklist (Game Adapter)
 - Socket lifecycle: start listener on app launch; clean up on shutdown; support reconnect without restart.
 - Handshake: enforce `hello` first; validate `protocol_version` major; reply with `welcome` including `game_id` and `capabilities`.
 - Controller rules: first `hello` becomes controller; reject command/control from observers with `not_controller`; promote next observer on controller disconnect; support `claim`/`release`.
 - Framing: newline-delimited JSON; reject empty/partial frames; reply with `invalid_command` on parse/shape errors.
 - Sequencing: `seq` MUST be strictly increasing per sender after `hello` (no duplicates, no decreases). On violation, reply `error.code = "invalid_command"` and do not enqueue/apply the message.
+  - Retry semantics: if a `command` is rejected with `backpressure`, treat it as **not enqueued** and retry using a **new, larger `seq`**.
+
 - Timestamps: `ts` in unix ms; keep monotonic but not necessarily synchronized.
 - Observations: send full snapshot (board + active + next + hold + score/level/lines/timers) at fixed step or throttled interval; include `playable` gate.
   - Default cadence: 20Hz (50ms) via `TETRIS_AI_OBS_HZ`.
@@ -77,6 +83,10 @@ Examples:
 ## Observations
 ### observation (game -> client)
 Fields: `type`, `seq`, `ts`, `playable`, `paused`, `game_over`, `episode_id`, `seed`, `piece_id`, `step_in_piece`, `board`, `board_id`, `active`, `ghost_y`, `next`, `next_queue`, `hold`, `can_hold`, `last_event`, `state_hash`, `score`, `level`, `lines`, `timers`.
+
+Optional fields may be omitted when null/unknown (common early in an episode): `active`, `ghost_y`, `hold`, `last_event`.
+`capabilities.features` indicates which optional fields **may** be emitted by this adapter, not that they are always present in every snapshot.
+
 
 Notes:
 - `board_id` increments when the locked board changes (piece lock and/or line clear). It is stable while only the active/ghost/UI changes.

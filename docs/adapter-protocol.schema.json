@@ -116,6 +116,7 @@
       "required": ["type", "seq", "ts", "protocol_version", "game_id", "capabilities"]
     },
     "command": {
+      "description": "Command message is a oneOf of action-mode vs place-mode; required fields are per-branch.",
       "oneOf": [
         {
           "type": "object",
