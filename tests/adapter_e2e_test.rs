@@ -493,6 +493,52 @@ async fn adapter_requires_hello_before_command() {
 }
 
 #[tokio::test]
+async fn adapter_parse_error_echoes_seq_best_effort() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+    };
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // Invalid JSON but includes seq=9.
+    let bad = r#"{"type":"command","seq":9,"ts":1,"mode":"action","actions":["moveLeft"]"#;
+    write_half.write_all(bad.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["type"], "error");
+    assert_eq!(v["code"], "invalid_command");
+    assert_eq!(v["seq"], 9);
+
+    server_handle.abort();
+}
+
+#[tokio::test]
 async fn adapter_rejects_out_of_order_seq_after_hello() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),

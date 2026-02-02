@@ -23,6 +23,25 @@ struct Fnv1aHasher {
     state: u64,
 }
 
+fn extract_seq_best_effort(s: &str) -> Option<u64> {
+    let start = s.find("\"seq\"")?;
+    let after_key = &s[start + 5..];
+    let colon = after_key.find(':')?;
+    let rest = after_key[colon + 1..].trim_start();
+    let mut end = 0usize;
+    for b in rest.as_bytes() {
+        if b.is_ascii_digit() {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    if end == 0 {
+        return None;
+    }
+    rest[..end].parse::<u64>().ok()
+}
+
 impl Fnv1aHasher {
     const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
     const PRIME: u64 = 0x100000001b3;
@@ -599,7 +618,8 @@ async fn handle_client(
             },
 
             Err(e) => {
-                let error = create_error(0, "invalid_command", &format!("JSON parse error: {}", e));
+                let seq = extract_seq_best_effort(trimmed).unwrap_or(0);
+                let error = create_error(seq, "invalid_command", &format!("JSON parse error: {}", e));
                 let json = serde_json::to_string(&error)?;
                 let _ = tx.send(json);
             }
