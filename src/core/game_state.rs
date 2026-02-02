@@ -59,6 +59,8 @@ pub struct GameState {
     pub hold: Option<PieceKind>,
     pub next_queue: Vec<PieceKind>,
     pub piece_queue: PieceQueue,
+    /// Monotonic episode id (increments on restart).
+    pub episode_id: u32,
     /// Monotonic id for spawned pieces (increments only on successful spawn).
     ///
     /// This is the value exported to the adapter protocol as `piece_id`.
@@ -101,6 +103,7 @@ impl GameState {
             hold: None,
             next_queue,
             piece_queue,
+            episode_id: 0,
             piece_id: 0,
             active_id: 0,
             step_in_piece: 0,
@@ -625,7 +628,10 @@ impl GameState {
                 true
             }
             GameAction::Restart => {
-                *self = Self::new(self.piece_queue.seed());
+                let seed = self.piece_queue.seed();
+                let next_episode = self.episode_id.wrapping_add(1);
+                *self = Self::new(seed);
+                self.episode_id = next_episode;
                 self.start();
                 true
             }
@@ -672,9 +678,19 @@ mod tests {
         assert_eq!(state.lines, 0);
         assert_eq!(state.combo, 0);
         assert!(!state.back_to_back);
+        assert_eq!(state.episode_id, 0);
         assert!(state.active.is_none());
         assert!(state.hold.is_none());
         assert!(!state.next_queue.is_empty());
+    }
+
+    #[test]
+    fn test_restart_increments_episode_id() {
+        let mut state = GameState::new(12345);
+        state.start();
+        assert_eq!(state.episode_id, 0);
+        assert!(state.apply_action(GameAction::Restart));
+        assert_eq!(state.episode_id, 1);
     }
 
     #[test]

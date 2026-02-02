@@ -126,7 +126,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 for _ in 0..32 {
                     let Some(cmd) = ad.try_recv() else { break };
 
-                    let mut ok = true;
+                    let mut ok: Result<(), PlaceError> = Ok(());
                     match cmd.command {
                         tui_tetris::adapter::runtime::ClientCommand::Actions(actions) => {
                             for a in actions {
@@ -138,7 +138,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                             rotation,
                             use_hold,
                         } => {
-                            ok = apply_place(&mut game_state, x, rotation, use_hold).is_ok();
+                            ok = apply_place(&mut game_state, x, rotation, use_hold);
                         }
                     }
 
@@ -155,25 +155,28 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                     }
 
                     // Ack/error after apply.
-                    if ok {
-                        let ack = tui_tetris::adapter::protocol::create_ack(cmd.seq, cmd.seq);
-                        if let Ok(line) = serde_json::to_string(&ack) {
-                            ad.send(OutboundMessage::ToClient {
-                                client_id: cmd.client_id,
-                                line,
-                            });
+                    match ok {
+                        Ok(()) => {
+                            let ack = tui_tetris::adapter::protocol::create_ack(cmd.seq, cmd.seq);
+                            if let Ok(line) = serde_json::to_string(&ack) {
+                                ad.send(OutboundMessage::ToClient {
+                                    client_id: cmd.client_id,
+                                    line,
+                                });
+                            }
                         }
-                    } else {
-                        let err = tui_tetris::adapter::protocol::create_error(
-                            cmd.seq,
-                            "invalid_place",
-                            "place command could not be applied",
-                        );
-                        if let Ok(line) = serde_json::to_string(&err) {
-                            ad.send(OutboundMessage::ToClient {
-                                client_id: cmd.client_id,
-                                line,
-                            });
+                        Err(e) => {
+                            let err = tui_tetris::adapter::protocol::create_error(
+                                cmd.seq,
+                                e.code(),
+                                e.message(),
+                            );
+                            if let Ok(line) = serde_json::to_string(&err) {
+                                ad.send(OutboundMessage::ToClient {
+                                    client_id: cmd.client_id,
+                                    line,
+                                });
+                            }
                         }
                     }
                 }
@@ -263,46 +266,107 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum PlaceError {
+    HoldUnavailable,
+    RotationBlocked,
+    XUnreachable,
+    NoActive,
+}
+
+impl PlaceError {
+    fn code(self) -> &'static str {
+        match self {
+            PlaceError::HoldUnavailable => "hold_unavailable",
+            PlaceError::RotationBlocked | PlaceError::XUnreachable | PlaceError::NoActive => {
+                "invalid_place"
+            }
+        }
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            PlaceError::HoldUnavailable => "hold requested when unavailable",
+            PlaceError::RotationBlocked => "could not rotate to target rotation",
+            PlaceError::XUnreachable => "could not move to target x",
+            PlaceError::NoActive => "no active piece",
+        }
+    }
+}
+
 fn apply_place(
     state: &mut GameState,
     target_x: i8,
     target_rot: tui_tetris::types::Rotation,
     use_hold: bool,
-) -> Result<(), ()> {
+) -> Result<(), PlaceError> {
+    // Hold first if requested.
     if use_hold {
-        state.apply_action(GameAction::Hold);
+        if !state.apply_action(GameAction::Hold) {
+            return Err(PlaceError::HoldUnavailable);
+        }
     }
 
-    let Some(mut active) = state.active else {
-        return Err(());
+    let Some(active0) = state.active else {
+        return Err(PlaceError::NoActive);
     };
 
-    // Rotate to desired rotation (CW only for now).
-    for _ in 0..4 {
-        if active.rotation == target_rot {
-            break;
-        }
-        if !state.try_rotate(true) {
-            return Err(());
-        }
-        active = state.active.unwrap();
+    // Try both CW and CCW plans; keep the shorter one first.
+    let rot_to_i = |r: tui_tetris::types::Rotation| match r {
+        tui_tetris::types::Rotation::North => 0i8,
+        tui_tetris::types::Rotation::East => 1i8,
+        tui_tetris::types::Rotation::South => 2i8,
+        tui_tetris::types::Rotation::West => 3i8,
+    };
+
+    let cur = rot_to_i(active0.rotation);
+    let tgt = rot_to_i(target_rot);
+    let cw = (tgt - cur).rem_euclid(4) as u8;
+    let ccw = (cur - tgt).rem_euclid(4) as u8;
+
+    let mut plans: [(&'static str, bool, u8); 2] = [("cw", true, cw), ("ccw", false, ccw)];
+    if plans[1].2 < plans[0].2 {
+        plans.swap(0, 1);
     }
 
+    let snapshot = state.clone();
+    let mut rotated = false;
+    for (_, is_cw, steps) in plans {
+        *state = snapshot.clone();
+        let mut ok = true;
+        for _ in 0..steps {
+            if !state.try_rotate(is_cw) {
+                ok = false;
+                break;
+            }
+        }
+        if ok {
+            rotated = true;
+            break;
+        }
+    }
+    if !rotated {
+        return Err(PlaceError::RotationBlocked);
+    }
+
+    let Some(active) = state.active else {
+        return Err(PlaceError::NoActive);
+    };
     if active.rotation != target_rot {
-        return Err(());
+        return Err(PlaceError::RotationBlocked);
     }
 
     let dx = target_x - active.x;
     if dx > 0 {
         for _ in 0..dx {
             if !state.try_move(1, 0) {
-                return Err(());
+                return Err(PlaceError::XUnreachable);
             }
         }
     } else if dx < 0 {
         for _ in 0..(-dx) {
             if !state.try_move(-1, 0) {
-                return Err(());
+                return Err(PlaceError::XUnreachable);
             }
         }
     }
