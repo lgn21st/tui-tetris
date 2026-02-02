@@ -742,31 +742,27 @@ pub fn build_observation(
 ) -> ObservationMessage {
     use std::hash::{Hash, Hasher};
 
-    // Build board snapshot
-    let cells: Vec<Vec<u8>> = (0..20)
-        .map(|y| {
-            (0..10)
-                .map(|x| {
-                    game_state
-                        .board
-                        .get(x, y)
-                        .map(|cell| {
-                            cell.map(|kind| match kind {
-                                PieceKind::I => 1,
-                                PieceKind::O => 2,
-                                PieceKind::T => 3,
-                                PieceKind::S => 4,
-                                PieceKind::Z => 5,
-                                PieceKind::J => 6,
-                                PieceKind::L => 7,
-                            })
-                            .unwrap_or(0)
-                        })
-                        .unwrap_or(0)
+    // Build board snapshot (no heap)
+    let mut cells = [[0u8; 10]; 20];
+    for y in 0..20 {
+        for x in 0..10 {
+            let v = game_state
+                .board
+                .get(x as i8, y as i8)
+                .and_then(|c| c)
+                .map(|kind| match kind {
+                    PieceKind::I => 1,
+                    PieceKind::O => 2,
+                    PieceKind::T => 3,
+                    PieceKind::S => 4,
+                    PieceKind::Z => 5,
+                    PieceKind::J => 6,
+                    PieceKind::L => 7,
                 })
-                .collect()
-        })
-        .collect();
+                .unwrap_or(0);
+            cells[y][x] = v;
+        }
+    }
 
     // Build state hash
     let mut hasher = Fnv1aHasher::new();
@@ -776,7 +772,7 @@ pub fn build_observation(
     }
     game_state.hold.hash(&mut hasher);
     game_state.can_hold.hash(&mut hasher);
-    game_state.next_queue.iter().take(5).for_each(|k| k.hash(&mut hasher));
+    game_state.next_queue.iter().for_each(|k| k.hash(&mut hasher));
     game_state.paused.hash(&mut hasher);
     game_state.game_over.hash(&mut hasher);
     episode_id.hash(&mut hasher);
@@ -802,14 +798,9 @@ pub fn build_observation(
     let state_hash = format!("{:x}", hasher.finish());
 
     // Build next queue
-    let next_queue: Vec<String> = game_state
-        .next_queue
-        .iter()
-        .take(5)
-        .map(|kind| kind.as_str().to_lowercase())
-        .collect();
+    let next_queue: [String; 5] = std::array::from_fn(|i| game_state.next_queue[i].as_str().to_lowercase());
 
-    let next = next_queue.first().cloned().unwrap_or_default();
+    let next = next_queue[0].clone();
 
     // Build active piece
     let active = game_state.active.map(|piece| ActivePieceSnapshot {

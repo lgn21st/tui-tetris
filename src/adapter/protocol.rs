@@ -132,7 +132,7 @@ pub struct ObservationMessage {
     pub active: Option<ActivePieceSnapshot>,
     pub next: String, // Single next piece (for compatibility)
     #[serde(rename = "next_queue")]
-    pub next_queue: Vec<String>, // Full next queue
+    pub next_queue: [String; 5], // Full next queue
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold: Option<String>,
     #[serde(rename = "can_hold")]
@@ -152,7 +152,7 @@ pub struct ObservationMessage {
 pub struct BoardSnapshot {
     pub width: u8,
     pub height: u8,
-    pub cells: Vec<Vec<u8>>, // 0 = empty, 1-7 = piece kind
+    pub cells: [[u8; 10]; 20], // 0 = empty, 1-7 = piece kind
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

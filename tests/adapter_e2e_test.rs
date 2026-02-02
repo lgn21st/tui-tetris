@@ -401,7 +401,9 @@ async fn adapter_backpressure_returns_error() {
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
 
-    let hello = create_hello(1, "e2e-test", "2.0.0");
+    let mut hello = create_hello(1, "e2e-test", "2.0.0");
+    // Keep the inbound command queue empty (hello snapshot would fill it).
+    hello.requested.stream_observations = false;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
