@@ -70,7 +70,7 @@ fn bench_build_observation_and_serialize(c: &mut Criterion) {
     c.bench_function("build_observation+to_writer", |b| {
         b.iter(|| {
             seq = seq.wrapping_add(1);
-            state.snapshot_into(&mut snap);
+            state.snapshot_meta_into(&mut snap);
             let obs = build_observation(seq, &snap, None);
             buf.clear();
             serde_json::to_writer(&mut buf, &obs).unwrap();
