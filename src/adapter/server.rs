@@ -659,8 +659,8 @@ async fn handle_client(
                 }
             }
 
-            Ok(ParsedMessage::Control(ctrl)) => match ctrl.action.as_str() {
-                "claim" => {
+            Ok(ParsedMessage::Control(ctrl)) => match ctrl.action {
+                ControlAction::Claim => {
                     // Handshake required.
                     let handshaken = is_handshaken(&state, client_id).await;
                     if !handshaken {
@@ -702,7 +702,7 @@ async fn handle_client(
                         let _ = tx.send(ClientOutbound::Error(error));
                     }
                 }
-                "release" => {
+                ControlAction::Release => {
                     // Handshake required.
                     let handshaken = is_handshaken(&state, client_id).await;
                     if !handshaken {
@@ -744,14 +744,6 @@ async fn handle_client(
                             );
                         let _ = tx.send(ClientOutbound::Error(error));
                     }
-                }
-                _ => {
-                    let error = create_error(
-                        ctrl.seq,
-                        ErrorCode::InvalidCommand,
-                        &format!("Unknown control action: {}", ctrl.action),
-                    );
-                    let _ = tx.send(ClientOutbound::Error(error));
                 }
             },
 
@@ -814,80 +806,56 @@ async fn handle_client(
 
 /// Map a protocol command into an engine command.
 fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (ErrorCode, String)> {
-    match cmd.mode.as_str() {
-        "action" => {
-            let Some(ref action_strings) = cmd.actions else {
+    match cmd.mode {
+        CommandMode::Action => {
+            let Some(ActionList(ref list)) = cmd.actions else {
                 return Err((ErrorCode::InvalidCommand, "Missing actions".to_string()));
             };
             let mut actions = ArrayVec::<GameAction, 32>::new();
-            for a in action_strings {
-                match parse_action(a) {
-                    Some(act) => {
-                        if actions.try_push(act).is_err() {
-                            return Err((
-                                ErrorCode::InvalidCommand,
-                                "Too many actions".to_string(),
-                            ));
-                        }
-                    }
-                    None => {
-                        return Err((ErrorCode::InvalidCommand, format!("Unknown action: {}", a)))
-                    }
-                }
+            for a in list.iter().copied() {
+                let ga = match a {
+                    ActionName::MoveLeft => GameAction::MoveLeft,
+                    ActionName::MoveRight => GameAction::MoveRight,
+                    ActionName::SoftDrop => GameAction::SoftDrop,
+                    ActionName::HardDrop => GameAction::HardDrop,
+                    ActionName::RotateCw => GameAction::RotateCw,
+                    ActionName::RotateCcw => GameAction::RotateCcw,
+                    ActionName::Hold => GameAction::Hold,
+                    ActionName::Pause => GameAction::Pause,
+                    ActionName::Restart => GameAction::Restart,
+                };
+                actions
+                    .try_push(ga)
+                    .map_err(|_| (ErrorCode::InvalidCommand, "Too many actions".to_string()))?;
             }
             Ok(ClientCommand::Actions(actions))
         }
-        "place" => {
+        CommandMode::Place => {
             let Some(ref place) = cmd.place else {
                 return Err((ErrorCode::InvalidPlace, "Missing place".to_string()));
             };
-            let rot_s = place.rotation.as_str();
-            let rot = if rot_s.eq_ignore_ascii_case("north") {
-                Rotation::North
-            } else if rot_s.eq_ignore_ascii_case("east") {
-                Rotation::East
-            } else if rot_s.eq_ignore_ascii_case("south") {
-                Rotation::South
-            } else if rot_s.eq_ignore_ascii_case("west") {
-                Rotation::West
-            } else {
-                return Err((
-                    ErrorCode::InvalidPlace,
-                    format!("Invalid rotation: {}", place.rotation),
-                ));
-            };
             Ok(ClientCommand::Place {
                 x: place.x,
-                rotation: rot,
+                rotation: {
+                    let rot_s = place.rotation.as_str();
+                    if rot_s.eq_ignore_ascii_case("north") {
+                        Rotation::North
+                    } else if rot_s.eq_ignore_ascii_case("east") {
+                        Rotation::East
+                    } else if rot_s.eq_ignore_ascii_case("south") {
+                        Rotation::South
+                    } else if rot_s.eq_ignore_ascii_case("west") {
+                        Rotation::West
+                    } else {
+                        return Err((
+                            ErrorCode::InvalidPlace,
+                            format!("Invalid rotation: {}", place.rotation),
+                        ));
+                    }
+                },
                 use_hold: place.use_hold,
             })
         }
-        _ => Err((ErrorCode::InvalidCommand, format!("Unknown mode: {}", cmd.mode))),
-    }
-}
-
-/// Parse action string to GameAction
-fn parse_action(action: &str) -> Option<GameAction> {
-    if action.eq_ignore_ascii_case("moveLeft") {
-        Some(GameAction::MoveLeft)
-    } else if action.eq_ignore_ascii_case("moveRight") {
-        Some(GameAction::MoveRight)
-    } else if action.eq_ignore_ascii_case("softDrop") {
-        Some(GameAction::SoftDrop)
-    } else if action.eq_ignore_ascii_case("hardDrop") {
-        Some(GameAction::HardDrop)
-    } else if action.eq_ignore_ascii_case("rotateCw") {
-        Some(GameAction::RotateCw)
-    } else if action.eq_ignore_ascii_case("rotateCcw") {
-        Some(GameAction::RotateCcw)
-    } else if action.eq_ignore_ascii_case("hold") {
-        Some(GameAction::Hold)
-    } else if action.eq_ignore_ascii_case("pause") {
-        Some(GameAction::Pause)
-    } else if action.eq_ignore_ascii_case("restart") {
-        Some(GameAction::Restart)
-    } else {
-        None
     }
 }
 
@@ -1022,10 +990,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_action() {
-        assert_eq!(parse_action("moveLeft"), Some(GameAction::MoveLeft));
-        assert_eq!(parse_action("rotateCw"), Some(GameAction::RotateCw));
-        assert_eq!(parse_action("unknown"), None);
+    fn test_map_command_action_mode() {
+        let json = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft","rotateCw","hardDrop"]}"#;
+        let ParsedMessage::Command(cmd) = parse_message(json).unwrap() else {
+            panic!("expected command");
+        };
+        let mapped = map_command(&cmd).unwrap();
+        match mapped {
+            ClientCommand::Actions(actions) => {
+                assert_eq!(actions.as_slice(), [GameAction::MoveLeft, GameAction::RotateCw, GameAction::HardDrop]);
+            }
+            _ => panic!("expected action mapping"),
+        }
     }
 
     #[test]

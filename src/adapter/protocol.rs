@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{PieceKind, Rotation};
 
+use arrayvec::ArrayVec;
+
 // ============== Client -> Game Messages ==============
 
 /// Client hello message (first message to establish connection)
@@ -37,20 +39,130 @@ pub struct RequestedCapabilities {
 }
 
 /// Command message (controller only)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CommandMessage {
     #[serde(rename = "type")]
     pub msg_type: String,
     pub seq: u64,
     pub ts: u64,
-    pub mode: String,
+    pub mode: CommandMode,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub actions: Option<Vec<String>>, // For action mode
+    pub actions: Option<ActionList>, // For action mode
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place: Option<PlaceCommand>, // For place mode
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommandMode {
+    Action,
+    Place,
+}
+
+impl<'de> Deserialize<'de> for CommandMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <&str>::deserialize(deserializer)?;
+        if s.eq_ignore_ascii_case("action") {
+            Ok(Self::Action)
+        } else if s.eq_ignore_ascii_case("place") {
+            Ok(Self::Place)
+        } else {
+            Err(serde::de::Error::custom("invalid command mode"))
+        }
+    }
+}
+
+impl Serialize for CommandMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            CommandMode::Action => serializer.serialize_str("action"),
+            CommandMode::Place => serializer.serialize_str("place"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ActionName {
+    MoveLeft,
+    MoveRight,
+    SoftDrop,
+    HardDrop,
+    RotateCw,
+    RotateCcw,
+    Hold,
+    Pause,
+    Restart,
+}
+
+impl<'de> Deserialize<'de> for ActionName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <&str>::deserialize(deserializer)?;
+        if s.eq_ignore_ascii_case("moveLeft") {
+            Ok(Self::MoveLeft)
+        } else if s.eq_ignore_ascii_case("moveRight") {
+            Ok(Self::MoveRight)
+        } else if s.eq_ignore_ascii_case("softDrop") {
+            Ok(Self::SoftDrop)
+        } else if s.eq_ignore_ascii_case("hardDrop") {
+            Ok(Self::HardDrop)
+        } else if s.eq_ignore_ascii_case("rotateCw") {
+            Ok(Self::RotateCw)
+        } else if s.eq_ignore_ascii_case("rotateCcw") {
+            Ok(Self::RotateCcw)
+        } else if s.eq_ignore_ascii_case("hold") {
+            Ok(Self::Hold)
+        } else if s.eq_ignore_ascii_case("pause") {
+            Ok(Self::Pause)
+        } else if s.eq_ignore_ascii_case("restart") {
+            Ok(Self::Restart)
+        } else {
+            Err(serde::de::Error::custom("unknown action"))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionList(pub ArrayVec<ActionName, 32>);
+
+impl<'de> Deserialize<'de> for ActionList {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = ActionList;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "an array of action strings")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut out = ArrayVec::<ActionName, 32>::new();
+                while let Some(a) = seq.next_element::<ActionName>()? {
+                    out.try_push(a)
+                        .map_err(|_| serde::de::Error::custom("too many actions"))?;
+                }
+                Ok(ActionList(out))
+            }
+        }
+
+        deserializer.deserialize_seq(V)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct PlaceCommand {
     pub x: i8,
     pub rotation: String,
@@ -59,13 +171,47 @@ pub struct PlaceCommand {
 }
 
 /// Control message (claim/release controller status)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ControlMessage {
     #[serde(rename = "type")]
     pub msg_type: String,
     pub seq: u64,
     pub ts: u64,
-    pub action: String, // "claim" or "release"
+    pub action: ControlAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ControlAction {
+    Claim,
+    Release,
+}
+
+impl<'de> Deserialize<'de> for ControlAction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <&str>::deserialize(deserializer)?;
+        if s.eq_ignore_ascii_case("claim") {
+            Ok(Self::Claim)
+        } else if s.eq_ignore_ascii_case("release") {
+            Ok(Self::Release)
+        } else {
+            Err(serde::de::Error::custom("invalid control action"))
+        }
+    }
+}
+
+impl Serialize for ControlAction {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            ControlAction::Claim => serializer.serialize_str("claim"),
+            ControlAction::Release => serializer.serialize_str("release"),
+        }
+    }
 }
 
 // ============== Game -> Client Messages ==============
@@ -249,7 +395,7 @@ impl From<PieceKind> for PieceKindLower {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum RotationLower {
     #[serde(rename = "north")]
     North,
@@ -261,6 +407,26 @@ pub enum RotationLower {
     West,
 }
 
+impl<'de> Deserialize<'de> for RotationLower {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <&str>::deserialize(deserializer)?;
+        if s.eq_ignore_ascii_case("north") {
+            Ok(Self::North)
+        } else if s.eq_ignore_ascii_case("east") {
+            Ok(Self::East)
+        } else if s.eq_ignore_ascii_case("south") {
+            Ok(Self::South)
+        } else if s.eq_ignore_ascii_case("west") {
+            Ok(Self::West)
+        } else {
+            Err(serde::de::Error::custom("invalid rotation"))
+        }
+    }
+}
+
 impl From<Rotation> for RotationLower {
     fn from(value: Rotation) -> Self {
         match value {
@@ -268,6 +434,17 @@ impl From<Rotation> for RotationLower {
             Rotation::East => Self::East,
             Rotation::South => Self::South,
             Rotation::West => Self::West,
+        }
+    }
+}
+
+impl From<RotationLower> for Rotation {
+    fn from(value: RotationLower) -> Self {
+        match value {
+            RotationLower::North => Rotation::North,
+            RotationLower::East => Rotation::East,
+            RotationLower::South => Rotation::South,
+            RotationLower::West => Rotation::West,
         }
     }
 }
@@ -482,8 +659,12 @@ mod tests {
         let result = parse_message(json).unwrap();
         match result {
             ParsedMessage::Command(msg) => {
-                assert_eq!(msg.mode, "action");
-                assert_eq!(msg.actions.unwrap().len(), 3);
+                assert_eq!(msg.mode, CommandMode::Action);
+                let a = msg.actions.unwrap();
+                assert_eq!(a.0.len(), 3);
+                assert_eq!(a.0[0], ActionName::MoveLeft);
+                assert_eq!(a.0[1], ActionName::RotateCw);
+                assert_eq!(a.0[2], ActionName::HardDrop);
             }
             _ => panic!("Expected Command message"),
         }
@@ -496,7 +677,7 @@ mod tests {
         let result = parse_message(json).unwrap();
         match result {
             ParsedMessage::Control(msg) => {
-                assert_eq!(msg.action, "claim");
+                assert_eq!(msg.action, ControlAction::Claim);
             }
             _ => panic!("Expected Control message"),
         }

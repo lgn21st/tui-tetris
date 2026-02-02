@@ -46,5 +46,5 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 ## Performance
 
 - Core hot paths allocation-free (gate test) ✅
-- End-to-end allocation-free (input + adapter + render) ⚠️
-- Benchmarks (`cargo bench`) ❌
+- End-to-end allocation-free (input + adapter + render, no I/O) ✅
+- Benchmarks (`cargo bench`) ⚠️

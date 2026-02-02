@@ -34,3 +34,4 @@ This file is the current, maintained roadmap for tui-tetris.
 - Input allocation gate: `cargo test --test input_no_alloc_gate_test`
 - Adapter observation allocation gate: `cargo test --test adapter_observation_no_alloc_gate_test`
 - Term render allocation gate: `cargo test --test term_no_alloc_gate_test`
+- End-to-end allocation gate (no I/O): `cargo test --test e2e_no_alloc_gate_test`
