@@ -10,7 +10,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::adapter::protocol::*;
-use crate::adapter::runtime::{ClientCommand, InboundCommand, InboundPayload, OutboundMessage};
+use crate::adapter::runtime::{AdapterStatus, ClientCommand, InboundCommand, InboundPayload, OutboundMessage};
 use crate::core::GameSnapshot;
 use crate::types::{GameAction, Rotation};
 
@@ -149,14 +149,16 @@ pub struct ServerState {
     config: ServerConfig,
     clients: Arc<RwLock<Vec<ClientHandle>>>,
     controller: Arc<RwLock<Option<usize>>>, // Index into clients vec
+    status_tx: Option<mpsc::UnboundedSender<AdapterStatus>>,
 }
 
 impl ServerState {
-    pub fn new(config: ServerConfig) -> Self {
+    pub fn new(config: ServerConfig, status_tx: Option<mpsc::UnboundedSender<AdapterStatus>>) -> Self {
         Self {
             config,
             clients: Arc::new(RwLock::new(Vec::new())),
             controller: Arc::new(RwLock::new(None)),
+            status_tx,
         }
     }
 
@@ -166,6 +168,18 @@ impl ServerState {
             .map(|v| v == "1" || v.to_lowercase() == "true")
             .unwrap_or(false)
     }
+}
+
+async fn emit_status(state: &Arc<ServerState>) {
+    let Some(tx) = state.status_tx.as_ref() else {
+        return;
+    };
+    let clients = state.clients.read().await;
+    let controller = state.controller.read().await;
+    let _ = tx.send(AdapterStatus {
+        client_count: clients.len().min(u16::MAX as usize) as u16,
+        controller_id: *controller,
+    });
 }
 
 async fn is_handshaken(state: &Arc<ServerState>, client_id: usize) -> bool {
@@ -235,9 +249,9 @@ pub async fn run_server(
     command_tx: mpsc::Sender<InboundCommand>,
     mut out_rx: mpsc::UnboundedReceiver<OutboundMessage>,
     ready_tx: Option<oneshot::Sender<SocketAddr>>,
+    status_tx: Option<mpsc::UnboundedSender<AdapterStatus>>,
 ) -> anyhow::Result<()> {
     if ServerState::is_disabled() {
-        println!("[Adapter] AI control disabled via TETRIS_AI_DISABLED");
         // Just drain the command channel to prevent blocking
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -330,12 +344,18 @@ pub async fn run_server(
     let addr = config.socket_addr();
     let listener = TcpListener::bind(&addr).await?;
     let bound = listener.local_addr()?;
-    println!("[Adapter] TCP server listening on {}", bound);
+    // Emit initial status (0 clients).
+    if let Some(tx) = status_tx.as_ref() {
+        let _ = tx.send(AdapterStatus {
+            client_count: 0,
+            controller_id: None,
+        });
+    }
     if let Some(tx) = ready_tx {
         let _ = tx.send(bound);
     }
 
-    let state = Arc::new(ServerState::new(config));
+    let state = Arc::new(ServerState::new(config, status_tx));
     let mut client_id_counter = 0usize;
 
     // Outbound dispatcher.
@@ -395,7 +415,7 @@ pub async fn run_server(
         client_id_counter += 1;
         let client_id = client_id_counter;
 
-        println!("[Adapter] Client {} connected from {}", client_id, addr);
+    emit_status(&state).await;
 
         let state_clone = Arc::clone(&state);
         let command_tx = command_tx.clone();
@@ -406,9 +426,8 @@ pub async fn run_server(
             if let Err(e) =
                 handle_client(socket, addr, client_id, state_clone, command_tx, wire_log_tx).await
             {
-                eprintln!("[Adapter] Client {} error: {}", client_id, e);
+                let _ = e;
             }
-            println!("[Adapter] Client {} disconnected", client_id);
         });
     }
 }
@@ -444,6 +463,8 @@ async fn handle_client(
         let mut clients = state.clients.write().await;
         clients.push(client_handle);
     }
+
+    emit_status(&state).await;
 
     let wire_log_tx_out = wire_log_tx.clone();
 
@@ -601,25 +622,28 @@ async fn handle_client(
                     });
                 }
 
-                // First client to hello becomes controller
-                let mut controller = state.controller.write().await;
-                if controller.is_none() {
-                    *controller = Some(client_id);
-                    let mut clients = state.clients.write().await;
-                    if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
-                        client.is_controller = true;
-                        client.command_mode = hello.requested.command_mode;
-                        client.stream_observations = hello.requested.stream_observations;
-                    }
-                    println!("[Adapter] Client {} is now controller", client_id);
-                } else {
-                    // Store capabilities for observers too.
-                    let mut clients = state.clients.write().await;
-                    if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
-                        client.command_mode = hello.requested.command_mode;
-                        client.stream_observations = hello.requested.stream_observations;
+                // First client to hello becomes controller.
+                {
+                    let mut controller = state.controller.write().await;
+                    if controller.is_none() {
+                        *controller = Some(client_id);
+                        let mut clients = state.clients.write().await;
+                        if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
+                            client.is_controller = true;
+                            client.command_mode = hello.requested.command_mode;
+                            client.stream_observations = hello.requested.stream_observations;
+                        }
+                    } else {
+                        // Store capabilities for observers too.
+                        let mut clients = state.clients.write().await;
+                        if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
+                            client.command_mode = hello.requested.command_mode;
+                            client.stream_observations = hello.requested.stream_observations;
+                        }
                     }
                 }
+
+                emit_status(&state).await;
             }
 
             Ok(ParsedMessage::Command(cmd)) => {
@@ -828,12 +852,11 @@ async fn handle_client(
                 if let Some(c) = clients.iter_mut().find(|c| c.id == new_id) {
                     c.is_controller = true;
                 }
-                println!("[Adapter] Controller {} promoted", new_id);
-            } else {
-                println!("[Adapter] Controller {} released", client_id);
             }
         }
     }
+
+    emit_status(&state).await;
 
     // Cancel write task
     drop(tx);

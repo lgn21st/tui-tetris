@@ -136,7 +136,7 @@ async fn closed_loop_stability_3x50_reconnects() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
     let engine_handle = tokio::spawn(engine_loop(cmd_rx, out_tx));
 
@@ -241,7 +241,7 @@ async fn closed_loop_long_run_200_episodes() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
     let engine_handle = tokio::spawn(engine_loop(cmd_rx, out_tx));
 

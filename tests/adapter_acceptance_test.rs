@@ -36,7 +36,7 @@ async fn spawn_server(
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -392,7 +392,7 @@ async fn acceptance_observer_enforcement_not_controller() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -454,7 +454,7 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
     let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
 
@@ -511,7 +511,7 @@ async fn acceptance_restart_and_pause_semantics() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
     let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
 

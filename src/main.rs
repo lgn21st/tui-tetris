@@ -13,6 +13,7 @@ use tui_tetris::adapter::{Adapter, OutboundMessage};
 use tui_tetris::core::{GameSnapshot, GameState};
 use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
+use tui_tetris::term::AdapterStatusView;
 use tui_tetris::term::{GameView, TerminalRenderer, Viewport};
 use tui_tetris::types::{GameAction, SOFT_DROP_GRACE_MS, TICK_MS};
 
@@ -39,6 +40,11 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     game_state.snapshot_board_into(&mut snap);
 
     let mut adapter = Adapter::start_from_env();
+    let mut adapter_view = AdapterStatusView {
+        enabled: adapter.is_some(),
+        client_count: 0,
+        controller_id: None,
+    };
     let obs_interval_ms: u32 = std::env::var("TETRIS_AI_OBS_HZ")
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
@@ -61,6 +67,15 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut soft_drop_timer_ms: i32 = SOFT_DROP_GRACE_MS as i32;
 
     loop {
+        // Drain adapter status updates.
+        if let Some(ad) = adapter.as_mut() {
+            while let Some(st) = ad.try_recv_status() {
+                adapter_view.enabled = true;
+                adapter_view.client_count = st.client_count;
+                adapter_view.controller_id = st.controller_id;
+            }
+        }
+
         // Render.
         let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
         if game_state.board_id() != last_board_id {
@@ -68,7 +83,12 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             game_state.snapshot_board_into(&mut snap);
         }
         game_state.snapshot_meta_into(&mut snap);
-        view.render_into(&snap, Viewport::new(w, h), &mut fb);
+        let adapter_info = if adapter_view.enabled {
+            Some(&adapter_view)
+        } else {
+            None
+        };
+        view.render_into_with_adapter(&snap, adapter_info, Viewport::new(w, h), &mut fb);
         term.draw_swap(&mut fb)?;
 
         // Input with timeout until next tick.

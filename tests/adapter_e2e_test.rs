@@ -7,6 +7,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use tui_tetris::adapter::protocol::{create_ack, create_hello};
 use tui_tetris::adapter::runtime::InboundPayload;
+use tui_tetris::adapter::runtime::AdapterStatus;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
 use tui_tetris::core::GameState;
@@ -50,7 +51,7 @@ async fn adapter_wire_logging_writes_raw_frames() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -128,7 +129,7 @@ async fn adapter_hello_command_ack_and_observation() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -215,6 +216,84 @@ async fn adapter_hello_command_ack_and_observation() {
 }
 
 #[tokio::test]
+async fn adapter_emits_status_updates_on_connect_and_controller() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (status_tx, mut status_rx) = mpsc::unbounded_channel::<AdapterStatus>();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), Some(status_tx)).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Initial status (0 clients).
+    let _ = tokio::time::timeout(Duration::from_secs(2), status_rx.recv())
+        .await
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // Wait until we see client_count >= 1.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if let Ok(Some(st)) = tokio::time::timeout(Duration::from_millis(50), status_rx.recv()).await {
+            if st.client_count >= 1 {
+                break;
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("did not observe client_count >= 1");
+        }
+    }
+
+    // hello makes this client controller.
+    let hello = create_hello(1, "status-test", "2.0.0");
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let _welcome_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+
+    // Status should eventually show controller_id=Some(1).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if let Ok(Some(st)) = tokio::time::timeout(Duration::from_millis(50), status_rx.recv()).await {
+            if st.controller_id == Some(1) {
+                break;
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("did not observe controller_id == Some(1)");
+        }
+    }
+
+    server_handle.abort();
+}
+
+#[tokio::test]
 async fn adapter_hello_enqueues_snapshot_request() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
@@ -230,7 +309,7 @@ async fn adapter_hello_enqueues_snapshot_request() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -276,7 +355,7 @@ async fn adapter_place_maps_to_place_command() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -341,7 +420,7 @@ async fn adapter_place_invalid_rotation_returns_error() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -398,7 +477,7 @@ async fn adapter_backpressure_returns_error() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -474,7 +553,7 @@ async fn adapter_requires_hello_before_command() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -522,7 +601,7 @@ async fn adapter_parse_error_echoes_seq_best_effort() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -570,7 +649,7 @@ async fn adapter_rejects_out_of_order_seq_after_hello() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -646,7 +725,7 @@ async fn controller_disconnect_promotes_next_client() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -719,7 +798,7 @@ async fn adapter_unknown_message_type_echoes_seq() {
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)

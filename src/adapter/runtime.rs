@@ -11,6 +11,12 @@ use crate::adapter::server::{run_server, ServerConfig, ServerState};
 use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage};
 use crate::types::{GameAction, Rotation};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdapterStatus {
+    pub client_count: u16,
+    pub controller_id: Option<usize>,
+}
+
 /// Message delivered to the game loop.
 #[derive(Debug, Clone)]
 pub struct InboundCommand {
@@ -55,6 +61,7 @@ pub struct Adapter {
     _rt: Runtime,
     cmd_rx: mpsc::Receiver<InboundCommand>,
     out_tx: mpsc::UnboundedSender<OutboundMessage>,
+    status_rx: mpsc::UnboundedReceiver<AdapterStatus>,
 }
 
 impl Adapter {
@@ -70,21 +77,27 @@ impl Adapter {
         let max_pending = config.max_pending_commands.max(1);
         let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(max_pending);
         let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+        let (status_tx, status_rx) = mpsc::unbounded_channel::<AdapterStatus>();
 
         let rt = Runtime::new().expect("Failed to create tokio runtime");
         rt.spawn(async move {
-            let _ = run_server(config, cmd_tx, out_rx, None).await;
+            let _ = run_server(config, cmd_tx, out_rx, None, Some(status_tx)).await;
         });
 
         Some(Self {
             _rt: rt,
             cmd_rx,
             out_tx,
+            status_rx,
         })
     }
 
     pub fn try_recv(&mut self) -> Option<InboundCommand> {
         self.cmd_rx.try_recv().ok()
+    }
+
+    pub fn try_recv_status(&mut self) -> Option<AdapterStatus> {
+        self.status_rx.try_recv().ok()
     }
 
     pub fn send(&self, msg: OutboundMessage) {

@@ -13,6 +13,13 @@ pub struct Viewport {
     pub height: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdapterStatusView {
+    pub enabled: bool,
+    pub client_count: u16,
+    pub controller_id: Option<usize>,
+}
+
 impl Viewport {
     pub fn new(width: u16, height: u16) -> Self {
         Self { width, height }
@@ -47,6 +54,16 @@ impl GameView {
     /// This is the allocation-free hot path. Callers can reuse a framebuffer
     /// across frames and only resize when the terminal size changes.
     pub fn render_into(&self, snap: &GameSnapshot, viewport: Viewport, fb: &mut FrameBuffer) {
+        self.render_into_with_adapter(snap, None, viewport, fb);
+    }
+
+    pub fn render_into_with_adapter(
+        &self,
+        snap: &GameSnapshot,
+        adapter: Option<&AdapterStatusView>,
+        viewport: Viewport,
+        fb: &mut FrameBuffer,
+    ) {
         fb.resize(viewport.width, viewport.height);
         fb.clear(CellStyle::default().into_cell(' '));
 
@@ -127,7 +144,7 @@ impl GameView {
         }
 
         // Side panel (score/next/hold).
-        self.draw_side_panel(fb, snap, viewport, start_x, start_y, frame_w);
+        self.draw_side_panel(fb, snap, adapter, viewport, start_x, start_y, frame_w);
 
         // Overlays.
         if snap.paused {
@@ -141,6 +158,17 @@ impl GameView {
     pub fn render(&self, snap: &GameSnapshot, viewport: Viewport) -> FrameBuffer {
         let mut fb = FrameBuffer::new(viewport.width, viewport.height);
         self.render_into(snap, viewport, &mut fb);
+        fb
+    }
+
+    pub fn render_with_adapter(
+        &self,
+        snap: &GameSnapshot,
+        adapter: Option<&AdapterStatusView>,
+        viewport: Viewport,
+    ) -> FrameBuffer {
+        let mut fb = FrameBuffer::new(viewport.width, viewport.height);
+        self.render_into_with_adapter(snap, adapter, viewport, &mut fb);
         fb
     }
 
@@ -221,6 +249,7 @@ impl GameView {
         &self,
         fb: &mut FrameBuffer,
         snap: &GameSnapshot,
+        adapter: Option<&AdapterStatusView>,
         viewport: Viewport,
         start_x: u16,
         start_y: u16,
@@ -287,6 +316,29 @@ impl GameView {
                 fb.put_u32(panel_x + 3, y, (i as u32) + 1, dim);
             }
             y = y.saturating_add(1);
+        }
+
+        y = y.saturating_add(1);
+        fb.put_str(panel_x, y, "AI", label);
+        y = y.saturating_add(1);
+        if let Some(st) = adapter {
+            fb.put_str(panel_x, y, "ON", value);
+            if panel_w >= 16 {
+                let dim = CellStyle { dim: true, ..value };
+                fb.put_str(panel_x + 3, y, "clients", dim);
+            }
+            y = y.saturating_add(1);
+            fb.put_str(panel_x, y, "C", value);
+            fb.put_u32(panel_x + 2, y, st.client_count as u32, value);
+            y = y.saturating_add(1);
+            fb.put_str(panel_x, y, "CTRL", value);
+            if let Some(id) = st.controller_id {
+                fb.put_u32(panel_x + 5, y, id as u32, value);
+            } else {
+                fb.put_str(panel_x + 5, y, "-", value);
+            }
+        } else {
+            fb.put_str(panel_x, y, "OFF", value);
         }
     }
 
