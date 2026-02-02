@@ -29,7 +29,7 @@
           │
           ▼
 ┌─────────────────────────────────┐
-│     Adapter 层 (未完成)          │
+│     Adapter 层                   │
 │  ┌────────────────────────────┐ │
 │  │  Protocol (JSON) ✓        │ │
 │  │  TCP Server (缺失)         │ │
@@ -80,7 +80,7 @@ pub fn clear_full_rows(&mut self) -> ArrayVec<usize, 4> {
 }
 ```
 
-#### 问题 2: Board 使用 Vec<Vec<Cell>> 双重间接寻址
+#### 问题 2: Board 使用 Vec<Vec<Cell>> 双重间接寻址（已修复）
 
 **当前**:
 ```rust
@@ -100,7 +100,7 @@ pub fn get(&self, x: i8, y: i8) -> Option<Cell> {
 }
 ```
 
-#### 问题 3: UI 每帧渲染所有单元格
+#### 问题 3: UI 每帧渲染所有单元格（已修复）
 
 **当前** (widgets.rs): 即使无变化也重绘 200 个单元格
 
@@ -245,11 +245,11 @@ match s {
 | 特性 | swiftui-tetris | tui-tetris (当前) | tui-tetris (目标) |
 |------|----------------|-------------------|-------------------|
 | Core 语言 | Swift | Rust ✅ | Rust ✅ |
-| UI 技术 | SwiftUI+SpriteKit | ratatui | crossterm + custom framebuffer ✅ |
-| AI 协议 | TCP+JSON | TCP+JSON (stub) | TCP+JSON ✅ |
-| 渲染性能 | 60fps GPU | 60fps CPU (全量) | 60fps CPU (diff flush) |
-| 内存分配 | 预分配节点 | 每帧分配 | 零分配 |
-| 测试覆盖 | >90% | 114 测试 | 130+ 测试 |
+| UI 技术 | SwiftUI+SpriteKit | crossterm + custom framebuffer ✅ | crossterm + custom framebuffer ✅ |
+| AI 协议 | TCP+JSON | TCP+JSON ✅ | TCP+JSON ✅ |
+| 渲染性能 | 60fps GPU | 60fps CPU (diff flush) ✅ | <1ms/frame (目标) |
+| 内存分配 | 预分配节点 | core 热路径零分配 ✅ | end-to-end 零分配（目标） |
+| 测试覆盖 | >90% | acceptance/e2e + core 单测 ✅ | 覆盖率门槛（目标） |
 | DAS/ARR | ✓ | ✓ | ✓ |
 | 音效 | AVAudioEngine | ✗ | rodio (可选) |
 
@@ -258,22 +258,22 @@ match s {
 ## 5. 实施路线图
 
 ### Phase 1: 关键修复 (1-2 天)
-- [ ] 修复 Board 内存分配 (ArrayVec + 扁平数组)
-- [ ] 修复 T-spin 检测 (验证转角坐标)
-- [ ] 移除未使用依赖 (chrono)
-- [ ] 修复 error handling (scopeguard)
+- [x] 修复 Board 内存分配 (ArrayVec + 扁平数组)
+- [x] 修复 T-spin 检测 (corner + last-rotate)
+- [x] 移除未使用依赖 (按当前 Cargo.lock 为准)
+- [x] 结构化协议错误码 + e2e/acceptance tests
 
 ### Phase 2: 性能优化 (2-3 天)
-- [ ] 实现增量渲染
-- [ ] 添加 DAS/ARR 输入处理
-- [ ] GameState 封装化
-- [ ] 基准测试框架
+- [x] 实现增量渲染 (framebuffer diff flush)
+- [x] 添加 DAS/ARR 输入处理（支持无 release event 终端）
+- [ ] GameState API 封装化（进行中）
+- [ ] 基准测试框架（待实现；见 PERFORMANCE.md）
 
 ### Phase 3: Adapter 完成 (3-5 天)
-- [ ] TCP Server (tokio)
-- [ ] Controller/Observer 管理
-- [ ] 消息节流
-- [ ] AI 客户端兼容测试
+- [x] TCP Server (tokio)
+- [x] Controller/Observer 管理
+- [x] 消息节流 / backpressure
+- [x] AI 客户端兼容测试（e2e + acceptance + closed-loop）
 
 ### Phase 4: 打磨 (2-3 天)
 - [ ] 音效支持 (rodio)
@@ -315,7 +315,7 @@ match s {
 
 **劣势**:
 - 热路径分配过多
-- Adapter 未完成
+- Adapter 协议/测试已落地；持续维护兼容性
 - API 封装不足
 
 **建议**:

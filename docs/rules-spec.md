@@ -61,9 +61,9 @@ Matches swiftui-tetris for AI compatibility.
 |----------|-------|-------------|
 | TICK_MS | 16 | Logic update interval (60 FPS) |
 | BASE_DROP_MS | 1000 | Level 0 drop interval |
-| SOFT_DROP_MULTIPLIER | 10 | Soft drop speed multiplier |
+| SOFT_DROP_MULTIPLIER | 20 | Soft drop speed multiplier |
 | SOFT_DROP_GRACE_MS | 150 | Soft drop state timeout |
-| LOCK_DELAY_MS | 450 | Time before piece locks |
+| LOCK_DELAY_MS | 500 | Time before piece locks |
 | LOCK_RESET_LIMIT | 15 | Max lock delay resets per piece |
 | LINE_CLEAR_PAUSE_MS | 180 | Pause duration after clearing |
 | LANDING_FLASH_MS | 120 | Landing flash duration |
@@ -83,10 +83,11 @@ Matches swiftui-tetris for AI compatibility.
 | 8 | 160 |
 | 9+ | 120 |
 
-### DAS/ARR (Not yet implemented)
+### DAS/ARR
 
-- **DAS (Delayed Auto Shift)**: 150ms
-- **ARR (Auto Repeat Rate)**: 50ms
+- **DAS (Delayed Auto Shift)**: 167ms
+- **ARR (Auto Repeat Rate)**: 33ms
+- Note: terminals without key-release events use a timeout-based auto-release in the input handler
 
 ## Scoring
 

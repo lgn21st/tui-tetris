@@ -165,12 +165,22 @@
         "piece_id": { "type": "integer" },
         "step_in_piece": { "type": "integer" },
         "board": { "$ref": "#/definitions/board" },
-        "active": { "$ref": "#/definitions/active_piece" },
+        "active": {
+          "anyOf": [
+            { "$ref": "#/definitions/active_piece" },
+            { "type": "null" }
+          ]
+        },
         "next": { "type": "string" },
         "next_queue": { "type": "array", "items": { "type": "string" } },
         "hold": { "type": ["string", "null"] },
         "can_hold": { "type": "boolean" },
-        "last_event": { "$ref": "#/definitions/last_event" },
+        "last_event": {
+          "anyOf": [
+            { "$ref": "#/definitions/last_event" },
+            { "type": "null" }
+          ]
+        },
         "state_hash": { "type": "string" },
         "score": { "type": "integer" },
         "level": { "type": "integer" },

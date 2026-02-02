@@ -1,26 +1,30 @@
 # TUI-Tetris 最终项目评估与改进方案总结
 
+NOTE (2026-02-02): This document is retained for history.
+For the maintained, current view use:
+- `docs/feature-matrix.md`
+- `docs/roadmap.md`
+
+## 状态更新（当前实现）
+
+- Core 计时：`LOCK_DELAY_MS=500`、`SOFT_DROP_MULTIPLIER=20`、固定步长 `TICK_MS=16`
+- 规则：7-bag、SRS、T-Spin、combo、B2B 已实现且有测试覆盖
+- Board：扁平数组 + `ArrayVec` 消行（热路径零分配）
+- 渲染：crossterm + 自研 framebuffer + diff flush
+- 输入：DAS/ARR 已实现（含无 key-release 终端的超时释放）
+- Adapter：协议兼容 + e2e/acceptance/closed-loop tests
+
 **评估日期**: 2026-02-02  
 **评估依据**: 代码审查、架构评审、Tetris Guideline 标准
 
 ---
 
-## 一、当前项目统计
+## 一、当前项目统计（历史快照）
 
 ### 1.1 代码基线
 
 ```
-Git 提交数:        7 次
-Rust 代码行数:     3,663 行
-测试总数:          114 个
-    ├─ Core 测试:   75 个
-    ├─ Board 测试:  16 个  
-    ├─ Pieces 测试: 18 个
-    └─ 其他:         5 个
-文档文件数:        7 个 Markdown
-文档总行数:        1,706 行
-集成测试文件:      2 个
-Clippy 警告:       8 个 (均为未使用变量)
+该段统计为历史快照；当前请以 `git log` / `cargo test` / `cargo clippy` 输出为准。
 ```
 
 ### 1.2 代码分布
@@ -47,34 +51,39 @@ Clippy 警告:       8 个 (均为未使用变量)
 
 ## 二、关键问题清单（按严重性排序）
 
-### 🔴 P0 - 关键问题（影响游戏平衡和核心性能）
+### 🔴 P0 - 关键问题（历史）
 
-1. **Lock Delay 参数错误** - `types.rs:13`
-   - 当前: 450ms
+1. **Lock Delay 参数错误** - `types.rs`
+   - 状态: 已修复
+   - 当前: 500ms
    - 标准: 500ms (Tetris Guideline)
    - 影响: 高级技巧（stalled techniques）执行困难
    - 修复: 1 行代码
 
-2. **B2B 奖励计算错误** - `scoring.rs:71`
-   - 当前: `base_score / 2`
+2. **B2B 奖励计算错误** - `scoring.rs`
+   - 状态: 已修复
+   - 当前: `(base_score + combo_score) / 2`
    - 标准: `(base_score + combo_score) / 2`
    - 影响: 连击+B2B 得分偏低，影响高分策略
    - 修复: 3 行代码
 
-3. **Board 消行内存分配** - `game_state.rs:98-124`
-   - 问题: `Vec<usize>` 每次消行都堆分配（2-5 次/帧）
+3. **Board 消行内存分配** - `board.rs`
+   - 状态: 已修复
+   - 当前: `ArrayVec<usize, 4>`（栈分配）
    - 影响: 热路径分配，GC 压力
    - 修复: 使用 `ArrayVec<usize, 4>`（栈分配）
    - 工作量: 5 行代码 + 添加依赖
 
 4. **Vec<Vec<Cell>> 双重间接** - `board.rs`
-   - 问题: 200 个指针跳转，缓存不友好
+   - 状态: 已修复
+   - 当前: 扁平数组
    - 影响: 每次访问 cell 需两次内存跳转
    - 修复: 扁平化为 `[Cell; 200]` 一维数组
    - 工作量: 50 行代码重构
 
-5. **UI 全量重绘** - `widgets.rs`
-   - 问题: 每帧渲染全部 200 个单元格
+5. **UI 全量重绘**
+   - 状态: 已修复
+   - 当前: framebuffer diff flush
    - 影响: 60fps 时 CPU 占用高
    - 修复: 实现增量渲染（只绘制变化的 cell）
    - 工作量: 100 行代码
@@ -82,7 +91,7 @@ Clippy 警告:       8 个 (均为未使用变量)
 ### 🟡 P1 - 重要问题（影响手感和功能完整度）
 
 6. **DAS/ARR 系统缺失** - 全新模块
-   - 当前: 0% 实现
+   - 状态: 已修复（输入层已实现）
    - 标准: DAS 167ms, ARR 33ms
    - 影响: 无法快速移动，Finesse 技巧不可用
    - 修复: 新增 `InputHandler` 模块
@@ -96,7 +105,8 @@ Clippy 警告:       8 个 (均为未使用变量)
    - 工作量: 30 行代码
 
 8. **Soft Drop 重力错误** - `types.rs:11`
-   - 当前: 10x 重力
+   - 状态: 已修复
+   - 当前: 20x
    - 标准: 20-40x（通常固定约 50ms 间隔）
    - 影响: 软降速度偏慢
    - 修复: 1 行常量修改
@@ -108,10 +118,7 @@ Clippy 警告:       8 个 (均为未使用变量)
    - 工作量: 100 行代码
 
 10. **Adapter TCP Server 未实现** - 全新模块
-    - 当前: 只有 Protocol 定义，无 Server
-    - 影响: 无法与 AI 客户端通信
-    - 修复: 实现 tokio TCP Server
-    - 工作量: 500 行代码
+    - 状态: 已修复（tokio server + e2e/acceptance/closed-loop tests）
 
 ### 🟢 P2 - 完善性问题
 
@@ -126,6 +133,8 @@ Clippy 警告:       8 个 (均为未使用变量)
 ## 三、三层级改进建议
 
 ### ⚡ 立即执行（今天，1-2 小时）
+
+（已完成；保留原清单作为历史记录）
 
 目标: 修复游戏平衡性，达到 95%+ Guideline 兼容
 

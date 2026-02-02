@@ -3,7 +3,7 @@
 高性能终端俄罗斯方块游戏，支持外部 AI 控制。
 
 ![Tetris](https://img.shields.io/badge/Rust-TUI-blue)
-![Tests](https://img.shields.io/badge/Tests-114-green)
+![Tests](https://img.shields.io/badge/Tests-passing-green)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ## 🎮 快速开始
@@ -93,6 +93,8 @@ tui-tetris/
 │   └── adapter/          # AI 协议
 │       ├── protocol.rs   # JSON 消息定义
 │       └── mod.rs
+│   └── engine/           # 可复用引擎辅助逻辑
+│       └── place.rs      # place-mode 应用逻辑
 ├── tests/                # 集成测试
 ├── docs/                 # 文档
 │   ├── architecture-review.md  # 专家级架构评审 (15 模块深度分析)
@@ -101,6 +103,9 @@ tui-tetris/
 │   ├── rules-spec.md     # 游戏规则详情
 │   ├── PERFORMANCE.md    # 性能优化指南
 │   └── adapter-protocol.md # AI 协议规范
+│   ├── adapter_acceptance.md # AI 验收标准
+│   ├── roadmap.md        # 当前维护路线图
+│   └── feature-matrix.md # 功能矩阵
 └── Cargo.toml
 ```
 
@@ -119,22 +124,18 @@ cargo test game_state
 cargo tarpaulin --out Html
 ```
 
-**当前测试状态**: 137 个测试全部通过 ✅
+**当前测试状态**: `cargo test` 通过 ✅
 
-- Board: 16 测试
-- Pieces: 18 测试  
-- RNG: 7 测试
-- Scoring: 10 测试
-- GameState: 63 测试
-- Adapter: 20+ 测试
-- Term Renderer: 3 测试
-- Doc Tests: 8 测试
+建议关注的测试套件:
+- `cargo test --test adapter_acceptance_test`
+- `cargo test --test adapter_closed_loop_test`
+- `cargo test --test no_alloc_gate_test`
 
 ## 🎯 开发路线
 
 ### 已完成 ✅
 - [x] 完整游戏可玩
-- [x] 151 个单元测试
+- [x] 关键 acceptance/e2e/closed-loop 测试门槛
 - [x] Core 层零外部依赖
 - [x] Board 扁平化重构（1D 数组）
 - [x] 完美宽高比渲染（2:1 字符比例）
@@ -158,7 +159,7 @@ cargo tarpaulin --out Html
 |------|------|------|
 | 渲染一帧 | ~2ms | <1ms |
 | 消行计算 | ~50μs | <10μs |
-| 内存分配/帧 | 2-5 次 | 0 次 |
+| 内存分配/帧 | (依赖 input/adapter) | 0（core 热路径） |
 
 *详见 docs/PERFORMANCE.md*
 
@@ -174,8 +175,7 @@ cargo tarpaulin --out Html
 - 游戏规则正确
 
 **需改进**:
-- 热路径内存分配
-- Adapter 未完成
+- 端到端分配压缩（input/adapter/观测构建）
 - API 封装不足
 
 ## 📚 文档
@@ -184,11 +184,14 @@ cargo tarpaulin --out Html
 - [架构评审](docs/architecture-review.md) - 专家级代码审查 (15 模块深度分析)
 - [改进方案](docs/IMPROVEMENT-PLAN.md) - 全面改进方案与 5 阶段路线图
 - [实施清单](docs/TODO.md) - 详细任务分解与验收标准
+- [Roadmap](docs/roadmap.md) - 当前维护的路线图
+- [Feature Matrix](docs/feature-matrix.md) - 功能清单与状态
 
 ### 技术规范
 - [游戏规则](docs/rules-spec.md) - 完整 Tetris 规则 (SRS/计分/计时)
 - [性能指南](docs/PERFORMANCE.md) - 优化技术与基准测试
 - [AI 协议](docs/adapter-protocol.md) - JSON 协议规范
+- [AI 验收标准](docs/adapter_acceptance.md) - 协议/行为门槛与自测命令
 - [开发约定](AGENTS.md) - TDD 工作流程
 
 ## 🤝 兼容性

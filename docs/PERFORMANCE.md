@@ -11,14 +11,16 @@ Performance optimization guide for tui-tetris.
 | Render frame | ~2ms | <1ms | P1 |
 | Line clear | ~50μs | <10μs | P1 |
 | Piece spawn | ~5μs | <5μs | P2 |
-| Allocations/frame | 2-5 | 0 | P0 |
+| Allocations/frame | (varies by adapter/input) | 0 (core hot paths) | P0 |
 | Memory usage | ~50KB | ~30KB | P2 |
 
 ## Critical Issues
 
-### Issue 1: Board::clear_full_rows Allocates
+### Resolved: Board::clear_full_rows Allocates
 
-**Problem**: Called on every piece lock, allocates `Vec<usize>`
+**Status**: Fixed.
+
+**Problem (historical)**: Called on every piece lock, allocated `Vec<usize>`
 
 ```rust
 // Current (BAD)
@@ -44,9 +46,11 @@ pub fn clear_full_rows(&mut self) -> ArrayVec<usize, 4> {
 
 **Impact**: Eliminates heap allocation on hot path
 
-### Issue 2: Vec<Vec<Cell>> Double Indirection
+### Resolved: Vec<Vec<Cell>> Double Indirection
 
-**Problem**: Poor cache locality, 200 pointer jumps
+**Status**: Fixed.
+
+**Problem (historical)**: Poor cache locality, 200 pointer jumps
 
 ```rust
 // Current (BAD)
@@ -66,9 +70,11 @@ fn index(x: i8, y: i8) -> usize {
 
 **Impact**: 10-20% faster board operations
 
-### Issue 3: UI Full Re-render Every Frame
+### Resolved: UI Full Re-render Every Frame
 
-**Problem**: Renders all 200 cells even when unchanged
+**Status**: Fixed (diff-based terminal rendering).
+
+**Problem (historical)**: Rendered all 200 cells even when unchanged
 
 **Solution**: Diff-based rendering
 
@@ -110,6 +116,9 @@ impl IncrementalRenderer {
 ### 1. Zero-Allocation Hot Paths
 
 Mark functions with `#[inline]` and ensure no allocations:
+
+Repo gate:
+- `cargo test --test no_alloc_gate_test`
 
 ```rust
 #[inline]
@@ -229,8 +238,8 @@ heaptrack ./target/release/tui-tetris
 
 ### Before Release
 
-- [ ] Zero allocations in tick()
-- [ ] Zero allocations in render()
+- [x] Zero allocations in core tick/apply_action hot paths (see `tests/no_alloc_gate_test.rs`)
+- [ ] Zero allocations in end-to-end runner (input + adapter + render)
 - [ ] All hot paths marked `#[inline]`
 - [ ] Benchmarks passing (<1ms per frame)
 - [ ] Memory usage <50KB steady-state

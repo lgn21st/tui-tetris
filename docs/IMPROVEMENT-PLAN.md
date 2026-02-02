@@ -1,5 +1,10 @@
 # TUI-Tetris 全面评估与改进方案
 
+NOTE (2026-02-02): This document is largely historical.
+For the maintained status and next steps, prefer:
+- `docs/feature-matrix.md`
+- `docs/roadmap.md`
+
 **评估日期**: 2026-02-02  
 **评估依据**: 
 - 专家评审 (architecture-review.md)
@@ -15,10 +20,10 @@
 | 维度 | 评分 | 说明 |
 |------|------|------|
 | 代码组织 | ⭐⭐⭐⭐⭐ | Core/Adapter/UI 分离清晰 |
-| 测试覆盖 | ⭐⭐⭐⭐⭐ | 114 个测试，核心模块 90%+ |
-| 性能 | ⭐⭐ | 热路径存在内存分配 |
+| 测试覆盖 | ⭐⭐⭐⭐⭐ | 覆盖率以 `cargo test` + acceptance/closed-loop gates 为准 |
+| 性能 | ⭐⭐⭐⭐ | core 热路径零分配；adapter/输入仍有可优化点 |
 | API 设计 | ⭐⭐⭐ | 封装性不足，接口不一致 |
-| 错误处理 | ⭐⭐ | 缺乏结构化错误类型 |
+| 错误处理 | ⭐⭐⭐⭐ | adapter error codes + e2e/acceptance coverage |
 | 文档 | ⭐⭐⭐⭐ | 新增专家级文档 |
 
 ### 1.2 游戏性层面
@@ -28,12 +33,12 @@
 | SRS 旋转 | ✅ | 100% - 踢墙表正确 |
 | 7-bag RNG | ✅ | 100% - 符合 Guideline |
 | 基础计分 | ✅ | 100% - 40/100/300/1200 |
-| 锁定延迟 | ⚠️ | 90% - 应为 500ms 而非 450ms |
+| 锁定延迟 | ✅ | 100% - 500ms |
 | T-Spin 检测 | ✅ | 95% - 3-corner 规则正确 |
-| B2B 奖励 | ⚠️ | 80% - 未包含连击分数 |
-| DAS/ARR | ❌ | 0% - 未实现 |
+| B2B 奖励 | ✅ | 100% - B2B 作用于 base + combo |
+| DAS/ARR | ✅ | 100% - 输入层已实现 |
 | ARE | ❌ | 0% - 缺失入场延迟 |
-| Soft Drop | ⚠️ | 70% - 10x 应为 20-40x |
+| Soft Drop | ✅ | 100% - 20x (见 `SOFT_DROP_MULTIPLIER`) |
 
 ### 1.3 性能层面
 
@@ -41,10 +46,10 @@
 
 ```
 热点分析 (每帧):
-├─ Board::clear_full_rows: 2 次堆分配 (Vec)
-├─ UI 渲染: 200 个单元格全量重绘
-├─ Vec<Vec<Cell>>: 双重指针跳转
-└─ 总分配: 2-5 次/帧
+├─ Board::clear_full_rows: 0 分配 (ArrayVec)
+├─ Board 存储: 扁平数组
+├─ 渲染: diff flush
+└─ 剩余分配: 主要来自 adapter 观测构建/序列化与输入聚合
 ```
 
 **目标**:
@@ -60,23 +65,23 @@
 
 | 参数 | 当前值 | Guideline | 影响 |
 |------|--------|-----------|------|
-| Lock Delay | 450ms | **500ms** | 过高提升生存率，过低降低技术上限 |
-| DAS | 未实现 | **167ms** | 影响移动手感 |
-| ARR | 未实现 | **33ms** | 影响自动重复速度 |
+| Lock Delay | 500ms | **500ms** | 过高提升生存率，过低降低技术上限 |
+| DAS | 167ms | **167ms** | 影响移动手感 |
+| ARR | 33ms | **33ms** | 影响自动重复速度 |
 | ARE | 缺失 | **0ms** | 消行后入场延迟 |
 
 ### 2.2 游戏机制
 
 | 机制 | 当前 | Guideline | 严重程度 |
 |------|------|-----------|----------|
-| Soft Drop 重力 | 10x | **20-40x** | 影响速度控制 |
-| B2B 奖励范围 | 仅消行分 | **含连击** | 影响高分策略 |
+| Soft Drop 重力 | 20x | **20-40x** | 影响速度控制 |
+| B2B 奖励范围 | 含连击 | **含连击** | 影响高分策略 |
 | T-Spin 判定 | 3-corner | 3-corner ✅ | 正确 |
 | 锁定重置限制 | 15 次 | 15 次 ✅ | 正确 |
 
 ### 2.3 现代 Tetris 缺失功能
 
-1. **DAS/ARR 系统** - 按键长按自动重复
+1. **DAS/ARR 系统** - 已实现 ✅
 2. **ARE (Entry Delay)** - 消行后入场延迟
 3. ** sonic drop** - 立即降落但不锁定
 4. **Initial Rotation System (IRS)** - 入场前预旋转
@@ -88,18 +93,18 @@
 
 ### 3.1 P0 - 游戏平衡性
 
-#### 问题 1: Lock Delay 450ms vs 500ms
+#### 问题 1: Lock Delay（已修复）
 
 **影响**: 
 - 50ms 差异看似微小，但对高级技巧（如 stalled techniques）至关重要
-- 450ms 使游戏略难，500ms 是官方标准
+- 当前实现已为 500ms（Guideline）
 
 **修复**:
 ```rust
 pub const LOCK_DELAY_MS: u32 = 500;  // 原为 450
 ```
 
-#### 问题 2: B2B 奖励未包含连击
+#### 问题 2: B2B 奖励未包含连击（已修复）
 
 **当前实现**:
 ```rust
@@ -114,7 +119,7 @@ let back_to_back_bonus = base_score / 2;  // 仅基础分
 let back_to_back_bonus = (base_score + combo_score) / 2;
 ```
 
-#### 问题 3: DAS/ARR 缺失
+#### 问题 3: DAS/ARR 缺失（已修复）
 
 **影响**: 
 - 无法快速移动（如 Finesse 技巧）
@@ -189,7 +194,7 @@ impl IncrementalRenderer {
 
 #### Soft Drop 重力
 
-**当前**: 10x 重力（间隔为正常的 1/10）
+**当前**: 20x（已实现）
 
 **Guideline**: 20-40x（通常固定为约 50ms 间隔）
 
@@ -462,10 +467,10 @@ Week 1                    Week 2                    Week 3
 **当前项目状态**: 优秀的 MVP，可玩且架构良好
 
 **主要差距**:
-1. 计时参数微调（Lock Delay 500ms）
-2. DAS/ARR 系统缺失（影响手感）
-3. 热路径内存分配（影响性能）
-4. Adapter 未完成（影响 AI）
+1. ARE/入场延迟（如需严格对齐）
+2. 端到端分配压缩（adapter 观测构建/序列化与输入聚合）
+3. 基准测试与性能回归门槛（`cargo bench`）
+4. Core API 封装化与快照接口
 
 **改进后预期**:
 - 游戏性达到 98% Guideline 兼容
@@ -473,10 +478,9 @@ Week 1                    Week 2                    Week 3
 - 功能完整支持 AI 训练
 
 **建议启动顺序**:
-1. **立即**: Phase 1（游戏平衡）- 1 天
-2. **本周**: Phase 3（DAS/ARR）- 2 天
-3. **下周**: Phase 2（性能优化）- 3 天
-4. **随后**: Phase 4（Adapter）- 5 天
+1. **优先**: 性能基准与回归门槛（`cargo bench`）
+2. **随后**: 端到端零分配（输入/adapter/渲染）
+3. **视需要**: ARE/IRS/IHS 等手感对齐
 
 ---
 
