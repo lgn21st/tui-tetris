@@ -49,6 +49,15 @@ Example:
 ### command (client -> game)
 - `mode=action`: `actions: ["moveLeft", "rotateCw", ...]`
 - `mode=place`: `place: { "x": 3, "rotation": "east", "useHold": false }`
+#### Snapshot invariants
+- Board shape is fixed: `board.width=10`, `board.height=20`, and `board.cells` is a 20x10 grid.
+- Cell encoding: `board.cells[y][x]` is `0..7` (0 empty; 1..7 map to I,O,T,S,Z,J,L).
+- `next_queue` is always length 5 and `next == next_queue[0]`.
+- Optional field presence:
+  - `active` and `ghost_y` are omitted when there is no active piece (for example when not playable).
+  - `hold` is omitted when there is no hold piece.
+  - `last_event` is emitted only when an event occurred (typically on lock/line clear); otherwise it is omitted.
+
 Notes:
 - Commands are acknowledged after they are mapped and applied during the adapter poll tick.
 Examples:
@@ -108,6 +117,9 @@ Example:
 - `backpressure`: command queue full
 
 ## Recommended Self-Tests
+- Hello sequencing:
+  - Send `hello` with `seq!=1`.
+  - Expect `error.code = "invalid_command"` and the connection to remain unhandshaken (no snapshot request).
 - Protocol mismatch:
   - Send `hello` with a different major version (for example `3.0.0` when server is `2.0.0`).
   - Expect `error.code = "protocol_mismatch"` and matching `seq`.
@@ -116,8 +128,8 @@ Example:
   - Send two controller `command` messages quickly before the first is drained.
   - Expect one successful `ack` and one `error.code = "backpressure"` (matching each command `seq`).
 - Sequencing (out-of-order):
-  - Send `hello` with `seq=2`.
-  - Then send a `command` with `seq=1`.
+  - Send `hello` with `seq=1`.
+  - Then send a `command` with `seq=1` (duplicate / out-of-order).
   - Expect `error.code = "invalid_command"` and matching `seq=1`, and the command MUST NOT be enqueued/applied.
 
 ## Defaults

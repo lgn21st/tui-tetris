@@ -28,7 +28,7 @@
     "place": {
       "type": "object",
       "properties": {
-        "x": { "type": "integer" },
+        "x": { "type": "integer", "minimum": 0, "maximum": 9 },
         "rotation": { "$ref": "#/definitions/rotation" },
         "useHold": { "type": "boolean" }
       },
@@ -37,13 +37,17 @@
     "board": {
       "type": "object",
       "properties": {
-        "width": { "type": "integer" },
-        "height": { "type": "integer" },
+        "width": { "const": 10 },
+        "height": { "const": 20 },
         "cells": {
           "type": "array",
+          "minItems": 20,
+          "maxItems": 20,
           "items": {
             "type": "array",
-            "items": { "type": "integer" }
+            "minItems": 10,
+            "maxItems": 10,
+            "items": { "type": "integer", "minimum": 0, "maximum": 7 }
           }
         }
       },
@@ -54,8 +58,8 @@
       "properties": {
         "kind": { "$ref": "#/definitions/piece_kind" },
         "rotation": { "$ref": "#/definitions/rotation" },
-        "x": { "type": "integer" },
-        "y": { "type": "integer" }
+        "x": { "type": "integer", "minimum": 0, "maximum": 9 },
+        "y": { "type": "integer", "minimum": -4, "maximum": 23 }
       },
       "required": ["kind", "rotation", "x", "y"]
     },
@@ -74,9 +78,9 @@
     "timers": {
       "type": "object",
       "properties": {
-        "drop_ms": { "type": "integer" },
-        "lock_ms": { "type": "integer" },
-        "line_clear_ms": { "type": "integer" }
+        "drop_ms": { "type": "integer", "minimum": 0 },
+        "lock_ms": { "type": "integer", "minimum": 0 },
+        "line_clear_ms": { "type": "integer", "minimum": 0 }
       },
       "required": ["drop_ms", "lock_ms", "line_clear_ms"]
     },
@@ -84,7 +88,7 @@
       "type": "object",
       "properties": {
         "type": { "const": "hello" },
-        "seq": { "type": "integer" },
+        "seq": { "const": 1 },
         "ts": { "type": "integer" },
         "client": {
           "type": "object",
@@ -111,7 +115,7 @@
       "type": "object",
       "properties": {
         "type": { "const": "welcome" },
-        "seq": { "type": "integer" },
+        "seq": { "const": 1 },
         "ts": { "type": "integer" },
         "protocol_version": { "type": "string" },
         "game_id": { "type": "string" },
@@ -150,8 +154,8 @@
       "type": "object",
       "properties": {
         "type": { "const": "control" },
-        "seq": { "type": "integer" },
-        "ts": { "type": "integer" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer", "minimum": 0 },
         "action": { "type": "string", "enum": ["claim", "release"] }
       },
       "required": ["type", "seq", "ts", "action"]
@@ -160,17 +164,17 @@
       "type": "object",
       "properties": {
         "type": { "const": "observation" },
-        "seq": { "type": "integer" },
-        "ts": { "type": "integer" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer", "minimum": 0 },
         "playable": { "type": "boolean" },
         "paused": { "type": "boolean" },
         "game_over": { "type": "boolean" },
-        "episode_id": { "type": "integer" },
-        "seed": { "type": "integer" },
-        "piece_id": { "type": "integer" },
-        "step_in_piece": { "type": "integer" },
+        "episode_id": { "type": "integer", "minimum": 0 },
+        "seed": { "type": "integer", "minimum": 0 },
+        "piece_id": { "type": "integer", "minimum": 0 },
+        "step_in_piece": { "type": "integer", "minimum": 0 },
         "board": { "$ref": "#/definitions/board" },
-        "board_id": { "type": "integer" },
+        "board_id": { "type": "integer", "minimum": 0 },
         "active": {
           "anyOf": [
             { "$ref": "#/definitions/active_piece" },
@@ -179,8 +183,8 @@
         },
         "ghost_y": { "type": ["integer", "null"] },
         "next": { "$ref": "#/definitions/piece_kind" },
-        "next_queue": { "type": "array", "items": { "$ref": "#/definitions/piece_kind" } },
-        "hold": { "type": ["string", "null"] },
+        "next_queue": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "$ref": "#/definitions/piece_kind" } },
+        "hold": { "anyOf": [ { "$ref": "#/definitions/piece_kind" }, { "type": "null" } ] },
         "can_hold": { "type": "boolean" },
         "last_event": {
           "anyOf": [
@@ -189,9 +193,9 @@
           ]
         },
         "state_hash": { "type": "string" },
-        "score": { "type": "integer" },
-        "level": { "type": "integer" },
-        "lines": { "type": "integer" },
+        "score": { "type": "integer", "minimum": 0 },
+        "level": { "type": "integer", "minimum": 0 },
+        "lines": { "type": "integer", "minimum": 0 },
         "timers": { "$ref": "#/definitions/timers" }
       },
       "required": [
