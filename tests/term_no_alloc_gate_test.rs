@@ -51,13 +51,15 @@ fn term_game_view_render_is_allocation_free_after_warmup() {
     let mut gs = GameState::new(1);
     gs.start();
 
+    let mut snap = gs.snapshot();
+
     // Warm-up (resize/initial clears).
-    let snap = gs.snapshot();
+    gs.snapshot_into(&mut snap);
     view.render_into(&snap, viewport, &mut fb);
 
     let allocs = with_alloc_counting(|| {
         for _ in 0..200 {
-            let snap = gs.snapshot();
+            gs.snapshot_into(&mut snap);
             view.render_into(&snap, viewport, &mut fb);
         }
     });

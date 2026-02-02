@@ -10,7 +10,7 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyEventKind};
 
 use tui_tetris::adapter::{Adapter, OutboundMessage};
-use tui_tetris::core::GameState;
+use tui_tetris::core::{GameSnapshot, GameState};
 use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
 use tui_tetris::term::{GameView, TerminalRenderer, Viewport};
@@ -34,6 +34,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let view = GameView::default();
     let mut fb = tui_tetris::term::FrameBuffer::new(80, 24);
     let mut input_handler = InputHandler::new();
+    let mut snap = GameSnapshot::default();
 
     let mut adapter = Adapter::start_from_env();
     let obs_interval_ms: u32 = std::env::var("TETRIS_AI_OBS_HZ")
@@ -60,7 +61,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     loop {
         // Render.
         let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
-        let snap = game_state.snapshot();
+        game_state.snapshot_into(&mut snap);
         view.render_into(&snap, Viewport::new(w, h), &mut fb);
         term.draw_swap(&mut fb)?;
 
@@ -132,7 +133,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         tui_tetris::adapter::runtime::InboundPayload::SnapshotRequest => {
                             // Send an immediate observation to this client.
                             obs_seq = obs_seq.wrapping_add(1);
-                            let snap = game_state.snapshot();
+                            game_state.snapshot_into(&mut snap);
                             let obs = tui_tetris::adapter::server::build_observation(
                                 obs_seq,
                                 &snap,
@@ -296,7 +297,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 let last_event = pending_last_event.take();
 
                 if let Some(ad) = adapter.as_ref() {
-                    let snap = game_state.snapshot();
+                    game_state.snapshot_into(&mut snap);
                     let obs =
                         tui_tetris::adapter::server::build_observation(obs_seq, &snap, last_event);
                     ad.send(OutboundMessage::BroadcastObservation { obs });
