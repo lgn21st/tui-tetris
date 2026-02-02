@@ -341,7 +341,7 @@ fn apply_place(
         return Err(PlaceError::NoActive);
     };
 
-    // Try both CW and CCW plans; keep the shorter one first.
+    // Try CW/CCW plans including 180; keep shorter first.
     let rot_to_i = |r: tui_tetris::types::Rotation| match r {
         tui_tetris::types::Rotation::North => 0i8,
         tui_tetris::types::Rotation::East => 1i8,
@@ -354,6 +354,7 @@ fn apply_place(
     let cw = (tgt - cur).rem_euclid(4) as u8;
     let ccw = (cur - tgt).rem_euclid(4) as u8;
 
+    // Always consider both directions; for 180 both will be 2.
     let mut plans: [(&'static str, bool, u8); 2] = [("cw", true, cw), ("ccw", false, ccw)];
     if plans[1].2 < plans[0].2 {
         plans.swap(0, 1);

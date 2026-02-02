@@ -465,3 +465,59 @@ async fn controller_disconnect_promotes_next_client() {
 
     server_handle.abort();
 }
+
+#[tokio::test]
+async fn adapter_unknown_message_type_echoes_seq() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+    };
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    let hello = create_hello(1, "unknown-test", "2.0.0");
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap();
+
+    // Unknown type with seq=9 should return invalid_command and echo seq.
+    let msg = r#"{"type":"wat","seq":9,"ts":1}"#;
+    write_half.write_all(msg.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["type"], "error");
+    assert_eq!(v["seq"], 9);
+    assert_eq!(v["code"], "invalid_command");
+
+    server_handle.abort();
+}

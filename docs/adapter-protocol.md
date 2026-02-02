@@ -111,3 +111,4 @@ Example:
 - `TETRIS_AI_DISABLED`: disable adapter (`1`/`true`)
 - `TETRIS_AI_OBS_HZ`: observation frequency in Hz (default: `20`)
 - `TETRIS_AI_MAX_PENDING`: max queued controller commands before `backpressure` (default: `10`)
+- `TETRIS_AI_LOG_PATH`: append raw adapter traffic to a file (one line per frame)

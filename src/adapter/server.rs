@@ -459,8 +459,9 @@ async fn handle_client(
                 let _ = tx.send(json);
             }
 
-            _ => {
-                let error = create_error(0, "invalid_command", "Unknown message type");
+            Ok(ParsedMessage::Unknown(value)) => {
+                let seq = value.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
+                let error = create_error(seq, "invalid_command", "Unknown message type");
                 let json = serde_json::to_string(&error)?;
                 let _ = tx.send(json);
             }
