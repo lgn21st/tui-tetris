@@ -17,7 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Auto Repeat Rate: 33ms
   - Ghost key elimination for rapid alternation
 - Aspect ratio correction (2:1 character ratio for square blocks)
-- Comprehensive rustdoc documentation with 9 doc-test examples
+- Terminal-first renderer (framebuffer + diff/dirty-cell flush)
+- Engine-facing input module (key mapping + DAS/ARR)
+- Comprehensive rustdoc documentation with doc-test examples
 - Input test utility (`cargo run --bin input-test`)
 
 ### Fixed
@@ -27,12 +29,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - "Device not configured" error by removing TTY check
 
 ### Changed
-- Replaced incremental rendering with full rendering for reliability
-- Simplified input handler with timeout-based key release detection
-- Updated all 151 tests to pass with new implementations
+- Replaced ratatui UI with a custom crossterm + framebuffer renderer
+- Moved terminal input into `src/input` (no UI-framework coupling)
+- Switched to diff/dirty-cell flushing for terminal performance
 
 ### Technical
-- 151 tests passing (including 9 doc tests)
+- 137 tests passing (including 8 doc tests)
 - Zero compiler warnings
 - Complete API documentation
 - Modular adapter architecture ready for extensions

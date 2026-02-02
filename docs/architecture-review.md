@@ -245,12 +245,12 @@ match s {
 | 特性 | swiftui-tetris | tui-tetris (当前) | tui-tetris (目标) |
 |------|----------------|-------------------|-------------------|
 | Core 语言 | Swift | Rust ✅ | Rust ✅ |
-| UI 技术 | SwiftUI+SpriteKit | ratatui | ratatui ✅ |
+| UI 技术 | SwiftUI+SpriteKit | ratatui | crossterm + custom framebuffer ✅ |
 | AI 协议 | TCP+JSON | TCP+JSON (stub) | TCP+JSON ✅ |
-| 渲染性能 | 60fps GPU | 60fps CPU (全量) | 60fps CPU (增量) |
+| 渲染性能 | 60fps GPU | 60fps CPU (全量) | 60fps CPU (diff flush) |
 | 内存分配 | 预分配节点 | 每帧分配 | 零分配 |
-| 测试覆盖 | >90% | 114 测试 | 114+ 测试 |
-| DAS/ARR | ✓ | ✗ | ✓ |
+| 测试覆盖 | >90% | 114 测试 | 130+ 测试 |
+| DAS/ARR | ✓ | ✓ | ✓ |
 | 音效 | AVAudioEngine | ✗ | rodio (可选) |
 
 ---
@@ -290,10 +290,9 @@ match s {
 - `smallvec` - 小容量栈优化
 - `criterion` - 基准测试
 
-### TUI
-- `ratatui` - 已使用 ✅
-- `tui-rs` - 备选
-- `tui-input` - 高级输入处理
+### Terminal
+- `crossterm` - 已使用 ✅
+- 自研 framebuffer + diff flush - 已使用 ✅
 
 ### 异步
 - `tokio` - 已使用 ✅

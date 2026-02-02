@@ -15,8 +15,9 @@
 ## Architecture Expectations
 - `core` owns board, pieces, RNG, scoring, timing, and actions (NO external deps)
 - `adapter` handles AI protocol (TCP socket, JSON line protocol)
-- `ui` is ratatui-only: terminal rendering, input handling, game loop
-- Rendering should use incremental updates (diff-based) for performance
+- `term` is crossterm-only: terminal framebuffer + renderer flush (no ratatui widgets)
+- `input` handles key mapping and DAS/ARR (works with terminals without key-release events)
+- Rendering should use diff-based updates for performance (dirty-cells / dirty-rects)
 
 ## Working Agreements
 - Follow strict TDD: write tests first, then implement
@@ -28,13 +29,13 @@
 ## Testing Strategy
 - Core tests: rule compliance, timing, edge cases (>90% coverage)
 - Adapter tests: protocol parsing, connection handling (>80% coverage)
-- UI tests: integration tests for critical paths
+- Renderer tests: snapshot-style framebuffer tests for critical paths
 - Run `cargo test` before every commit
 
 ## Dependencies
 - Core: pure Rust, no std library dependencies beyond containers
 - Adapter: tokio, serde, serde_json (async networking)
-- UI: ratatui, crossterm (TUI rendering and input)
+- Terminal: crossterm (I/O), custom framebuffer renderer (no ratatui)
 
 ## Protocol Compatibility
 - AI protocol 100% compatible with swiftui-tetris

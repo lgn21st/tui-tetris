@@ -1,8 +1,8 @@
 //! Integration tests for main game loop
 
 use tui_tetris::core::GameState;
+use tui_tetris::input::InputHandler;
 use tui_tetris::types::{GameAction, PieceKind};
-use tui_tetris::ui::InputHandler;
 
 #[test]
 fn test_game_lifecycle() {

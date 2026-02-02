@@ -18,9 +18,12 @@
 //!   - Supports both "action" and "place" command modes
 //!   - Allows external AI agents to control the game
 //!
-//! - [`ui`]: Terminal rendering and input handling
-//!   - Uses ratatui for declarative TUI rendering
-//!   - Uses crossterm for cross-platform input handling
+//! - [`term`]: Terminal game renderer and framebuffer pipeline
+//!   - Uses crossterm for terminal I/O (raw mode, alternate screen, input)
+//!   - Renders via a small framebuffer and renderer flush layer
+//!
+//! - [`input`]: Terminal input mapping and DAS/ARR handler
+//!   - Maps key events to game actions
 //!   - Implements DAS/ARR for responsive controls
 //!
 //! - [`types`]: Core types and constants shared across modules
@@ -65,9 +68,10 @@
 //!
 //! - Zero-allocation hot paths (tick, render)
 //! - 16ms fixed timestep for consistent gameplay
-//! - Diff-based rendering support (currently using full render for reliability)
+//! - Diff-based terminal rendering (dirty-cell flush)
 
 pub mod adapter;
 pub mod core;
+pub mod input;
+pub mod term;
 pub mod types;
-pub mod ui;

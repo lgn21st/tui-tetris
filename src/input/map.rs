@@ -1,9 +1,9 @@
-//! Input module - Keyboard handling for game controls
+//! Key mapping from terminal events to game actions.
 
 use crate::types::GameAction;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-/// Map keyboard input to game actions
+/// Map keyboard input to game actions.
 pub fn handle_key_event(key: KeyEvent) -> Option<GameAction> {
     match key.code {
         // Movement
@@ -27,7 +27,7 @@ pub fn handle_key_event(key: KeyEvent) -> Option<GameAction> {
     }
 }
 
-/// Check if key should quit the game
+/// Check if key should quit the game.
 pub fn should_quit(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q'))
         || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))

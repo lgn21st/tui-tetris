@@ -15,8 +15,6 @@ name = "input-test"
 path = "src/bin/input_test.rs"
 
 [dependencies]
-# TUI core
-ratatui = "0.29"
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
 
 # Async networking for AI adapter
