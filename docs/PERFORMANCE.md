@@ -234,6 +234,19 @@ Recommended benches to watch:
 - `render_into`
 - `snapshot_meta_into`
 - `snapshot_board_into`
+- `encode_diff_into`
+
+### Regression Workflow (Lightweight)
+
+1) Record a baseline (local)
+- `cargo bench`
+
+2) Make changes, then compare
+- `cargo bench`
+
+3) Review
+- Focus on median time and the shape of the distribution; ignore small noise.
+- Prefer comparing the same machine/terminal/font settings.
 ```
 
 ### Memory Profiling

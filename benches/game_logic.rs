@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tui_tetris::adapter::server::build_observation;
 use tui_tetris::core::{Board, GameSnapshot, GameState};
-use tui_tetris::term::{FrameBuffer, GameView, Viewport};
+use tui_tetris::term::{encode_diff_into, FrameBuffer, GameView, Viewport};
 use tui_tetris::types::{GameAction, PieceKind};
 
 fn bench_tick(c: &mut Criterion) {
@@ -96,6 +96,35 @@ fn bench_render_into(c: &mut Criterion) {
     });
 }
 
+fn bench_encode_diff_into(c: &mut Criterion) {
+    let mut state = GameState::new(12345);
+    state.start();
+    let view = GameView::default();
+    let viewport = Viewport::new(80, 24);
+
+    let mut snap = GameSnapshot::default();
+    state.snapshot_into(&mut snap);
+
+    let mut prev = FrameBuffer::new(viewport.width, viewport.height);
+    let mut next = FrameBuffer::new(viewport.width, viewport.height);
+
+    view.render_into(&snap, viewport, &mut prev);
+    // Make a small change (advance tick) to get a realistic diff.
+    let _ = state.tick(16, false);
+    state.snapshot_meta_into(&mut snap);
+    view.render_into(&snap, viewport, &mut next);
+
+    let mut out: Vec<u8> = Vec::with_capacity(64 * 1024);
+
+    c.bench_function("encode_diff_into", |b| {
+        b.iter(|| {
+            out.clear();
+            encode_diff_into(&prev, &next, &mut out).unwrap();
+            black_box(out.len())
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_tick,
@@ -103,6 +132,7 @@ criterion_group!(
     bench_snapshot_meta_into,
     bench_snapshot_board_into,
     bench_build_observation_and_serialize,
-    bench_render_into
+    bench_render_into,
+    bench_encode_diff_into
 );
 criterion_main!(benches);

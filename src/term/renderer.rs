@@ -20,6 +20,7 @@ use crate::term::fb::{CellStyle, FrameBuffer, Rgb};
 pub struct TerminalRenderer {
     stdout: io::Stdout,
     last: Option<FrameBuffer>,
+    buf: Vec<u8>,
 }
 
 impl TerminalRenderer {
@@ -27,25 +28,28 @@ impl TerminalRenderer {
         Self {
             stdout: io::stdout(),
             last: None,
+            buf: Vec::with_capacity(64 * 1024),
         }
     }
 
     pub fn enter(&mut self) -> Result<()> {
         terminal::enable_raw_mode()?;
-        self.stdout.queue(terminal::EnterAlternateScreen)?;
-        self.stdout.queue(cursor::Hide)?;
-        self.stdout.queue(terminal::DisableLineWrap)?;
-        self.stdout.flush()?;
+        self.buf.clear();
+        self.buf.queue(terminal::EnterAlternateScreen)?;
+        self.buf.queue(cursor::Hide)?;
+        self.buf.queue(terminal::DisableLineWrap)?;
+        self.flush_buf()?;
         Ok(())
     }
 
     pub fn exit(&mut self) -> Result<()> {
-        self.stdout.queue(ResetColor)?;
-        self.stdout.queue(SetAttribute(Attribute::Reset))?;
-        self.stdout.queue(terminal::EnableLineWrap)?;
-        self.stdout.queue(cursor::Show)?;
-        self.stdout.queue(terminal::LeaveAlternateScreen)?;
-        self.stdout.flush()?;
+        self.buf.clear();
+        self.buf.queue(ResetColor)?;
+        self.buf.queue(SetAttribute(Attribute::Reset))?;
+        self.buf.queue(terminal::EnableLineWrap)?;
+        self.buf.queue(cursor::Show)?;
+        self.buf.queue(terminal::LeaveAlternateScreen)?;
+        self.flush_buf()?;
         terminal::disable_raw_mode()?;
         Ok(())
     }
@@ -72,10 +76,14 @@ impl TerminalRenderer {
         let needs_full = prev.width() != fb.width() || prev.height() != fb.height();
 
         if needs_full {
-            self.full_redraw(fb)?;
+            self.buf.clear();
+            encode_full_into(fb, &mut self.buf)?;
+            self.flush_buf()?;
             prev.resize(fb.width(), fb.height());
         } else {
-            self.diff_redraw(fb, &prev)?;
+            self.buf.clear();
+            encode_diff_into(&prev, fb, &mut self.buf)?;
+            self.flush_buf()?;
         }
 
         // Swap current into prev so next frame can diff without cloning.
@@ -84,69 +92,75 @@ impl TerminalRenderer {
         Ok(())
     }
 
-    fn full_redraw(&mut self, fb: &FrameBuffer) -> Result<()> {
-        self.stdout
-            .queue(terminal::Clear(terminal::ClearType::All))?;
-        self.stdout.queue(cursor::MoveTo(0, 0))?;
-
-        let mut current_style: Option<CellStyle> = None;
-        for y in 0..fb.height() {
-            for x in 0..fb.width() {
-                let cell = fb.get(x, y).unwrap_or_default();
-                if current_style != Some(cell.style) {
-                    self.apply_style(cell.style)?;
-                    current_style = Some(cell.style);
-                }
-                self.stdout.queue(Print(cell.ch))?;
-            }
-            if y + 1 < fb.height() {
-                self.stdout.queue(Print("\r\n"))?;
-            }
-        }
-
-        self.stdout.queue(ResetColor)?;
-        self.stdout.queue(SetAttribute(Attribute::Reset))?;
+    fn flush_buf(&mut self) -> Result<()> {
+        self.stdout.write_all(&self.buf)?;
         self.stdout.flush()?;
         Ok(())
     }
+}
 
-    fn diff_redraw(&mut self, next: &FrameBuffer, prev: &FrameBuffer) -> Result<()> {
-        let mut current_style: Option<CellStyle> = None;
+/// Encode a full-frame redraw into `out`.
+///
+/// This builds a sequence of crossterm commands without writing to stdout.
+pub fn encode_full_into(fb: &FrameBuffer, out: &mut Vec<u8>) -> Result<()> {
+    out.queue(terminal::Clear(terminal::ClearType::All))?;
+    out.queue(cursor::MoveTo(0, 0))?;
 
-        for_each_changed_run(prev, next, |x, y, len| {
-            // Cursor move per run, then print cells in the run.
-            self.stdout.queue(cursor::MoveTo(x, y))?;
-            for dx in 0..len {
-                let cell = next.get(x + dx, y).unwrap_or_default();
-                if current_style != Some(cell.style) {
-                    self.apply_style(cell.style)?;
-                    current_style = Some(cell.style);
-                }
-                self.stdout.queue(Print(cell.ch))?;
+    let mut current_style: Option<CellStyle> = None;
+    for y in 0..fb.height() {
+        for x in 0..fb.width() {
+            let cell = fb.get(x, y).unwrap_or_default();
+            if current_style != Some(cell.style) {
+                apply_style_into(out, cell.style)?;
+                current_style = Some(cell.style);
             }
-            Ok(())
-        })?;
-
-        self.stdout.queue(ResetColor)?;
-        self.stdout.queue(SetAttribute(Attribute::Reset))?;
-        self.stdout.flush()?;
-        Ok(())
+            out.queue(Print(cell.ch))?;
+        }
+        if y + 1 < fb.height() {
+            out.queue(Print("\r\n"))?;
+        }
     }
 
-    fn apply_style(&mut self, style: CellStyle) -> Result<()> {
-        self.stdout
-            .queue(SetForegroundColor(rgb_to_color(style.fg)))?;
-        self.stdout
-            .queue(SetBackgroundColor(rgb_to_color(style.bg)))?;
-        self.stdout.queue(SetAttribute(Attribute::Reset))?;
-        if style.bold {
-            self.stdout.queue(SetAttribute(Attribute::Bold))?;
-        }
-        if style.dim {
-            self.stdout.queue(SetAttribute(Attribute::Dim))?;
+    out.queue(ResetColor)?;
+    out.queue(SetAttribute(Attribute::Reset))?;
+    Ok(())
+}
+
+/// Encode a diff redraw (changed runs) into `out`.
+///
+/// This builds a sequence of crossterm commands without writing to stdout.
+pub fn encode_diff_into(prev: &FrameBuffer, next: &FrameBuffer, out: &mut Vec<u8>) -> Result<()> {
+    let mut current_style: Option<CellStyle> = None;
+
+    for_each_changed_run(prev, next, |x, y, len| {
+        out.queue(cursor::MoveTo(x, y))?;
+        for dx in 0..len {
+            let cell = next.get(x + dx, y).unwrap_or_default();
+            if current_style != Some(cell.style) {
+                apply_style_into(out, cell.style)?;
+                current_style = Some(cell.style);
+            }
+            out.queue(Print(cell.ch))?;
         }
         Ok(())
+    })?;
+
+    out.queue(ResetColor)?;
+    out.queue(SetAttribute(Attribute::Reset))?;
+    Ok(())
+}
+
+fn apply_style_into(out: &mut Vec<u8>, style: CellStyle) -> Result<()> {
+    out.queue(SetForegroundColor(rgb_to_color(style.fg)))?;
+    out.queue(SetBackgroundColor(rgb_to_color(style.bg)))?;
+    out.queue(SetAttribute(Attribute::Reset))?;
+    if style.bold {
+        out.queue(SetAttribute(Attribute::Bold))?;
     }
+    if style.dim {
+        out.queue(SetAttribute(Attribute::Dim))?;
+    }
+    Ok(())
 }
 
 fn rgb_to_color(rgb: Rgb) -> Color {

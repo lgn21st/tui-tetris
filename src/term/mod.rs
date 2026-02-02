@@ -15,4 +15,4 @@ pub mod renderer;
 
 pub use fb::{Cell, CellStyle, FrameBuffer, Rgb};
 pub use game_view::{GameView, Viewport};
-pub use renderer::TerminalRenderer;
+pub use renderer::{encode_diff_into, encode_full_into, TerminalRenderer};
