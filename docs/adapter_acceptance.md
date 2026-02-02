@@ -156,6 +156,9 @@ If you are working in this repo, there is an automated version of this gate:
   - no progressive slowdown (memory leak suspicion)
   - no protocol desync
 
+If you are working in this repo, there is an optional long-run test (ignored by default):
+- `cargo test --test adapter_closed_loop_test -- --ignored`
+
 ---
 
 ## 7) Error Handling + Backpressure (MUST)

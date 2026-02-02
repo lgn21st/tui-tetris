@@ -226,3 +226,145 @@ async fn closed_loop_stability_3x50_reconnects() {
     server_handle.abort();
     engine_handle.abort();
 }
+
+#[tokio::test]
+#[ignore]
+async fn closed_loop_long_run_200_episodes() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 64,
+        log_path: None,
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(256);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx)).await;
+    });
+    let engine_handle = tokio::spawn(engine_loop(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    for _episode in 0..200 {
+        let stream = TcpStream::connect(addr).await.unwrap();
+        let (read_half, mut write_half) = stream.into_split();
+        let mut lines = BufReader::new(read_half).lines();
+
+        let mut seq: u64 = 1;
+        let mut hello = create_hello(seq, "closed-loop-long", "2.0.0");
+        hello.requested.stream_observations = true;
+        hello.requested.command_mode = "place".to_string();
+        write_half
+            .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+            .await
+            .unwrap();
+        write_half.write_all(b"\n").await.unwrap();
+        write_half.flush().await.unwrap();
+
+        let welcome: serde_json::Value =
+            serde_json::from_str(&read_line(&mut lines).await).unwrap();
+        assert_eq!(welcome["type"], "welcome");
+
+        // First observation (from snapshot request)
+        let mut obs: serde_json::Value =
+            serde_json::from_str(&read_line(&mut lines).await).unwrap();
+        assert_eq!(obs["type"], "observation");
+
+        // Restart each episode to keep the loop playable even after game-over.
+        seq += 1;
+        let restart = serde_json::json!({
+            "type": "command",
+            "seq": seq,
+            "ts": 1,
+            "mode": "action",
+            "actions": ["restart"]
+        });
+        write_half
+            .write_all(serde_json::to_string(&restart).unwrap().as_bytes())
+            .await
+            .unwrap();
+        write_half.write_all(b"\n").await.unwrap();
+        write_half.flush().await.unwrap();
+
+        // Expect ack for restart.
+        loop {
+            let v: serde_json::Value =
+                serde_json::from_str(&read_line(&mut lines).await).unwrap();
+            if v["type"] == "ack" {
+                assert_eq!(v["seq"], seq);
+                break;
+            }
+        }
+
+        // Observation after restart.
+        obs = serde_json::from_str(&read_line(&mut lines).await).unwrap();
+        assert_eq!(obs["type"], "observation");
+        assert_eq!(obs["playable"], true);
+
+        // Drive a bounded number of placements.
+        let mut placements = 0u32;
+        while obs["game_over"] != true && placements < 100 {
+            let active = obs.get("active").and_then(|v| v.as_object()).cloned();
+            if active.is_none() {
+                break;
+            }
+
+            let kind_s = active
+                .as_ref()
+                .unwrap()
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap();
+            let rot_s = active
+                .as_ref()
+                .unwrap()
+                .get("rotation")
+                .and_then(|v| v.as_str())
+                .unwrap();
+            let kind = PieceKind::from_str(kind_s).expect("piece kind");
+            let rot = Rotation::from_str(rot_s).expect("rotation");
+            let x = compute_leftmost_x(kind, rot);
+
+            seq += 1;
+            let cmd = serde_json::json!({
+                "type": "command",
+                "seq": seq,
+                "ts": 1,
+                "mode": "place",
+                "place": {"x": x, "rotation": rot.as_str(), "useHold": false}
+            });
+            write_half
+                .write_all(serde_json::to_string(&cmd).unwrap().as_bytes())
+                .await
+                .unwrap();
+            write_half.write_all(b"\n").await.unwrap();
+            write_half.flush().await.unwrap();
+
+            // Expect ack or error for this seq.
+            loop {
+                let v: serde_json::Value =
+                    serde_json::from_str(&read_line(&mut lines).await).unwrap();
+                if v["type"] == "ack" || v["type"] == "error" {
+                    assert_eq!(v["seq"], seq);
+                    break;
+                }
+            }
+
+            obs = serde_json::from_str(&read_line(&mut lines).await).unwrap();
+            assert_eq!(obs["type"], "observation");
+            placements += 1;
+        }
+
+        drop(write_half);
+    }
+
+    server_handle.abort();
+    engine_handle.abort();
+}
