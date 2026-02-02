@@ -10,7 +10,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::adapter::protocol::*;
-use crate::adapter::runtime::{ClientCommand, InboundCommand, OutboundMessage};
+use crate::adapter::runtime::{ClientCommand, InboundCommand, InboundPayload, OutboundMessage};
 use crate::core::GameState;
 use crate::types::{GameAction, PieceKind, Rotation};
 
@@ -265,6 +265,15 @@ async fn handle_client(
                 let json = serde_json::to_string(&welcome)?;
                 let _ = tx.send(json);
 
+                // Request an immediate snapshot for this client if desired.
+                if hello.requested.stream_observations {
+                    let _ = command_tx.try_send(InboundCommand {
+                        client_id,
+                        seq: hello.seq,
+                        payload: InboundPayload::SnapshotRequest,
+                    });
+                }
+
                 // First client to hello becomes controller
                 let mut controller = state.controller.write().await;
                 if controller.is_none() {
@@ -340,7 +349,7 @@ async fn handle_client(
                 match command_tx.try_send(InboundCommand {
                     client_id,
                     seq: cmd.seq,
-                    command: mapped,
+                    payload: InboundPayload::Command(mapped),
                 }) {
                     Ok(()) => {
                         // Ack will be sent by the game loop after the command is applied.

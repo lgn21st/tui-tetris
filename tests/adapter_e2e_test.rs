@@ -5,10 +5,20 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
 use tui_tetris::adapter::protocol::{create_ack, create_hello};
+use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
 use tui_tetris::core::GameState;
 use tui_tetris::types::GameAction;
+
+async fn recv_next_command(rx: &mut mpsc::Receiver<InboundCommand>) -> InboundCommand {
+    loop {
+        let inbound = rx.recv().await.expect("expected inbound message");
+        if matches!(inbound.payload, InboundPayload::Command(_)) {
+            return inbound;
+        }
+    }
+}
 
 #[tokio::test]
 async fn adapter_hello_command_ack_and_observation() {
@@ -58,16 +68,15 @@ async fn adapter_hello_command_ack_and_observation() {
     write_half.write_all(b"\n").await.unwrap();
     write_half.flush().await.unwrap();
 
-    let inbound = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
+    let inbound = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
         .await
-        .unwrap()
-        .expect("expected inbound command");
+        .unwrap();
     assert_eq!(inbound.seq, 2);
-    match inbound.command {
-        ClientCommand::Actions(a) => {
+    match inbound.payload {
+        InboundPayload::Command(ClientCommand::Actions(a)) => {
             assert_eq!(a, vec![GameAction::MoveLeft]);
         }
-        _ => panic!("unexpected command type"),
+        _ => panic!("unexpected inbound payload"),
     }
 
     // ack after apply
@@ -152,17 +161,16 @@ async fn adapter_place_maps_to_place_command() {
     write_half.write_all(b"\n").await.unwrap();
     write_half.flush().await.unwrap();
 
-    let inbound = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
+    let inbound = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
         .await
-        .unwrap()
         .unwrap();
     assert_eq!(inbound.seq, 2);
-    match inbound.command {
-        ClientCommand::Place {
+    match inbound.payload {
+        InboundPayload::Command(ClientCommand::Place {
             x,
             rotation,
             use_hold,
-        } => {
+        }) => {
             assert_eq!(x, 3);
             assert_eq!(rotation, tui_tetris::types::Rotation::East);
             assert!(!use_hold);
@@ -277,9 +285,8 @@ async fn adapter_backpressure_returns_error() {
     write_half.flush().await.unwrap();
 
     // First should be queued.
-    let _first = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
+    let _first = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
         .await
-        .unwrap()
         .unwrap();
 
     // Expect an error for seq=3.
@@ -408,9 +415,8 @@ async fn controller_disconnect_promotes_next_client() {
     w2.write_all(b"\n").await.unwrap();
     w2.flush().await.unwrap();
 
-    let inbound = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
+    let inbound = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
         .await
-        .unwrap()
         .unwrap();
     assert_eq!(inbound.seq, 2);
 

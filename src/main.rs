@@ -44,7 +44,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut obs_seq: u64 = 0;
 
     // Observation meta tracking.
-    let episode_id: u32 = 0;
+    let mut last_episode_id = game_state.episode_id;
     let mut last_piece_id = game_state.piece_id;
     let mut last_active_id = game_state.active_id;
     let mut last_paused = game_state.paused;
@@ -126,56 +126,81 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 for _ in 0..32 {
                     let Some(cmd) = ad.try_recv() else { break };
 
-                    let mut ok: Result<(), PlaceError> = Ok(());
-                    match cmd.command {
-                        tui_tetris::adapter::runtime::ClientCommand::Actions(actions) => {
-                            for a in actions {
-                                let _ = game_state.apply_action(a);
-                            }
-                        }
-                        tui_tetris::adapter::runtime::ClientCommand::Place {
-                            x,
-                            rotation,
-                            use_hold,
-                        } => {
-                            ok = apply_place(&mut game_state, x, rotation, use_hold);
-                        }
-                    }
-
-                    // If applying a command caused a lock/clear event, mark it for immediate observation.
-                    if let Some(ev) = game_state.take_last_event() {
-                        pending_last_event = Some(tui_tetris::adapter::protocol::LastEvent {
-                            locked: ev.locked,
-                            lines_cleared: ev.lines_cleared,
-                            line_clear_score: ev.line_clear_score,
-                            tspin: ev.tspin.and_then(|t| t.as_str().map(|s| s.to_string())),
-                            combo: ev.combo,
-                            back_to_back: ev.back_to_back,
-                        });
-                    }
-
-                    // Ack/error after apply.
-                    match ok {
-                        Ok(()) => {
-                            let ack = tui_tetris::adapter::protocol::create_ack(cmd.seq, cmd.seq);
-                            if let Ok(line) = serde_json::to_string(&ack) {
-                                ad.send(OutboundMessage::ToClient {
-                                    client_id: cmd.client_id,
-                                    line,
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            let err = tui_tetris::adapter::protocol::create_error(
-                                cmd.seq,
-                                e.code(),
-                                e.message(),
+                    match cmd.payload {
+                        tui_tetris::adapter::runtime::InboundPayload::SnapshotRequest => {
+                            // Send an immediate observation to this client.
+                            obs_seq = obs_seq.wrapping_add(1);
+                            let obs = tui_tetris::adapter::server::build_observation(
+                                &game_state,
+                                obs_seq,
+                                game_state.episode_id,
+                                game_state.piece_id,
+                                game_state.step_in_piece,
+                                pending_last_event.take(),
                             );
-                            if let Ok(line) = serde_json::to_string(&err) {
+                            if let Ok(line) = serde_json::to_string(&obs) {
                                 ad.send(OutboundMessage::ToClient {
                                     client_id: cmd.client_id,
                                     line,
                                 });
+                            }
+                            continue;
+                        }
+                        tui_tetris::adapter::runtime::InboundPayload::Command(cmd2) => {
+                            let ok: Result<(), PlaceError> = match cmd2 {
+                                tui_tetris::adapter::runtime::ClientCommand::Actions(actions) => {
+                                    for a in actions {
+                                        let _ = game_state.apply_action(a);
+                                    }
+                                    Ok(())
+                                }
+                                tui_tetris::adapter::runtime::ClientCommand::Place {
+                                    x,
+                                    rotation,
+                                    use_hold,
+                                } => apply_place(&mut game_state, x, rotation, use_hold),
+                            };
+
+                            // If applying a command caused a lock/clear event, mark it for immediate observation.
+                            if let Some(ev) = game_state.take_last_event() {
+                                pending_last_event =
+                                    Some(tui_tetris::adapter::protocol::LastEvent {
+                                        locked: ev.locked,
+                                        lines_cleared: ev.lines_cleared,
+                                        line_clear_score: ev.line_clear_score,
+                                        tspin: ev
+                                            .tspin
+                                            .and_then(|t| t.as_str().map(|s| s.to_string())),
+                                        combo: ev.combo,
+                                        back_to_back: ev.back_to_back,
+                                    });
+                            }
+
+                            // Ack/error after apply.
+                            match ok {
+                                Ok(()) => {
+                                    let ack =
+                                        tui_tetris::adapter::protocol::create_ack(cmd.seq, cmd.seq);
+                                    if let Ok(line) = serde_json::to_string(&ack) {
+                                        ad.send(OutboundMessage::ToClient {
+                                            client_id: cmd.client_id,
+                                            line,
+                                        });
+                                    }
+                                }
+                                Err(e) => {
+                                    let err = tui_tetris::adapter::protocol::create_error(
+                                        cmd.seq,
+                                        e.code(),
+                                        e.message(),
+                                    );
+                                    if let Ok(line) = serde_json::to_string(&err) {
+                                        ad.send(OutboundMessage::ToClient {
+                                            client_id: cmd.client_id,
+                                            line,
+                                        });
+                                    }
+                                }
                             }
                         }
                     }
@@ -228,6 +253,11 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 critical = true;
             }
 
+            if game_state.episode_id != last_episode_id {
+                last_episode_id = game_state.episode_id;
+                critical = true;
+            }
+
             // Pull core last-event (accurate lock/clear).
             if let Some(ev) = game_state.take_last_event() {
                 pending_last_event = Some(tui_tetris::adapter::protocol::LastEvent {
@@ -252,7 +282,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                     let obs = tui_tetris::adapter::server::build_observation(
                         &game_state,
                         obs_seq,
-                        episode_id,
+                        game_state.episode_id,
                         game_state.piece_id,
                         game_state.step_in_piece,
                         last_event,

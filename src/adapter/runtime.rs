@@ -8,12 +8,21 @@ use tokio::sync::mpsc;
 use crate::adapter::server::{run_server, ServerConfig, ServerState};
 use crate::types::{GameAction, Rotation};
 
-/// Command delivered to the game loop.
+/// Message delivered to the game loop.
 #[derive(Debug, Clone)]
 pub struct InboundCommand {
     pub client_id: usize,
     pub seq: u64,
-    pub command: ClientCommand,
+    pub payload: InboundPayload,
+}
+
+/// Inbound payload types from the adapter.
+#[derive(Debug, Clone)]
+pub enum InboundPayload {
+    /// Controller command to apply.
+    Command(ClientCommand),
+    /// Request an immediate observation snapshot for this client.
+    SnapshotRequest,
 }
 
 /// Command payload.
