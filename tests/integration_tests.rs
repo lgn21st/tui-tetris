@@ -1,5 +1,6 @@
 //! Integration tests for main game loop
 
+use tui_tetris::core::Board;
 use tui_tetris::core::GameState;
 use tui_tetris::input::InputHandler;
 use tui_tetris::types::{GameAction, PieceKind};
@@ -8,13 +9,13 @@ use tui_tetris::types::{GameAction, PieceKind};
 fn test_game_lifecycle() {
     // Create and start game
     let mut state = GameState::new(12345);
-    assert!(!state.started);
+    assert!(!state.started());
 
     state.start();
-    assert!(state.started);
-    assert!(state.active.is_some());
-    assert!(!state.game_over);
-    assert!(!state.paused);
+    assert!(state.started());
+    assert!(state.active().is_some());
+    assert!(!state.game_over());
+    assert!(!state.paused());
 }
 
 #[test]
@@ -23,13 +24,13 @@ fn test_game_actions() {
     state.start();
 
     // Get initial position
-    let initial_x = state.active.unwrap().x;
-    let initial_y = state.active.unwrap().y;
+    let initial_x = state.active().unwrap().x;
+    let initial_y = state.active().unwrap().y;
 
     // Move left (may fail at left edge, but should try)
     let moved = state.try_move(-1, 0);
     if moved {
-        assert_eq!(state.active.unwrap().x, initial_x - 1);
+        assert_eq!(state.active().unwrap().x, initial_x - 1);
     }
 
     // Rotate (may or may not succeed depending on piece position)
@@ -38,12 +39,12 @@ fn test_game_actions() {
     // Move down (soft drop)
     let dropped = state.try_move(0, 1);
     if dropped {
-        assert!(state.active.unwrap().y > initial_y);
+        assert!(state.active().unwrap().y > initial_y);
     }
 
     // Verify game state is still valid
-    assert!(state.active.is_some());
-    assert!(!state.game_over);
+    assert!(state.active().is_some());
+    assert!(!state.game_over());
 }
 
 #[test]
@@ -79,11 +80,11 @@ fn test_game_pause() {
 
     // Pause game
     state.apply_action(GameAction::Pause);
-    assert!(state.paused);
+    assert!(state.paused());
 
     // Resume
     state.apply_action(GameAction::Pause);
-    assert!(!state.paused);
+    assert!(!state.paused());
 }
 
 #[test]
@@ -91,35 +92,27 @@ fn test_hold_piece() {
     let mut state = GameState::new(12345);
     state.start();
 
-    let _initial_hold = state.hold;
-    let _initial_piece = state.active.unwrap().kind;
+    let initial_can_hold = state.can_hold();
+    let _initial_hold = state.hold_piece();
+    let _initial_piece = state.active().unwrap().kind;
 
     // Hold piece
     state.apply_action(GameAction::Hold);
 
     // Hold should work (can_hold starts as true)
-    if state.can_hold {
-        assert!(state.hold.is_some());
-        assert!(!state.can_hold); // Can only hold once per piece
+    if initial_can_hold {
+        assert!(state.hold_piece().is_some());
+        assert!(!state.can_hold()); // Can only hold once per piece
     }
 }
 
 #[test]
 fn test_line_clear() {
-    let mut state = GameState::new(12345);
-    state.start();
-
-    // Fill a row to trigger line clear
+    let mut board = Board::new();
     for x in 0..10 {
-        state.board.set(x, 19, Some(PieceKind::I));
+        board.set(x, 19, Some(PieceKind::I));
     }
-
-    let _initial_lines = state.lines;
-
-    // Clear lines
-    let cleared = state.board.clear_full_rows();
-
-    // Should have cleared row 19
+    let cleared = board.clear_full_rows();
     assert!(!cleared.is_empty());
 }
 
@@ -136,7 +129,7 @@ fn test_game_restart() {
     state.start();
 
     // Should be fresh state
-    assert_eq!(state.score, 0);
-    assert_eq!(state.lines, 0);
-    assert_eq!(state.level, 0);
+    assert_eq!(state.score(), 0);
+    assert_eq!(state.lines(), 0);
+    assert_eq!(state.level(), 0);
 }

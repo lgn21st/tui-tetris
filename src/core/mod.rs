@@ -44,7 +44,7 @@
 //! game.apply_action(GameAction::HardDrop);
 //!
 //! // Check game state
-//! assert!(game.score > 0); // Hard drop awards points
+//! assert!(game.score() > 0); // Hard drop awards points
 //! ```
 //!
 //! # Timing

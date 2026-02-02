@@ -54,38 +54,38 @@ impl Tetromino {
 /// Complete game state
 #[derive(Debug, Clone)]
 pub struct GameState {
-    pub board: Board,
-    pub active: Option<Tetromino>,
-    pub hold: Option<PieceKind>,
-    pub next_queue: [PieceKind; 5],
-    pub piece_queue: PieceQueue,
+    board: Board,
+    active: Option<Tetromino>,
+    hold: Option<PieceKind>,
+    next_queue: [PieceKind; 5],
+    piece_queue: PieceQueue,
     /// Monotonic episode id (increments on restart).
-    pub episode_id: u32,
+    episode_id: u32,
     /// Monotonic id for spawned pieces (increments only on successful spawn).
     ///
     /// This is the value exported to the adapter protocol as `piece_id`.
-    pub piece_id: u32,
+    piece_id: u32,
     /// Monotonic id for the active piece instance (increments on spawn and hold swaps).
-    pub active_id: u32,
+    active_id: u32,
     /// Step counter within the current active piece (increments once per fixed tick).
-    pub step_in_piece: u32,
+    step_in_piece: u32,
     /// Last lock/line-clear event (consumed by observers).
     last_event: Option<CoreLastEvent>,
-    pub score: u32,
-    pub level: u32,
-    pub lines: u32,
-    pub combo: u32,
-    pub back_to_back: bool,
-    pub drop_timer_ms: u32,
-    pub lock_timer_ms: u32,
-    pub lock_reset_count: u8,
-    pub line_clear_timer_ms: u32,
-    pub landing_flash_ms: u32,
-    pub paused: bool,
-    pub game_over: bool,
-    pub started: bool,
-    pub can_hold: bool,
-    pub last_action_was_rotate: bool,
+    score: u32,
+    level: u32,
+    lines: u32,
+    combo: u32,
+    back_to_back: bool,
+    drop_timer_ms: u32,
+    lock_timer_ms: u32,
+    lock_reset_count: u8,
+    line_clear_timer_ms: u32,
+    landing_flash_ms: u32,
+    paused: bool,
+    game_over: bool,
+    started: bool,
+    can_hold: bool,
+    last_action_was_rotate: bool,
     // Tracking for soft drop grace period
     soft_drop_timer_ms: u32,
     is_soft_dropping: bool,
@@ -137,6 +137,71 @@ impl GameState {
         self.spawn_piece();
     }
 
+    pub fn started(&self) -> bool {
+        self.started
+    }
+
+    pub fn paused(&self) -> bool {
+        self.paused
+    }
+
+    pub fn game_over(&self) -> bool {
+        self.game_over
+    }
+
+    pub fn can_hold(&self) -> bool {
+        self.can_hold
+    }
+
+    pub fn episode_id(&self) -> u32 {
+        self.episode_id
+    }
+
+    pub fn piece_id(&self) -> u32 {
+        self.piece_id
+    }
+
+    pub fn active_id(&self) -> u32 {
+        self.active_id
+    }
+
+    pub fn step_in_piece(&self) -> u32 {
+        self.step_in_piece
+    }
+
+    pub fn score(&self) -> u32 {
+        self.score
+    }
+
+    pub fn level(&self) -> u32 {
+        self.level
+    }
+
+    pub fn lines(&self) -> u32 {
+        self.lines
+    }
+
+    pub fn hold_piece(&self) -> Option<PieceKind> {
+        self.hold
+    }
+
+    pub fn next_queue(&self) -> &[PieceKind; 5] {
+        &self.next_queue
+    }
+
+    pub fn active(&self) -> Option<Tetromino> {
+        self.active
+    }
+
+    pub fn board(&self) -> &Board {
+        &self.board
+    }
+
+    #[cfg(test)]
+    pub fn board_mut(&mut self) -> &mut Board {
+        &mut self.board
+    }
+
     pub fn snapshot_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
         use crate::core::snapshot::{ActiveSnapshot, TimersSnapshot};
         use crate::types::{BOARD_HEIGHT, BOARD_WIDTH};
@@ -163,6 +228,7 @@ impl GameState {
         }
 
         out.active = self.active.map(ActiveSnapshot::from);
+        out.ghost_y = self.ghost_y();
         out.hold = self.hold;
         out.next_queue = self.next_queue;
         out.can_hold = self.can_hold;

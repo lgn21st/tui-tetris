@@ -31,6 +31,7 @@ pub struct TimersSnapshot {
 pub struct GameSnapshot {
     pub board: [[u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize],
     pub active: Option<ActiveSnapshot>,
+    pub ghost_y: Option<i8>,
     pub hold: Option<PieceKind>,
     pub next_queue: [PieceKind; 5],
     pub can_hold: bool,
@@ -50,6 +51,7 @@ impl GameSnapshot {
     pub fn clear(&mut self) {
         self.board = [[0u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize];
         self.active = None;
+        self.ghost_y = None;
         self.hold = None;
         self.next_queue = [PieceKind::I; 5];
         self.can_hold = true;
@@ -79,6 +81,7 @@ impl Default for GameSnapshot {
         let mut s = Self {
             board: [[0u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize],
             active: None,
+            ghost_y: None,
             hold: None,
             next_queue: [PieceKind::I; 5],
             can_hold: true,

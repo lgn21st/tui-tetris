@@ -45,11 +45,11 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut obs_seq: u64 = 0;
 
     // Observation meta tracking.
-    let mut last_episode_id = game_state.episode_id;
-    let mut last_piece_id = game_state.piece_id;
-    let mut last_active_id = game_state.active_id;
-    let mut last_paused = game_state.paused;
-    let mut last_game_over = game_state.game_over;
+    let mut last_episode_id = game_state.episode_id();
+    let mut last_piece_id = game_state.piece_id();
+    let mut last_active_id = game_state.active_id();
+    let mut last_paused = game_state.paused();
+    let mut last_game_over = game_state.game_over();
     let mut pending_last_event: Option<tui_tetris::adapter::protocol::LastEvent> = None;
 
     let mut last_tick = Instant::now();
@@ -60,7 +60,8 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     loop {
         // Render.
         let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
-        view.render_into(&game_state, Viewport::new(w, h), &mut fb);
+        let snap = game_state.snapshot();
+        view.render_into(&snap, Viewport::new(w, h), &mut fb);
         term.draw_swap(&mut fb)?;
 
         // Input with timeout until next tick.
@@ -241,28 +242,28 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             let mut critical = false;
 
             // Detect piece changes via core piece_id.
-            if game_state.piece_id != last_piece_id {
-                last_piece_id = game_state.piece_id;
+            if game_state.piece_id() != last_piece_id {
+                last_piece_id = game_state.piece_id();
                 critical = true;
             }
 
             // Detect active-instance changes (e.g. hold swaps) and flush immediately.
-            if game_state.active_id != last_active_id {
-                last_active_id = game_state.active_id;
+            if game_state.active_id() != last_active_id {
+                last_active_id = game_state.active_id();
                 critical = true;
             }
 
-            if game_state.paused != last_paused {
-                last_paused = game_state.paused;
+            if game_state.paused() != last_paused {
+                last_paused = game_state.paused();
                 critical = true;
             }
-            if game_state.game_over != last_game_over {
-                last_game_over = game_state.game_over;
+            if game_state.game_over() != last_game_over {
+                last_game_over = game_state.game_over();
                 critical = true;
             }
 
-            if game_state.episode_id != last_episode_id {
-                last_episode_id = game_state.episode_id;
+            if game_state.episode_id() != last_episode_id {
+                last_episode_id = game_state.episode_id();
                 critical = true;
             }
 

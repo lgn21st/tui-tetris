@@ -231,7 +231,7 @@ fn acceptance_determinism_fixed_seed_reproduces_state_hash_sequence() {
 
     // Drive a deterministic sequence: hard-drop the current active piece each step.
     for i in 0..50u64 {
-        if a.game_over || b.game_over || a.active.is_none() || b.active.is_none() {
+        if a.game_over() || b.game_over() || a.active().is_none() || b.active().is_none() {
             break;
         }
 

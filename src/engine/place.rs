@@ -41,7 +41,7 @@ pub fn apply_place(
     target_rot: Rotation,
     use_hold: bool,
 ) -> Result<(), PlaceError> {
-    if state.paused || state.game_over {
+    if state.paused() || state.game_over() {
         return Err(PlaceError::NotPlayable);
     }
 
@@ -52,7 +52,7 @@ pub fn apply_place(
         }
     }
 
-    let Some(active0) = state.active else {
+    let Some(active0) = state.active() else {
         return Err(PlaceError::NoActive);
     };
 
@@ -95,7 +95,7 @@ pub fn apply_place(
         return Err(PlaceError::RotationBlocked);
     }
 
-    let Some(active) = state.active else {
+    let Some(active) = state.active() else {
         return Err(PlaceError::NoActive);
     };
 
@@ -131,7 +131,7 @@ pub fn apply_place(
     }
 
     if !state.apply_action(GameAction::HardDrop) {
-        return Err(if state.active.is_none() {
+        return Err(if state.active().is_none() {
             PlaceError::NoActive
         } else {
             PlaceError::NotPlayable
@@ -152,7 +152,7 @@ mod tests {
         gs.start();
         assert!(gs.apply_action(GameAction::Pause));
 
-        let a = gs.active.expect("expected active piece");
+        let a = gs.active().expect("expected active piece");
         let err = apply_place(&mut gs, a.x, a.rotation, false).unwrap_err();
         assert!(matches!(err, PlaceError::NotPlayable));
     }
@@ -162,7 +162,7 @@ mod tests {
         let mut gs = GameState::new(1);
         gs.start();
 
-        let a = gs.active.expect("expected active piece");
+        let a = gs.active().expect("expected active piece");
         let err = apply_place(&mut gs, -50, a.rotation, false).unwrap_err();
         assert!(matches!(err, PlaceError::XOutOfBounds));
     }
@@ -172,7 +172,7 @@ mod tests {
         let mut gs = GameState::new(1);
         gs.start();
 
-        let a = gs.active.expect("expected active piece");
+        let a = gs.active().expect("expected active piece");
         let shape = a.shape();
 
         // Prefer moving left; fall back to right if left would be out of bounds.
@@ -195,7 +195,7 @@ mod tests {
         for (dx, dy) in shape {
             let bx = a.x + dx + delta_x;
             let by = a.y + dy;
-            let _ = gs.board.set(bx, by, Some(PieceKind::I));
+            let _ = gs.board_mut().set(bx, by, Some(PieceKind::I));
         }
 
         let err = apply_place(&mut gs, target_x, a.rotation, false).unwrap_err();

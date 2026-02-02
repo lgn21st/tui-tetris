@@ -5,13 +5,14 @@ use tui_tetris::types::PieceKind;
 #[test]
 fn term_view_renders_border_corners() {
     let state = GameState::new(1);
+    let snap = state.snapshot();
     let view = GameView::default();
 
     // With cell_w=2 and cell_h=1:
     // board pixels = 10*2 by 20*1 => 20x20
     // plus border => 22x22
     let vp = Viewport::new(22, 22);
-    let fb = view.render(&state, vp);
+    let fb = view.render(&snap, vp);
 
     assert_eq!(fb.get(0, 0).unwrap().ch, '┌');
     assert_eq!(fb.get(21, 0).unwrap().ch, '┐');
@@ -21,14 +22,15 @@ fn term_view_renders_border_corners() {
 
 #[test]
 fn term_view_renders_locked_cell_as_two_chars_wide() {
-    let mut state = GameState::new(1);
+    let mut snap = GameState::new(1).snapshot();
     // Put a locked I block at bottom-left.
-    assert!(state.board.set(0, 19, Some(PieceKind::I)));
-    state.active = None;
+    snap.board[19][0] = 1;
+    snap.active = None;
+    snap.ghost_y = None;
 
     let view = GameView::default();
     let vp = Viewport::new(22, 22);
-    let fb = view.render(&state, vp);
+    let fb = view.render(&snap, vp);
 
     // Inside border: (1,1) origin. Each cell is 2 chars wide.
     let x0 = 1;
@@ -39,16 +41,17 @@ fn term_view_renders_locked_cell_as_two_chars_wide() {
 
 #[test]
 fn term_view_draws_side_panel_when_wide_enough() {
-    let mut state = GameState::new(1);
-    state.start();
-    state.score = 1234;
-    state.level = 2;
-    state.lines = 10;
-    state.hold = Some(PieceKind::T);
+    let mut gs = GameState::new(1);
+    gs.start();
+    let mut snap = gs.snapshot();
+    snap.score = 1234;
+    snap.level = 2;
+    snap.lines = 10;
+    snap.hold = Some(PieceKind::T);
 
     let view = GameView::default();
     // Wider than the 22x22 board frame to allow a panel.
-    let fb = view.render(&state, Viewport::new(60, 22));
+    let fb = view.render(&snap, Viewport::new(60, 22));
 
     // Expect the word SCORE to be present somewhere (board is vertically centered).
     let mut all = String::new();

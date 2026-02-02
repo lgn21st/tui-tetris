@@ -72,7 +72,8 @@ fn e2e_hot_path_is_allocation_free_without_io() {
     let obs0 = build_observation(seq, &snap0, None);
     buf.clear();
     serde_json::to_writer(&mut buf, &obs0).unwrap();
-    view.render_into(&gs, viewport, &mut fb);
+    let snap = gs.snapshot();
+    view.render_into(&snap, viewport, &mut fb);
 
     let allocs = with_alloc_counting(|| {
         for _ in 0..500 {
@@ -100,7 +101,8 @@ fn e2e_hot_path_is_allocation_free_without_io() {
             serde_json::to_writer(&mut buf, &obs).unwrap();
 
             // Render into preallocated framebuffer.
-            view.render_into(&gs, viewport, &mut fb);
+            let snap2 = gs.snapshot();
+            view.render_into(&snap2, viewport, &mut fb);
         }
     });
 

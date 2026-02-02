@@ -2,7 +2,7 @@
 //!
 //! This module is pure (no I/O). It can be unit-tested.
 
-use crate::core::GameState;
+use crate::core::{get_shape, GameSnapshot};
 use crate::term::fb::{CellStyle, FrameBuffer, Rgb};
 use crate::types::{PieceKind, BOARD_HEIGHT, BOARD_WIDTH};
 
@@ -46,7 +46,7 @@ impl GameView {
     ///
     /// This is the allocation-free hot path. Callers can reuse a framebuffer
     /// across frames and only resize when the terminal size changes.
-    pub fn render_into(&self, state: &GameState, viewport: Viewport, fb: &mut FrameBuffer) {
+    pub fn render_into(&self, snap: &GameSnapshot, viewport: Viewport, fb: &mut FrameBuffer) {
         fb.resize(viewport.width, viewport.height);
         fb.clear(CellStyle::default().into_cell(' '));
 
@@ -80,8 +80,8 @@ impl GameView {
         // Locked board cells.
         for y in 0..BOARD_HEIGHT as u16 {
             for x in 0..BOARD_WIDTH as u16 {
-                let cell = state.board.get(x as i8, y as i8).unwrap_or(None);
-                if let Some(kind) = cell {
+                let cell = snap.board[y as usize][x as usize];
+                if let Some(kind) = piece_from_cell(cell) {
                     self.draw_board_cell(fb, start_x, start_y, x, y, kind, true);
                 } else {
                     // Optional grid dot.
@@ -91,14 +91,14 @@ impl GameView {
         }
 
         // Ghost piece.
-        if let (Some(active), Some(ghost_y)) = (state.active, state.ghost_y()) {
+        if let (Some(active), Some(ghost_y)) = (snap.active, snap.ghost_y) {
             let ghost_style = CellStyle {
                 fg: Rgb::new(140, 140, 140),
                 bg: Rgb::new(30, 30, 40),
                 bold: false,
                 dim: true,
             };
-            for &(dx, dy) in active.shape().iter() {
+            for &(dx, dy) in get_shape(active.kind, active.rotation).iter() {
                 let x = active.x + dx;
                 let y = ghost_y + dy;
                 if x >= 0 && x < BOARD_WIDTH as i8 && y >= 0 && y < BOARD_HEIGHT as i8 {
@@ -108,8 +108,8 @@ impl GameView {
         }
 
         // Active piece.
-        if let Some(active) = state.active {
-            for &(dx, dy) in active.shape().iter() {
+        if let Some(active) = snap.active {
+            for &(dx, dy) in get_shape(active.kind, active.rotation).iter() {
                 let x = active.x + dx;
                 let y = active.y + dy;
                 if x >= 0 && x < BOARD_WIDTH as i8 && y >= 0 && y < BOARD_HEIGHT as i8 {
@@ -127,20 +127,20 @@ impl GameView {
         }
 
         // Side panel (score/next/hold).
-        self.draw_side_panel(fb, state, viewport, start_x, start_y, frame_w);
+        self.draw_side_panel(fb, snap, viewport, start_x, start_y, frame_w);
 
         // Overlays.
-        if state.paused {
+        if snap.paused {
             self.draw_overlay_text(fb, start_x, start_y, frame_w, frame_h, "PAUSED");
-        } else if state.game_over {
+        } else if snap.game_over {
             self.draw_overlay_text(fb, start_x, start_y, frame_w, frame_h, "GAME OVER");
         }
     }
 
     /// Convenience helper that allocates a new framebuffer.
-    pub fn render(&self, state: &GameState, viewport: Viewport) -> FrameBuffer {
+    pub fn render(&self, snap: &GameSnapshot, viewport: Viewport) -> FrameBuffer {
         let mut fb = FrameBuffer::new(viewport.width, viewport.height);
-        self.render_into(state, viewport, &mut fb);
+        self.render_into(snap, viewport, &mut fb);
         fb
     }
 
@@ -220,7 +220,7 @@ impl GameView {
     fn draw_side_panel(
         &self,
         fb: &mut FrameBuffer,
-        state: &GameState,
+        snap: &GameSnapshot,
         viewport: Viewport,
         start_x: u16,
         start_y: u16,
@@ -251,17 +251,17 @@ impl GameView {
         let mut y = start_y;
         fb.put_str(panel_x, y, "SCORE", label);
         y = y.saturating_add(1);
-        fb.put_u32(panel_x, y, state.score, value);
+        fb.put_u32(panel_x, y, snap.score, value);
         y = y.saturating_add(2);
 
         fb.put_str(panel_x, y, "LEVEL", label);
         y = y.saturating_add(1);
-        fb.put_u32(panel_x, y, state.level, value);
+        fb.put_u32(panel_x, y, snap.level, value);
         y = y.saturating_add(2);
 
         fb.put_str(panel_x, y, "LINES", label);
         y = y.saturating_add(1);
-        fb.put_u32(panel_x, y, state.lines, value);
+        fb.put_u32(panel_x, y, snap.lines, value);
         y = y.saturating_add(2);
 
         fb.put_str(panel_x, y, "HOLD", label);
@@ -269,14 +269,14 @@ impl GameView {
         fb.put_str(
             panel_x,
             y,
-            state.hold.map(piece_letter).unwrap_or("-"),
+            snap.hold.map(piece_letter).unwrap_or("-"),
             value,
         );
         y = y.saturating_add(2);
 
         fb.put_str(panel_x, y, "NEXT", label);
         y = y.saturating_add(1);
-        for (i, k) in state.next_queue.iter().take(5).enumerate() {
+        for (i, k) in snap.next_queue.iter().take(5).enumerate() {
             if y >= viewport.height {
                 break;
             }
@@ -309,6 +309,19 @@ impl GameView {
             dim: false,
         };
         fb.put_str(x, mid_y, text, style);
+    }
+}
+
+fn piece_from_cell(v: u8) -> Option<PieceKind> {
+    match v {
+        1 => Some(PieceKind::I),
+        2 => Some(PieceKind::O),
+        3 => Some(PieceKind::T),
+        4 => Some(PieceKind::S),
+        5 => Some(PieceKind::Z),
+        6 => Some(PieceKind::J),
+        7 => Some(PieceKind::L),
+        _ => None,
     }
 }
 

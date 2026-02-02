@@ -42,7 +42,7 @@
 //! game.start();
 //!
 //! // Game is now running with first piece spawned
-//! assert!(game.active.is_some());
+//! assert!(game.active().is_some());
 //! ```
 //!
 //! # AI Control

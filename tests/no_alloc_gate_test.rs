@@ -71,7 +71,7 @@ fn core_hot_paths_do_not_allocate() {
             let _ = gs.apply_action(GameAction::HardDrop);
             // Advance timers so line-clear pause drains deterministically.
             let _ = gs.tick(1000, false);
-            if gs.game_over {
+            if gs.game_over() {
                 let _ = gs.apply_action(GameAction::Restart);
             }
         }
