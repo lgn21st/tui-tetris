@@ -17,7 +17,9 @@
       "properties": {
         "formats": { "type": "array", "items": { "type": "string" } },
         "command_modes": { "type": "array", "items": { "type": "string" } },
-        "features": { "type": "array", "items": { "type": "string" } }
+        "features": { "type": "array", "items": { "type": "string" } },
+        "features_always": { "type": "array", "items": { "type": "string" } },
+        "features_optional": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["formats", "command_modes", "features"]
     },

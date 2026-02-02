@@ -368,7 +368,17 @@ pub struct ServerCapabilities {
     pub formats: [CapabilityFormat; 1],
     #[serde(rename = "command_modes")]
     pub command_modes: [CapabilityCommandMode; 2],
-    pub features: [CapabilityFeature; 10],
+
+    /// Feature flags (legacy): union of always-present and optional features.
+    pub features: Vec<CapabilityFeature>,
+
+    /// Features that are guaranteed to be present in every observation payload.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "features_always")]
+    pub features_always: Vec<CapabilityFeature>,
+
+    /// Features that may be omitted when unknown/not-applicable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "features_optional")]
+    pub features_optional: Vec<CapabilityFeature>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -744,7 +754,7 @@ pub fn create_welcome(seq: u64, protocol_version: &str) -> WelcomeMessage {
         capabilities: ServerCapabilities {
             formats: [CapabilityFormat::Json],
             command_modes: [CapabilityCommandMode::Action, CapabilityCommandMode::Place],
-            features: [
+            features: vec![
                 CapabilityFeature::Hold,
                 CapabilityFeature::Next,
                 CapabilityFeature::NextQueue,
@@ -755,6 +765,21 @@ pub fn create_welcome(seq: u64, protocol_version: &str) -> WelcomeMessage {
                 CapabilityFeature::StateHash,
                 CapabilityFeature::Score,
                 CapabilityFeature::Timers,
+            ],
+
+            features_always: vec![
+                CapabilityFeature::Next,
+                CapabilityFeature::NextQueue,
+                CapabilityFeature::CanHold,
+                CapabilityFeature::BoardId,
+                CapabilityFeature::StateHash,
+                CapabilityFeature::Score,
+                CapabilityFeature::Timers,
+            ],
+            features_optional: vec![
+                CapabilityFeature::Hold,
+                CapabilityFeature::GhostY,
+                CapabilityFeature::LastEvent,
             ],
         },
     }

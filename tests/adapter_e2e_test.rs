@@ -216,6 +216,85 @@ async fn adapter_hello_command_ack_and_observation() {
 }
 
 #[tokio::test]
+async fn adapter_does_not_ack_until_game_loop_applies() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.expect("connect failed");
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello (disable snapshot request to keep cmd_rx predictable)
+    let mut hello = create_hello(1, "ack-test", "2.0.0");
+    hello.requested.stream_observations = false;
+    write_half.write_all(serde_json::to_string(&hello).unwrap().as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let _welcome = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+
+    // command
+    let cmd_line = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd_line.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let inbound = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
+        .await
+        .unwrap();
+    assert_eq!(inbound.seq, 2);
+
+    // No ack should be emitted until the game loop applies and sends it.
+    assert!(tokio::time::timeout(Duration::from_millis(150), lines.next_line())
+        .await
+        .is_err());
+
+    // Simulate game loop apply -> send ack.
+    let ack = create_ack(2, 2);
+    out_tx
+        .send(OutboundMessage::ToClientAck {
+            client_id: inbound.client_id,
+            ack,
+        })
+        .unwrap();
+
+    let ack_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&ack_line).unwrap();
+    assert_eq!(v["type"], "ack");
+    assert_eq!(v["seq"], 2);
+
+    server_handle.abort();
+}
+
+
+#[tokio::test]
 async fn adapter_emits_status_updates_on_connect_and_controller() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
@@ -532,6 +611,23 @@ async fn adapter_backpressure_returns_error() {
         }
     }
     assert!(got_backpressure);
+
+    // Ensure the backpressured command was NOT enqueued.
+    assert!(tokio::time::timeout(Duration::from_millis(100), recv_next_command(&mut cmd_rx))
+        .await
+        .is_err());
+
+    // Retry with a new, larger seq after draining the queue should succeed.
+    let cmd3 = r#"{"type":"command","seq":4,"ts":1,"mode":"action","actions":["moveRight"]}"#;
+    write_half.write_all(cmd3.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let retried = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
+        .await
+        .unwrap();
+    assert_eq!(retried.seq, 4);
+
 
     server_handle.abort();
 }

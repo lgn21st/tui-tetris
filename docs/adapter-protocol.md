@@ -62,6 +62,12 @@ Notes:
 - Commands are acknowledged after they are mapped and applied during the adapter poll tick.
 Examples:
 ```
+
+Capabilities feature presence:
+- `capabilities.features` is the legacy union list (backward compatible).
+- `capabilities.features_always` are guaranteed to be present in every observation (training can treat them as non-null).
+- `capabilities.features_optional` may be omitted when unknown/not-applicable (training must handle missing).
+
 {"type":"command","seq":2,"ts":1738291200200,"mode":"action","actions":["moveLeft","rotateCw","hardDrop"]}
 {"type":"command","seq":3,"ts":1738291200300,"mode":"place","place":{"x":3,"rotation":"east","useHold":false}}
 ```
