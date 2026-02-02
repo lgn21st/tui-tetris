@@ -4,6 +4,8 @@
 
 use crossterm::event::KeyCode;
 
+use arrayvec::ArrayVec;
+
 use crate::types::{GameAction, DEFAULT_ARR_MS, DEFAULT_DAS_MS};
 
 /// Direction for horizontal movement.
@@ -112,8 +114,8 @@ impl InputHandler {
         }
     }
 
-    pub fn update(&mut self, elapsed_ms: u32) -> Vec<GameAction> {
-        let mut actions = Vec::new();
+    pub fn update(&mut self, elapsed_ms: u32) -> ArrayVec<GameAction, 32> {
+        let mut actions = ArrayVec::<GameAction, 32>::new();
 
         // Auto-release when terminal does not emit release events.
         let time_since_last_key = self.last_key_time.elapsed().as_millis() as u32;
@@ -145,8 +147,12 @@ impl InputHandler {
 
                     while self.horizontal_arr_accumulator >= self.arr_rate {
                         match self.horizontal {
-                            HorizontalDirection::Left => actions.push(GameAction::MoveLeft),
-                            HorizontalDirection::Right => actions.push(GameAction::MoveRight),
+                            HorizontalDirection::Left => {
+                                let _ = actions.try_push(GameAction::MoveLeft);
+                            }
+                            HorizontalDirection::Right => {
+                                let _ = actions.try_push(GameAction::MoveRight);
+                            }
                             HorizontalDirection::None => {}
                         }
                         self.horizontal_arr_accumulator -= self.arr_rate;
@@ -171,7 +177,7 @@ impl InputHandler {
                 };
                 self.down_arr_accumulator += excess;
                 while self.down_arr_accumulator >= self.arr_rate {
-                    actions.push(GameAction::SoftDrop);
+                    let _ = actions.try_push(GameAction::SoftDrop);
                     self.down_arr_accumulator -= self.arr_rate;
                 }
             }
