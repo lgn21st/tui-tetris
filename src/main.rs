@@ -45,9 +45,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
 
     // Observation meta tracking.
     let episode_id: u32 = 0;
-    let mut piece_id: u32 = 0;
-    let mut step_in_piece: u32 = 0;
-    let mut last_active_kind = game_state.active.map(|p| p.kind);
+    let mut last_piece_id = game_state.piece_id;
     let mut last_paused = game_state.paused;
     let mut last_game_over = game_state.game_over;
     let mut last_lines = game_state.lines;
@@ -195,17 +193,10 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             // Observation scheduling (20Hz + immediate on critical events).
             let mut critical = false;
 
-            let prev_active_kind = last_active_kind;
-
-            // Detect piece changes.
-            let active_kind = game_state.active.map(|p| p.kind);
-            if active_kind != last_active_kind {
-                piece_id = piece_id.wrapping_add(1);
-                step_in_piece = 0;
-                last_active_kind = active_kind;
+            // Detect piece changes via core piece_id.
+            if game_state.piece_id != last_piece_id {
+                last_piece_id = game_state.piece_id;
                 critical = true;
-            } else {
-                step_in_piece = step_in_piece.wrapping_add(1);
             }
 
             if game_state.paused != last_paused {
@@ -235,10 +226,8 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 last_score = game_state.score;
             }
 
-            // Heuristic: a lock event is a piece change where the board/score/lines changed.
-            let locked_event = prev_active_kind.is_some()
-                && active_kind != prev_active_kind
-                && (board_changed || lines_delta != 0 || score_delta != 0);
+            // Heuristic: a lock event is a board change (typically from locking/clearing).
+            let locked_event = board_changed;
 
             obs_accum_ms = obs_accum_ms.saturating_add(TICK_MS);
             if critical || obs_accum_ms >= obs_interval_ms {
@@ -263,8 +252,8 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         &game_state,
                         obs_seq,
                         episode_id,
-                        piece_id,
-                        step_in_piece,
+                        game_state.piece_id,
+                        game_state.step_in_piece,
                         last_event,
                     );
                     if let Ok(line) = serde_json::to_string(&obs) {

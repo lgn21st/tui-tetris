@@ -59,6 +59,10 @@ pub struct GameState {
     pub hold: Option<PieceKind>,
     pub next_queue: Vec<PieceKind>,
     pub piece_queue: PieceQueue,
+    /// Monotonic id for the currently active piece (increments on spawn/hold swaps).
+    pub piece_id: u32,
+    /// Step counter within the current active piece (increments once per fixed tick).
+    pub step_in_piece: u32,
     pub score: u32,
     pub level: u32,
     pub lines: u32,
@@ -91,6 +95,8 @@ impl GameState {
             hold: None,
             next_queue,
             piece_queue,
+            piece_id: 0,
+            step_in_piece: 0,
             score: 0,
             level: 0,
             lines: 0,
@@ -139,6 +145,10 @@ impl GameState {
         }
 
         self.active = Some(piece);
+
+        // Update piece id and step counter.
+        self.piece_id = self.piece_id.wrapping_add(1);
+        self.step_in_piece = 0;
         self.can_hold = true;
         self.lock_timer_ms = 0;
         self.lock_reset_count = 0;
@@ -297,6 +307,10 @@ impl GameState {
                 // Swap with hold
                 self.active = Some(Tetromino::new(hold_kind));
                 self.hold = Some(current_kind);
+
+                // Active piece changed.
+                self.piece_id = self.piece_id.wrapping_add(1);
+                self.step_in_piece = 0;
 
                 // Check if spawn is valid
                 if let Some(ref piece) = self.active {
@@ -480,6 +494,11 @@ impl GameState {
             return false;
         }
 
+        // Step counter for the current active piece.
+        if self.active.is_some() {
+            self.step_in_piece = self.step_in_piece.wrapping_add(1);
+        }
+
         // Handle line clear pause
         if self.line_clear_timer_ms > 0 {
             self.line_clear_timer_ms = self.line_clear_timer_ms.saturating_sub(elapsed_ms);
@@ -643,6 +662,9 @@ mod tests {
         let mut state = GameState::new(12345);
         state.start();
 
+        assert_eq!(state.piece_id, 1);
+        assert_eq!(state.step_in_piece, 0);
+
         let first_kind = state.active.unwrap().kind;
         // The active piece was drawn from the queue, so next_queue[0]
         // should be the NEXT piece to be spawned (not the current active piece)
@@ -657,10 +679,35 @@ mod tests {
         }
 
         assert!(state.active.is_some());
+        assert_eq!(state.piece_id, 2);
+        assert_eq!(state.step_in_piece, 0);
         // The next active piece should match what was in next_queue[0]
         assert_eq!(state.active.unwrap().kind, next_kind);
         // And it should be different from the first piece (7-bag has no repeats)
         assert_ne!(state.active.unwrap().kind, first_kind);
+    }
+
+    #[test]
+    fn test_step_in_piece_increments_on_tick() {
+        let mut state = GameState::new(12345);
+        state.start();
+        assert_eq!(state.step_in_piece, 0);
+
+        state.tick(16, false);
+        assert_eq!(state.step_in_piece, 1);
+
+        state.tick(16, false);
+        assert_eq!(state.step_in_piece, 2);
+    }
+
+    #[test]
+    fn test_hold_increments_piece_id() {
+        let mut state = GameState::new(12345);
+        state.start();
+        let first_id = state.piece_id;
+        assert!(state.apply_action(GameAction::Hold));
+        assert!(state.piece_id > first_id);
+        assert_eq!(state.step_in_piece, 0);
     }
 
     #[test]

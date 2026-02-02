@@ -297,7 +297,8 @@ async fn handle_client(
                         .unwrap_or(false)
                 };
                 if !handshaken {
-                    let error = create_error(cmd.seq, "handshake_required", "Send hello before command");
+                    let error =
+                        create_error(cmd.seq, "handshake_required", "Send hello before command");
                     let json = serde_json::to_string(&error)?;
                     let _ = tx.send(json);
                     continue;
@@ -364,7 +365,11 @@ async fn handle_client(
                             .unwrap_or(false)
                     };
                     if !handshaken {
-                        let error = create_error(ctrl.seq, "handshake_required", "Send hello before control");
+                        let error = create_error(
+                            ctrl.seq,
+                            "handshake_required",
+                            "Send hello before control",
+                        );
                         let json = serde_json::to_string(&error)?;
                         let _ = tx.send(json);
                         continue;
@@ -401,7 +406,11 @@ async fn handle_client(
                             .unwrap_or(false)
                     };
                     if !handshaken {
-                        let error = create_error(ctrl.seq, "handshake_required", "Send hello before control");
+                        let error = create_error(
+                            ctrl.seq,
+                            "handshake_required",
+                            "Send hello before control",
+                        );
                         let json = serde_json::to_string(&error)?;
                         let _ = tx.send(json);
                         continue;
