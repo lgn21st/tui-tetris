@@ -30,6 +30,7 @@ pub struct TimersSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GameSnapshot {
     pub board: [[u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize],
+    pub board_id: u32,
     pub active: Option<ActiveSnapshot>,
     pub ghost_y: Option<i8>,
     pub hold: Option<PieceKind>,
@@ -50,6 +51,7 @@ pub struct GameSnapshot {
 impl GameSnapshot {
     pub fn clear(&mut self) {
         self.board = [[0u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize];
+        self.board_id = 0;
         self.active = None;
         self.ghost_y = None;
         self.hold = None;
@@ -80,6 +82,7 @@ impl Default for GameSnapshot {
     fn default() -> Self {
         let mut s = Self {
             board: [[0u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize],
+            board_id: 0,
             active: None,
             ghost_y: None,
             hold: None,

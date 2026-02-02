@@ -55,6 +55,7 @@ impl Tetromino {
 #[derive(Debug, Clone)]
 pub struct GameState {
     board: Board,
+    board_id: u32,
     active: Option<Tetromino>,
     hold: Option<PieceKind>,
     next_queue: [PieceKind; 5],
@@ -99,6 +100,7 @@ impl GameState {
 
         Self {
             board: Board::new(),
+            board_id: 0,
             active: None,
             hold: None,
             next_queue,
@@ -197,15 +199,27 @@ impl GameState {
         &self.board
     }
 
+    pub fn board_id(&self) -> u32 {
+        self.board_id
+    }
+
     #[cfg(test)]
     pub fn board_mut(&mut self) -> &mut Board {
         &mut self.board
     }
 
     pub fn snapshot_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
-        use crate::core::snapshot::{ActiveSnapshot, TimersSnapshot};
+        self.snapshot_board_into(out);
+        self.snapshot_meta_into(out);
+    }
 
+    pub fn snapshot_board_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
         self.board.write_u8_grid(&mut out.board);
+        out.board_id = self.board_id;
+    }
+
+    pub fn snapshot_meta_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
+        use crate::core::snapshot::{ActiveSnapshot, TimersSnapshot};
 
         out.active = self.active.map(ActiveSnapshot::from);
         out.ghost_y = self.ghost_y();
@@ -453,7 +467,7 @@ impl GameState {
 
         // Lock piece to board
         let shape = active.shape();
-        let _success = self
+        let lock_success = self
             .board
             .lock_piece(&shape, active.x, active.y, active.kind);
 
@@ -468,6 +482,10 @@ impl GameState {
         // Clear full rows
         let cleared_rows = self.board.clear_full_rows();
         let lines_cleared = cleared_rows.len();
+
+        if lock_success || lines_cleared > 0 {
+            self.board_id = self.board_id.wrapping_add(1);
+        }
 
         // Detect T-spin
         let tspin = if active.kind == PieceKind::T {

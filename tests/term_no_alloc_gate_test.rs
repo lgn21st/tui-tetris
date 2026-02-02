@@ -52,14 +52,24 @@ fn term_game_view_render_is_allocation_free_after_warmup() {
     gs.start();
 
     let mut snap = gs.snapshot();
+    let mut last_board_id = gs.board_id();
+    gs.snapshot_board_into(&mut snap);
 
     // Warm-up (resize/initial clears).
-    gs.snapshot_into(&mut snap);
+    if gs.board_id() != last_board_id {
+        last_board_id = gs.board_id();
+        gs.snapshot_board_into(&mut snap);
+    }
+    gs.snapshot_meta_into(&mut snap);
     view.render_into(&snap, viewport, &mut fb);
 
     let allocs = with_alloc_counting(|| {
         for _ in 0..200 {
-            gs.snapshot_into(&mut snap);
+            if gs.board_id() != last_board_id {
+                last_board_id = gs.board_id();
+                gs.snapshot_board_into(&mut snap);
+            }
+            gs.snapshot_meta_into(&mut snap);
             view.render_into(&snap, viewport, &mut fb);
         }
     });

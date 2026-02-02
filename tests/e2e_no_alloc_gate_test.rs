@@ -62,6 +62,8 @@ fn e2e_hot_path_is_allocation_free_without_io() {
     let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
     let mut seq: u64 = 1;
     let mut snap = gs.snapshot();
+    let mut last_board_id = gs.board_id();
+    gs.snapshot_board_into(&mut snap);
 
     // Warm-up: allow any lazy init/resizes.
     let actions = ih.update(16);
@@ -69,7 +71,11 @@ fn e2e_hot_path_is_allocation_free_without_io() {
         let _ = gs.apply_action(a);
     }
     let _ = gs.tick(16, false);
-    gs.snapshot_into(&mut snap);
+    if gs.board_id() != last_board_id {
+        last_board_id = gs.board_id();
+        gs.snapshot_board_into(&mut snap);
+    }
+    gs.snapshot_meta_into(&mut snap);
     let obs0 = build_observation(seq, &snap, None);
     buf.clear();
     serde_json::to_writer(&mut buf, &obs0).unwrap();
@@ -96,7 +102,11 @@ fn e2e_hot_path_is_allocation_free_without_io() {
 
             // Observation build + serialize to preallocated buffer.
             seq = seq.wrapping_add(1);
-            gs.snapshot_into(&mut snap);
+            if gs.board_id() != last_board_id {
+                last_board_id = gs.board_id();
+                gs.snapshot_board_into(&mut snap);
+            }
+            gs.snapshot_meta_into(&mut snap);
             let obs = build_observation(seq, &snap, None);
             buf.clear();
             serde_json::to_writer(&mut buf, &obs).unwrap();

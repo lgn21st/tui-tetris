@@ -48,13 +48,19 @@ fn adapter_observation_build_and_serialize_is_allocation_free() {
     gs.start();
 
     let mut snap = gs.snapshot();
+    let mut last_board_id = gs.board_id();
+    gs.snapshot_board_into(&mut snap);
 
     // Pre-allocate a buffer large enough for observation JSON.
     let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
     let mut seq: u64 = 1;
 
     // Warm-up.
-    gs.snapshot_into(&mut snap);
+    if gs.board_id() != last_board_id {
+        last_board_id = gs.board_id();
+        gs.snapshot_board_into(&mut snap);
+    }
+    gs.snapshot_meta_into(&mut snap);
     let obs0 = build_observation(seq, &snap, None);
     buf.clear();
     serde_json::to_writer(&mut buf, &obs0).unwrap();
@@ -62,7 +68,11 @@ fn adapter_observation_build_and_serialize_is_allocation_free() {
     let allocs = with_alloc_counting(|| {
         for _ in 0..200 {
             seq = seq.wrapping_add(1);
-            gs.snapshot_into(&mut snap);
+            if gs.board_id() != last_board_id {
+                last_board_id = gs.board_id();
+                gs.snapshot_board_into(&mut snap);
+            }
+            gs.snapshot_meta_into(&mut snap);
             let obs = build_observation(seq, &snap, None);
             buf.clear();
             serde_json::to_writer(&mut buf, &obs).unwrap();
