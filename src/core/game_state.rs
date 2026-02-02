@@ -57,7 +57,7 @@ pub struct GameState {
     pub board: Board,
     pub active: Option<Tetromino>,
     pub hold: Option<PieceKind>,
-    pub next_queue: Vec<PieceKind>,
+    pub next_queue: [PieceKind; 5],
     pub piece_queue: PieceQueue,
     /// Monotonic episode id (increments on restart).
     pub episode_id: u32,
@@ -95,7 +95,7 @@ impl GameState {
     /// Create a new game with the given RNG seed
     pub fn new(seed: u32) -> Self {
         let piece_queue = PieceQueue::new(seed);
-        let next_queue = piece_queue.peek_queue(5);
+        let next_queue = piece_queue.peek_5();
 
         Self {
             board: Board::new(),
@@ -167,7 +167,7 @@ impl GameState {
         self.last_action_was_rotate = false;
 
         // Update next queue preview
-        self.next_queue = self.piece_queue.peek_queue(5);
+        self.next_queue = self.piece_queue.peek_5();
 
         true
     }
@@ -681,7 +681,7 @@ mod tests {
         assert_eq!(state.episode_id, 0);
         assert!(state.active.is_none());
         assert!(state.hold.is_none());
-        assert!(!state.next_queue.is_empty());
+        assert_eq!(state.next_queue.len(), 5);
     }
 
     #[test]
@@ -1584,7 +1584,7 @@ mod tests {
         let mut state = GameState::new(12345);
         state.start();
 
-        let _first_next = state.next_queue.clone();
+        let _first_next = state.next_queue;
 
         // Lock piece
         state.lock_piece();
@@ -1597,7 +1597,5 @@ mod tests {
         // Next queue should have changed (or the queue rotated)
         // The first piece should be different or the queue shifted
         assert_eq!(state.next_queue.len(), 5);
-        // Just verify queue is consistent (not comparing specific pieces due to 7-bag)
-        assert!(!state.next_queue.is_empty());
     }
 }

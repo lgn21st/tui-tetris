@@ -49,7 +49,7 @@ impl SimpleRng {
 #[derive(Debug, Clone)]
 pub struct PieceQueue {
     /// Current bag of pieces
-    bag: Vec<PieceKind>,
+    bag: [PieceKind; 7],
     /// Index into current bag
     bag_index: usize,
     /// RNG for shuffling
@@ -60,7 +60,15 @@ impl PieceQueue {
     /// Create a new piece queue with the given seed
     pub fn new(seed: u32) -> Self {
         let mut queue = Self {
-            bag: Vec::with_capacity(7),
+            bag: [
+                PieceKind::I,
+                PieceKind::O,
+                PieceKind::T,
+                PieceKind::S,
+                PieceKind::Z,
+                PieceKind::J,
+                PieceKind::L,
+            ],
             bag_index: 0,
             rng: SimpleRng::new(seed),
         };
@@ -70,7 +78,7 @@ impl PieceQueue {
 
     /// Generate a new shuffled bag
     fn refill_bag(&mut self) {
-        self.bag = vec![
+        self.bag = [
             PieceKind::I,
             PieceKind::O,
             PieceKind::T,
@@ -88,23 +96,24 @@ impl PieceQueue {
         self.bag.get(self.bag_index).copied()
     }
 
-    /// Peek at multiple upcoming pieces
-    pub fn peek_queue(&self, count: usize) -> Vec<PieceKind> {
-        let mut result = Vec::with_capacity(count);
+    /// Peek at the next 5 pieces (for next queue).
+    ///
+    /// This is stack-only and does not allocate.
+    pub fn peek_5(&self) -> [PieceKind; 5] {
+        let mut out = [PieceKind::I; 5];
+        let mut out_i = 0usize;
         let mut idx = self.bag_index;
 
-        // First, take from current bag
-        while result.len() < count && idx < self.bag.len() {
-            result.push(self.bag[idx]);
+        while out_i < 5 && idx < 7 {
+            out[out_i] = self.bag[idx];
+            out_i += 1;
             idx += 1;
         }
 
-        // If we need more, we need to look at next bag
-        // For simplicity, generate a preview from a fresh bag with same RNG state
-        if result.len() < count {
-            // Clone RNG state to avoid affecting main RNG
+        if out_i < 5 {
+            // Preview next bag without touching the main RNG.
             let mut preview_rng = SimpleRng::new(self.rng.state);
-            let mut next_bag = vec![
+            let mut next_bag = [
                 PieceKind::I,
                 PieceKind::O,
                 PieceKind::T,
@@ -115,19 +124,21 @@ impl PieceQueue {
             ];
             preview_rng.shuffle(&mut next_bag);
 
-            let remaining = count - result.len();
-            for i in 0..remaining.min(7) {
-                result.push(next_bag[i]);
+            let mut nb_i = 0usize;
+            while out_i < 5 {
+                out[out_i] = next_bag[nb_i];
+                nb_i += 1;
+                out_i += 1;
             }
         }
 
-        result
+        out
     }
 
     /// Draw the next piece from the queue
     pub fn draw(&mut self) -> PieceKind {
         // Ensure bag has pieces
-        if self.bag_index >= self.bag.len() {
+        if self.bag_index >= 7 {
             self.refill_bag();
         }
 
@@ -249,14 +260,10 @@ mod tests {
     }
 
     #[test]
-    fn test_piece_queue_peek_queue() {
+    fn test_piece_queue_peek_5() {
         let queue = PieceQueue::new(1);
 
-        let preview = queue.peek_queue(3);
-        assert_eq!(preview.len(), 3);
-
-        // First 3 should match current bag
-        let bag_preview = queue.peek_queue(7);
-        assert_eq!(bag_preview.len(), 7);
+        let preview = queue.peek_5();
+        assert_eq!(preview.len(), 5);
     }
 }
