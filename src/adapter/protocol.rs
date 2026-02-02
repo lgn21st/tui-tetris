@@ -11,11 +11,29 @@ use arrayvec::ArrayVec;
 
 // ============== Client -> Game Messages ==============
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HelloType {
+    #[serde(rename = "hello")]
+    Hello,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CommandType {
+    #[serde(rename = "command")]
+    Command,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ControlType {
+    #[serde(rename = "control")]
+    Control,
+}
+
 /// Client hello message (first message to establish connection)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HelloMessage {
     #[serde(rename = "type")]
-    pub msg_type: String,
+    pub msg_type: HelloType,
     pub seq: u64,
     pub ts: u64,
     pub client: ClientInfo,
@@ -42,7 +60,7 @@ pub struct RequestedCapabilities {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CommandMessage {
     #[serde(rename = "type")]
-    pub msg_type: String,
+    pub msg_type: CommandType,
     pub seq: u64,
     pub ts: u64,
     pub mode: CommandMode,
@@ -174,7 +192,7 @@ pub struct PlaceCommand {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ControlMessage {
     #[serde(rename = "type")]
-    pub msg_type: String,
+    pub msg_type: ControlType,
     pub seq: u64,
     pub ts: u64,
     pub action: ControlAction,
@@ -566,7 +584,7 @@ pub enum ParsedMessage {
 /// Create a hello message
 pub fn create_hello(seq: u64, client_name: &str, protocol_version: &str) -> HelloMessage {
     HelloMessage {
-        msg_type: "hello".to_string(),
+        msg_type: HelloType::Hello,
         seq,
         ts: current_timestamp_ms(),
         client: ClientInfo {
@@ -648,7 +666,7 @@ mod tests {
         let result = parse_message(json).unwrap();
         match result {
             ParsedMessage::Hello(msg) => {
-                assert_eq!(msg.msg_type, "hello");
+                assert_eq!(msg.msg_type, HelloType::Hello);
                 assert_eq!(msg.seq, 1);
                 assert_eq!(msg.client.name, "test-ai");
                 assert_eq!(msg.protocol_version, "2.0.0");
