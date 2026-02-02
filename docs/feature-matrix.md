@@ -28,6 +28,7 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Diff-based flush ✅
 - Resizing invalidation ✅
 - Snapshot-style renderer tests ✅
+- GameView allocation-free gate ✅
 
 ## Adapter
 

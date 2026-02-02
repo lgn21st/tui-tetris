@@ -119,6 +119,9 @@ Mark functions with `#[inline]` and ensure no allocations:
 
 Repo gate:
 - `cargo test --test no_alloc_gate_test`
+- `cargo test --test input_no_alloc_gate_test`
+- `cargo test --test adapter_observation_no_alloc_gate_test`
+- `cargo test --test term_no_alloc_gate_test`
 
 ```rust
 #[inline]

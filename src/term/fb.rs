@@ -130,6 +130,25 @@ impl FrameBuffer {
         }
     }
 
+    pub fn put_u32(&mut self, x: u16, y: u16, mut v: u32, style: CellStyle) {
+        // Max 10 digits for u32.
+        let mut buf = [0u8; 10];
+        let mut i = 10;
+        if v == 0 {
+            i -= 1;
+            buf[i] = b'0';
+        } else {
+            while v != 0 {
+                let digit = (v % 10) as u8;
+                v /= 10;
+                i -= 1;
+                buf[i] = b'0' + digit;
+            }
+        }
+        let s = std::str::from_utf8(&buf[i..]).expect("digits are valid utf8");
+        self.put_str(x, y, s, style);
+    }
+
     pub fn fill_rect(&mut self, x: u16, y: u16, w: u16, h: u16, ch: char, style: CellStyle) {
         for dy in 0..h {
             for dx in 0..w {

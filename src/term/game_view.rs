@@ -251,17 +251,17 @@ impl GameView {
         let mut y = start_y;
         fb.put_str(panel_x, y, "SCORE", label);
         y = y.saturating_add(1);
-        fb.put_str(panel_x, y, &format!("{}", state.score), value);
+        fb.put_u32(panel_x, y, state.score, value);
         y = y.saturating_add(2);
 
         fb.put_str(panel_x, y, "LEVEL", label);
         y = y.saturating_add(1);
-        fb.put_str(panel_x, y, &format!("{}", state.level), value);
+        fb.put_u32(panel_x, y, state.level, value);
         y = y.saturating_add(2);
 
         fb.put_str(panel_x, y, "LINES", label);
         y = y.saturating_add(1);
-        fb.put_str(panel_x, y, &format!("{}", state.lines), value);
+        fb.put_u32(panel_x, y, state.lines, value);
         y = y.saturating_add(2);
 
         fb.put_str(panel_x, y, "HOLD", label);
@@ -282,12 +282,9 @@ impl GameView {
             }
             fb.put_str(panel_x, y, piece_letter(*k), value);
             if panel_w >= 16 {
-                fb.put_str(
-                    panel_x + 2,
-                    y,
-                    &format!("#{}", i + 1),
-                    CellStyle { dim: true, ..value },
-                );
+                let dim = CellStyle { dim: true, ..value };
+                fb.put_char(panel_x + 2, y, '#', dim);
+                fb.put_u32(panel_x + 3, y, (i as u32) + 1, dim);
             }
             y = y.saturating_add(1);
         }

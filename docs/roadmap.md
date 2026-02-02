@@ -31,3 +31,6 @@ This file is the current, maintained roadmap for tui-tetris.
 - Closed-loop stability: `cargo test --test adapter_closed_loop_test`
 - Long-run gate (optional): `cargo test --test adapter_closed_loop_test -- --ignored`
 - Core allocation gate: `cargo test --test no_alloc_gate_test`
+- Input allocation gate: `cargo test --test input_no_alloc_gate_test`
+- Adapter observation allocation gate: `cargo test --test adapter_observation_no_alloc_gate_test`
+- Term render allocation gate: `cargo test --test term_no_alloc_gate_test`
