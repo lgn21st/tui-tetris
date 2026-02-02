@@ -841,17 +841,20 @@ fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (ErrorCode, String
             let Some(ref place) = cmd.place else {
                 return Err((ErrorCode::InvalidPlace, "Missing place".to_string()));
             };
-            let rot = match place.rotation.to_lowercase().as_str() {
-                "north" => Rotation::North,
-                "east" => Rotation::East,
-                "south" => Rotation::South,
-                "west" => Rotation::West,
-                _ => {
-                    return Err((
-                        ErrorCode::InvalidPlace,
-                        format!("Invalid rotation: {}", place.rotation),
-                    ))
-                }
+            let rot_s = place.rotation.as_str();
+            let rot = if rot_s.eq_ignore_ascii_case("north") {
+                Rotation::North
+            } else if rot_s.eq_ignore_ascii_case("east") {
+                Rotation::East
+            } else if rot_s.eq_ignore_ascii_case("south") {
+                Rotation::South
+            } else if rot_s.eq_ignore_ascii_case("west") {
+                Rotation::West
+            } else {
+                return Err((
+                    ErrorCode::InvalidPlace,
+                    format!("Invalid rotation: {}", place.rotation),
+                ));
             };
             Ok(ClientCommand::Place {
                 x: place.x,
@@ -865,17 +868,26 @@ fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (ErrorCode, String
 
 /// Parse action string to GameAction
 fn parse_action(action: &str) -> Option<GameAction> {
-    match action.to_lowercase().as_str() {
-        "moveleft" => Some(GameAction::MoveLeft),
-        "moveright" => Some(GameAction::MoveRight),
-        "softdrop" => Some(GameAction::SoftDrop),
-        "harddrop" => Some(GameAction::HardDrop),
-        "rotatecw" => Some(GameAction::RotateCw),
-        "rotateccw" => Some(GameAction::RotateCcw),
-        "hold" => Some(GameAction::Hold),
-        "pause" => Some(GameAction::Pause),
-        "restart" => Some(GameAction::Restart),
-        _ => None,
+    if action.eq_ignore_ascii_case("moveLeft") {
+        Some(GameAction::MoveLeft)
+    } else if action.eq_ignore_ascii_case("moveRight") {
+        Some(GameAction::MoveRight)
+    } else if action.eq_ignore_ascii_case("softDrop") {
+        Some(GameAction::SoftDrop)
+    } else if action.eq_ignore_ascii_case("hardDrop") {
+        Some(GameAction::HardDrop)
+    } else if action.eq_ignore_ascii_case("rotateCw") {
+        Some(GameAction::RotateCw)
+    } else if action.eq_ignore_ascii_case("rotateCcw") {
+        Some(GameAction::RotateCcw)
+    } else if action.eq_ignore_ascii_case("hold") {
+        Some(GameAction::Hold)
+    } else if action.eq_ignore_ascii_case("pause") {
+        Some(GameAction::Pause)
+    } else if action.eq_ignore_ascii_case("restart") {
+        Some(GameAction::Restart)
+    } else {
+        None
     }
 }
 

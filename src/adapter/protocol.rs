@@ -351,18 +351,22 @@ pub struct TimersSnapshot {
 
 /// Parse a JSON message from a string
 pub fn parse_message(json: &str) -> Result<ParsedMessage, serde_json::Error> {
-    // Try to extract type field first
-    let value: serde_json::Value = serde_json::from_str(json)?;
-    let msg_type = value
-        .get("type")
-        .and_then(|v| v.as_str())
+    #[derive(Debug, Deserialize)]
+    struct TypeOnly<'a> {
+        #[serde(rename = "type")]
+        msg_type: Option<&'a str>,
+    }
+
+    // Fast path: decode just `type` without building a `serde_json::Value` tree.
+    let msg_type = serde_json::from_str::<TypeOnly>(json)?
+        .msg_type
         .unwrap_or("unknown");
 
     match msg_type {
-        "hello" => Ok(ParsedMessage::Hello(serde_json::from_value(value)?)),
-        "command" => Ok(ParsedMessage::Command(serde_json::from_value(value)?)),
-        "control" => Ok(ParsedMessage::Control(serde_json::from_value(value)?)),
-        _ => Ok(ParsedMessage::Unknown(value)),
+        "hello" => Ok(ParsedMessage::Hello(serde_json::from_str(json)?)),
+        "command" => Ok(ParsedMessage::Command(serde_json::from_str(json)?)),
+        "control" => Ok(ParsedMessage::Control(serde_json::from_str(json)?)),
+        _ => Ok(ParsedMessage::Unknown(serde_json::from_str(json)?)),
     }
 }
 
