@@ -139,12 +139,10 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                                 game_state.step_in_piece,
                                 pending_last_event.take(),
                             );
-                            if let Ok(line) = serde_json::to_string(&obs) {
-                                ad.send(OutboundMessage::ToClient {
-                                    client_id: cmd.client_id,
-                                    line,
-                                });
-                            }
+                            ad.send(OutboundMessage::ToClientObservation {
+                                client_id: cmd.client_id,
+                                obs,
+                            });
                             continue;
                         }
                         tui_tetris::adapter::runtime::InboundPayload::Command(cmd2) => {
@@ -169,9 +167,15 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                                         locked: ev.locked,
                                         lines_cleared: ev.lines_cleared,
                                         line_clear_score: ev.line_clear_score,
-                                        tspin: ev
-                                            .tspin
-                                            .and_then(|t| t.as_str().map(|s| s.to_string())),
+                                        tspin: ev.tspin.and_then(|t| match t {
+                                            tui_tetris::types::TSpinKind::Mini => Some(
+                                                tui_tetris::adapter::protocol::TSpinLower::Mini,
+                                            ),
+                                            tui_tetris::types::TSpinKind::Full => Some(
+                                                tui_tetris::adapter::protocol::TSpinLower::Full,
+                                            ),
+                                            tui_tetris::types::TSpinKind::None => None,
+                                        }),
                                         combo: ev.combo,
                                         back_to_back: ev.back_to_back,
                                     });
@@ -265,7 +269,15 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                     locked: ev.locked,
                     lines_cleared: ev.lines_cleared,
                     line_clear_score: ev.line_clear_score,
-                    tspin: ev.tspin.and_then(|t| t.as_str().map(|s| s.to_string())),
+                    tspin: ev.tspin.and_then(|t| match t {
+                        tui_tetris::types::TSpinKind::Mini => {
+                            Some(tui_tetris::adapter::protocol::TSpinLower::Mini)
+                        }
+                        tui_tetris::types::TSpinKind::Full => {
+                            Some(tui_tetris::adapter::protocol::TSpinLower::Full)
+                        }
+                        tui_tetris::types::TSpinKind::None => None,
+                    }),
                     combo: ev.combo,
                     back_to_back: ev.back_to_back,
                 });
@@ -288,9 +300,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         game_state.step_in_piece,
                         last_event,
                     );
-                    if let Ok(line) = serde_json::to_string(&obs) {
-                        ad.send(OutboundMessage::Broadcast { line });
-                    }
+                    ad.send(OutboundMessage::BroadcastObservation { obs });
                 }
             }
         }

@@ -5,7 +5,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello};
+use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello, TSpinLower};
 use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
@@ -59,10 +59,11 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                     locked: ev.locked,
                     lines_cleared: ev.lines_cleared,
                     line_clear_score: ev.line_clear_score,
-                    tspin: ev
-                        .tspin
-                        .and_then(|k| k.as_str())
-                        .map(|s| s.to_string()),
+                    tspin: ev.tspin.and_then(|t| match t {
+                        tui_tetris::types::TSpinKind::Mini => Some(TSpinLower::Mini),
+                        tui_tetris::types::TSpinKind::Full => Some(TSpinLower::Full),
+                        tui_tetris::types::TSpinKind::None => None,
+                    }),
                     combo: ev.combo,
                     back_to_back: ev.back_to_back,
                 });
@@ -99,10 +100,11 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                     locked: ev.locked,
                     lines_cleared: ev.lines_cleared,
                     line_clear_score: ev.line_clear_score,
-                    tspin: ev
-                        .tspin
-                        .and_then(|k| k.as_str())
-                        .map(|s| s.to_string()),
+                    tspin: ev.tspin.and_then(|t| match t {
+                        tui_tetris::types::TSpinKind::Mini => Some(TSpinLower::Mini),
+                        tui_tetris::types::TSpinKind::Full => Some(TSpinLower::Full),
+                        tui_tetris::types::TSpinKind::None => None,
+                    }),
                     combo: ev.combo,
                     back_to_back: ev.back_to_back,
                 });
@@ -246,10 +248,11 @@ fn acceptance_determinism_fixed_seed_reproduces_state_hash_sequence() {
                 locked: ev.locked,
                 lines_cleared: ev.lines_cleared,
                 line_clear_score: ev.line_clear_score,
-                tspin: ev
-                    .tspin
-                    .and_then(|t| t.as_str())
-                    .map(|s| s.to_string()),
+                tspin: ev.tspin.and_then(|t| match t {
+                    tui_tetris::types::TSpinKind::Mini => Some(TSpinLower::Mini),
+                    tui_tetris::types::TSpinKind::Full => Some(TSpinLower::Full),
+                    tui_tetris::types::TSpinKind::None => None,
+                }),
                 combo: ev.combo,
                 back_to_back: ev.back_to_back,
             });
@@ -259,10 +262,11 @@ fn acceptance_determinism_fixed_seed_reproduces_state_hash_sequence() {
                 locked: ev.locked,
                 lines_cleared: ev.lines_cleared,
                 line_clear_score: ev.line_clear_score,
-                tspin: ev
-                    .tspin
-                    .and_then(|t| t.as_str())
-                    .map(|s| s.to_string()),
+                tspin: ev.tspin.and_then(|t| match t {
+                    tui_tetris::types::TSpinKind::Mini => Some(TSpinLower::Mini),
+                    tui_tetris::types::TSpinKind::Full => Some(TSpinLower::Full),
+                    tui_tetris::types::TSpinKind::None => None,
+                }),
                 combo: ev.combo,
                 back_to_back: ev.back_to_back,
             });

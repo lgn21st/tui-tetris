@@ -189,7 +189,13 @@ pub struct ClientHandle {
     pub stream_observations: bool,
     pub handshaken: bool,
     pub last_seq: Option<u64>,
-    pub tx: mpsc::UnboundedSender<String>, // Channel to send messages to client
+    pub tx: mpsc::UnboundedSender<ClientOutbound>, // Channel to send messages to client
+}
+
+#[derive(Debug, Clone)]
+pub enum ClientOutbound {
+    Line(String),
+    Observation(ObservationMessage),
 }
 
 /// Start the TCP server
@@ -207,8 +213,8 @@ pub async fn run_server(
         }
     }
 
-    let wire_log_tx: Option<mpsc::UnboundedSender<String>> = if let Some(path) = config.log_path.clone() {
-        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let wire_log_tx: Option<mpsc::UnboundedSender<Vec<u8>>> = if let Some(path) = config.log_path.clone() {
+        let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
         tokio::spawn(async move {
             use tokio::fs::OpenOptions;
             use tokio::io::AsyncWriteExt;
@@ -219,7 +225,7 @@ pub async fn run_server(
             };
 
             while let Some(line) = rx.recv().await {
-                if file.write_all(line.as_bytes()).await.is_err() {
+                if file.write_all(&line).await.is_err() {
                     break;
                 }
                 if file.write_all(b"\n").await.is_err() {
@@ -254,14 +260,28 @@ pub async fn run_server(
                     OutboundMessage::ToClient { client_id, line } => {
                         let clients = state.clients.read().await;
                         if let Some(c) = clients.iter().find(|c| c.id == client_id) {
-                            let _ = c.tx.send(line);
+                            let _ = c.tx.send(ClientOutbound::Line(line));
                         }
                     }
                     OutboundMessage::Broadcast { line } => {
                         let clients = state.clients.read().await;
                         for c in clients.iter() {
                             if c.stream_observations {
-                                let _ = c.tx.send(line.clone());
+                                let _ = c.tx.send(ClientOutbound::Line(line.clone()));
+                            }
+                        }
+                    }
+                    OutboundMessage::ToClientObservation { client_id, obs } => {
+                        let clients = state.clients.read().await;
+                        if let Some(c) = clients.iter().find(|c| c.id == client_id) {
+                            let _ = c.tx.send(ClientOutbound::Observation(obs));
+                        }
+                    }
+                    OutboundMessage::BroadcastObservation { obs } => {
+                        let clients = state.clients.read().await;
+                        for c in clients.iter() {
+                            if c.stream_observations {
+                                let _ = c.tx.send(ClientOutbound::Observation(obs.clone()));
                             }
                         }
                     }
@@ -301,13 +321,13 @@ async fn handle_client(
     client_id: usize,
     state: Arc<ServerState>,
     command_tx: mpsc::Sender<InboundCommand>,
-    wire_log_tx: Option<mpsc::UnboundedSender<String>>,
+    wire_log_tx: Option<mpsc::UnboundedSender<Vec<u8>>>,
 ) -> anyhow::Result<()> {
     let (reader, mut writer) = tokio::io::split(socket);
     let mut reader = BufReader::new(reader);
 
     // Channel to send messages to this client
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let (tx, mut rx) = mpsc::unbounded_channel::<ClientOutbound>();
 
     // Add client to list
     let client_handle = ClientHandle {
@@ -330,13 +350,31 @@ async fn handle_client(
 
     // Spawn task to write messages to client
     let write_task = tokio::spawn(async move {
+        let mut buf: Vec<u8> = Vec::with_capacity(4096);
         while let Some(msg) = rx.recv().await {
-            if let Some(tx) = wire_log_tx_out.as_ref() {
-                let _ = tx.send(msg.clone());
+            match msg {
+                ClientOutbound::Line(line) => {
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(line.as_bytes().to_vec());
+                    }
+                    if writer.write_all(line.as_bytes()).await.is_err() {
+                        break;
+                    }
+                }
+                ClientOutbound::Observation(obs) => {
+                    buf.clear();
+                    if serde_json::to_writer(&mut buf, &obs).is_err() {
+                        continue;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(buf.clone());
+                    }
+                    if writer.write_all(&buf).await.is_err() {
+                        break;
+                    }
+                }
             }
-            if writer.write_all(msg.as_bytes()).await.is_err() {
-                break;
-            }
+
             if writer.write_all(b"\n").await.is_err() {
                 break;
             }
@@ -366,7 +404,7 @@ async fn handle_client(
         }
 
         if let Some(tx) = wire_log_tx.as_ref() {
-            let _ = tx.send(raw_line.to_string());
+            let _ = tx.send(raw_line.as_bytes().to_vec());
         }
 
         // Parse the message
@@ -382,7 +420,7 @@ async fn handle_client(
                         "seq must be strictly increasing",
                     );
                     let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(json);
+                    let _ = tx.send(ClientOutbound::Line(json));
                     continue;
                 }
 
@@ -394,7 +432,7 @@ async fn handle_client(
                         &format!("Protocol version {} not supported", hello.protocol_version),
                     );
                     let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(json);
+                    let _ = tx.send(ClientOutbound::Line(json));
                     break;
                 }
 
@@ -412,7 +450,7 @@ async fn handle_client(
                 // Send welcome
                 let welcome = create_welcome(hello.seq, &state.config.protocol_version);
                 let json = serde_json::to_string(&welcome)?;
-                let _ = tx.send(json);
+                let _ = tx.send(ClientOutbound::Line(json));
 
                 // Request an immediate snapshot for this client if desired.
                 if hello.requested.stream_observations {
@@ -451,7 +489,7 @@ async fn handle_client(
                     let error =
                         create_error(cmd.seq, "handshake_required", "Send hello before command");
                     let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(json);
+                    let _ = tx.send(ClientOutbound::Line(json));
                     continue;
                 }
 
@@ -463,7 +501,7 @@ async fn handle_client(
                         "seq must be strictly increasing",
                     );
                     let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(json);
+                    let _ = tx.send(ClientOutbound::Line(json));
                     continue;
                 }
 
@@ -484,7 +522,7 @@ async fn handle_client(
                         "Only controller may send commands",
                     );
                     let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(json);
+                    let _ = tx.send(ClientOutbound::Line(json));
                     continue;
                 }
 
@@ -494,7 +532,7 @@ async fn handle_client(
                     Err((code, message)) => {
                         let error = create_error(cmd.seq, code, &message);
                         let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                         continue;
                     }
                 };
@@ -511,7 +549,7 @@ async fn handle_client(
                     Err(_) => {
                         let error = create_error(cmd.seq, "backpressure", "Command queue is full");
                         let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                     }
                 }
             }
@@ -527,7 +565,7 @@ async fn handle_client(
                             "Send hello before control",
                         );
                         let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                         continue;
                     }
 
@@ -539,7 +577,7 @@ async fn handle_client(
                             "seq must be strictly increasing",
                         );
                         let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                         continue;
                     }
 
@@ -552,7 +590,7 @@ async fn handle_client(
                         }
                         let ack = create_ack(ctrl.seq, ctrl.seq);
                         let json = serde_json::to_string(&ack)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                     } else {
                         let error = create_error(
                             ctrl.seq,
@@ -560,7 +598,7 @@ async fn handle_client(
                             "Controller already assigned",
                         );
                         let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                     }
                 }
                 "release" => {
@@ -573,7 +611,7 @@ async fn handle_client(
                             "Send hello before control",
                         );
                         let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                         continue;
                     }
 
@@ -585,7 +623,7 @@ async fn handle_client(
                             "seq must be strictly increasing",
                         );
                         let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                         continue;
                     }
 
@@ -598,12 +636,12 @@ async fn handle_client(
                         }
                         let ack = create_ack(ctrl.seq, ctrl.seq);
                         let json = serde_json::to_string(&ack)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                     } else {
                         let error =
                             create_error(ctrl.seq, "not_controller", "Only controller may release");
                         let json = serde_json::to_string(&error)?;
-                        let _ = tx.send(json);
+                        let _ = tx.send(ClientOutbound::Line(json));
                     }
                 }
                 _ => {
@@ -613,7 +651,7 @@ async fn handle_client(
                         &format!("Unknown control action: {}", ctrl.action),
                     );
                     let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(json);
+                    let _ = tx.send(ClientOutbound::Line(json));
                 }
             },
 
@@ -621,7 +659,7 @@ async fn handle_client(
                 let seq = extract_seq_best_effort(trimmed).unwrap_or(0);
                 let error = create_error(seq, "invalid_command", &format!("JSON parse error: {}", e));
                 let json = serde_json::to_string(&error)?;
-                let _ = tx.send(json);
+                let _ = tx.send(ClientOutbound::Line(json));
             }
 
             Ok(ParsedMessage::Unknown(value)) => {
@@ -633,12 +671,12 @@ async fn handle_client(
                         "seq must be strictly increasing",
                     );
                     let json = serde_json::to_string(&error)?;
-                    let _ = tx.send(json);
+                    let _ = tx.send(ClientOutbound::Line(json));
                     continue;
                 }
                 let error = create_error(seq, "invalid_command", "Unknown message type");
                 let json = serde_json::to_string(&error)?;
-                let _ = tx.send(json);
+                let _ = tx.send(ClientOutbound::Line(json));
             }
         }
     }
@@ -795,32 +833,27 @@ pub fn build_observation(
         ev.combo.hash(&mut hasher);
         ev.back_to_back.hash(&mut hasher);
     }
-    let state_hash = format!("{:x}", hasher.finish());
+    let state_hash = StateHash(hasher.finish());
 
     // Build next queue
-    let next_queue: [String; 5] = std::array::from_fn(|i| game_state.next_queue[i].as_str().to_lowercase());
+    let next_queue: [PieceKindLower; 5] =
+        std::array::from_fn(|i| PieceKindLower::from(game_state.next_queue[i]));
 
-    let next = next_queue[0].clone();
+    let next = next_queue[0];
 
     // Build active piece
     let active = game_state.active.map(|piece| ActivePieceSnapshot {
-        kind: piece.kind.as_str().to_lowercase(),
-        rotation: match piece.rotation {
-            Rotation::North => "north",
-            Rotation::East => "east",
-            Rotation::South => "south",
-            Rotation::West => "west",
-        }
-        .to_string(),
+        kind: PieceKindLower::from(piece.kind),
+        rotation: RotationLower::from(piece.rotation),
         x: piece.x,
         y: piece.y,
     });
 
     // Build hold
-    let hold = game_state.hold.map(|kind| kind.as_str().to_lowercase());
+    let hold = game_state.hold.map(PieceKindLower::from);
 
     ObservationMessage {
-        msg_type: "observation".to_string(),
+        msg_type: ObservationType::Observation,
         seq,
         ts: current_timestamp_ms(),
         playable: !game_state.game_over && !game_state.paused,

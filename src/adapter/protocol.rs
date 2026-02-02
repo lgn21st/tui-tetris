@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::types::{PieceKind, Rotation};
+
 // ============== Client -> Game Messages ==============
 
 /// Client hello message (first message to establish connection)
@@ -109,11 +111,17 @@ pub struct ErrorMessage {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ObservationType {
+    #[serde(rename = "observation")]
+    Observation,
+}
+
 /// Game state observation (sent to all clients)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObservationMessage {
     #[serde(rename = "type")]
-    pub msg_type: String,
+    pub msg_type: ObservationType,
     pub seq: u64,
     pub ts: u64,
     pub playable: bool,
@@ -130,18 +138,18 @@ pub struct ObservationMessage {
     pub board: BoardSnapshot,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<ActivePieceSnapshot>,
-    pub next: String, // Single next piece (for compatibility)
+    pub next: PieceKindLower, // Single next piece (for compatibility)
     #[serde(rename = "next_queue")]
-    pub next_queue: [String; 5], // Full next queue
+    pub next_queue: [PieceKindLower; 5], // Full next queue
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hold: Option<String>,
+    pub hold: Option<PieceKindLower>,
     #[serde(rename = "can_hold")]
     pub can_hold: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "last_event")]
     pub last_event: Option<LastEvent>,
     #[serde(rename = "state_hash")]
-    pub state_hash: String,
+    pub state_hash: StateHash,
     pub score: u32,
     pub level: u32,
     pub lines: u32,
@@ -157,10 +165,108 @@ pub struct BoardSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivePieceSnapshot {
-    pub kind: String,
-    pub rotation: String,
+    pub kind: PieceKindLower,
+    pub rotation: RotationLower,
     pub x: i8,
     pub y: i8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PieceKindLower {
+    #[serde(rename = "i")]
+    I,
+    #[serde(rename = "o")]
+    O,
+    #[serde(rename = "t")]
+    T,
+    #[serde(rename = "s")]
+    S,
+    #[serde(rename = "z")]
+    Z,
+    #[serde(rename = "j")]
+    J,
+    #[serde(rename = "l")]
+    L,
+}
+
+impl From<PieceKind> for PieceKindLower {
+    fn from(value: PieceKind) -> Self {
+        match value {
+            PieceKind::I => Self::I,
+            PieceKind::O => Self::O,
+            PieceKind::T => Self::T,
+            PieceKind::S => Self::S,
+            PieceKind::Z => Self::Z,
+            PieceKind::J => Self::J,
+            PieceKind::L => Self::L,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RotationLower {
+    #[serde(rename = "north")]
+    North,
+    #[serde(rename = "east")]
+    East,
+    #[serde(rename = "south")]
+    South,
+    #[serde(rename = "west")]
+    West,
+}
+
+impl From<Rotation> for RotationLower {
+    fn from(value: Rotation) -> Self {
+        match value {
+            Rotation::North => Self::North,
+            Rotation::East => Self::East,
+            Rotation::South => Self::South,
+            Rotation::West => Self::West,
+        }
+    }
+}
+
+/// Deterministic state hash serialized as lowercase hex (without heap allocation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StateHash(pub u64);
+
+impl Serialize for StateHash {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut buf = [0u8; 16];
+        let mut v = self.0;
+        for i in 0..16 {
+            let nib = (v & 0x0f) as usize;
+            buf[15 - i] = HEX[nib];
+            v >>= 4;
+        }
+        let s = std::str::from_utf8(&buf).expect("hex is valid utf8");
+        serializer.serialize_str(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for StateHash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <&str>::deserialize(deserializer)?;
+        let s = s.trim();
+        let mut v: u64 = 0;
+        for b in s.as_bytes() {
+            let d = match b {
+                b'0'..=b'9' => (b - b'0') as u64,
+                b'a'..=b'f' => (b - b'a' + 10) as u64,
+                b'A'..=b'F' => (b - b'A' + 10) as u64,
+                _ => return Err(serde::de::Error::custom("invalid hex")),
+            };
+            v = (v << 4) | d;
+        }
+        Ok(StateHash(v))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,10 +277,18 @@ pub struct LastEvent {
     #[serde(rename = "line_clear_score")]
     pub line_clear_score: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tspin: Option<String>,
+    pub tspin: Option<TSpinLower>,
     pub combo: u32,
     #[serde(rename = "back_to_back")]
     pub back_to_back: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TSpinLower {
+    #[serde(rename = "mini")]
+    Mini,
+    #[serde(rename = "full")]
+    Full,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
