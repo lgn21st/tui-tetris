@@ -147,6 +147,9 @@ Minimum stability gate:
   - no leaked/stuck TCP listener
   - reconnect works without restarting the game process
 
+If you are working in this repo, there is an automated version of this gate:
+- `cargo test --test adapter_closed_loop_test`
+
 ### 6.2 Long run gate (release-level)
 - Run `200` rounds (or `50` rounds repeated 4 times) and confirm:
   - no adapter crash
