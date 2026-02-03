@@ -601,10 +601,10 @@ impl GameState {
         if filled_count >= 3 {
             // Check front two corners (the ones in the direction of the T)
             let front_corners = match piece.rotation {
-                Rotation::North => [(0, 2), (2, 2)], // Bottom corners
-                Rotation::East => [(0, 0), (0, 2)],  // Left corners
-                Rotation::South => [(0, 0), (2, 0)], // Top corners
-                Rotation::West => [(2, 0), (2, 2)],  // Right corners
+                Rotation::North => [(0, 0), (2, 0)], // Top corners
+                Rotation::East => [(2, 0), (2, 2)],  // Right corners
+                Rotation::South => [(0, 2), (2, 2)], // Bottom corners
+                Rotation::West => [(0, 0), (0, 2)],  // Left corners
             };
 
             let front_filled = front_corners
@@ -2068,5 +2068,74 @@ mod tests {
         assert!(!state.back_to_back);
         assert_eq!(state.level, 1);
         assert_eq!(state.lines, 10);
+    }
+
+    #[test]
+    fn test_lock_piece_tspin_no_lines_awards_points_but_last_event_omits_tspin_full() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        // Prepare a "no-lines" Full T-Spin: place a T at y=18 and fill both front corners.
+        // The bottom corners (y+2) are out-of-bounds and count as filled, giving 4/4 corners filled.
+        state.level = 2;
+        state.lines = 29;
+        state.combo = 3;
+        state.back_to_back = true;
+
+        let x = 3;
+        state.board.set(x + 0, 18, Some(PieceKind::I));
+        state.board.set(x + 2, 18, Some(PieceKind::I));
+        state.last_action_was_rotate = true;
+        state.active = Some(Tetromino {
+            kind: PieceKind::T,
+            rotation: Rotation::North,
+            x,
+            y: 18,
+        });
+
+        let score_before = state.score;
+        state.lock_piece();
+        let ev = state.take_last_event().expect("expected last_event");
+
+        assert_eq!(state.score - score_before, 400 * (2 + 1));
+        assert_eq!(ev.lines_cleared, 0);
+        assert_eq!(ev.line_clear_score, 0);
+        assert_eq!(ev.tspin, None);
+        assert_eq!(ev.combo, -1);
+        assert!(!ev.back_to_back);
+    }
+
+    #[test]
+    fn test_lock_piece_tspin_no_lines_awards_points_but_last_event_omits_tspin_mini() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        // Prepare a "no-lines" Mini T-Spin: place a T at y=18 and fill exactly one front corner.
+        // With the two bottom corners out-of-bounds, this yields 3/4 corners filled and frontFilled=1.
+        state.level = 1;
+        state.lines = 10;
+        state.combo = 0;
+        state.back_to_back = true;
+
+        let x = 3;
+        state.board.set(x + 0, 18, Some(PieceKind::I));
+        state.last_action_was_rotate = true;
+        state.active = Some(Tetromino {
+            kind: PieceKind::T,
+            rotation: Rotation::North,
+            x,
+            y: 18,
+        });
+
+        let score_before = state.score;
+        state.lock_piece();
+        let ev = state.take_last_event().expect("expected last_event");
+
+        assert_eq!(state.score - score_before, 100 * (1 + 1));
+        assert_eq!(ev.lines_cleared, 0);
+        assert_eq!(ev.line_clear_score, 0);
+        assert_eq!(ev.tspin, None);
+        assert_eq!(ev.combo, -1);
+        assert!(!ev.back_to_back);
     }
 }
