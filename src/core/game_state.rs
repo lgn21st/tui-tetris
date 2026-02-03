@@ -691,22 +691,19 @@ impl GameState {
             return false;
         };
 
-        // Handle soft drop state
-        if soft_drop && !self.is_soft_dropping {
-            // Just started soft dropping
+        // Soft drop activation + timeout (swiftui-tetris parity):
+        // - A soft drop action activates a short timeout.
+        // - If the timeout expires, soft drop speed disables automatically.
+        // - The `soft_drop` tick argument may be used by callers as an alternate activation signal.
+        if soft_drop {
             self.is_soft_dropping = true;
             self.soft_drop_timer_ms = SOFT_DROP_GRACE_MS;
-            self.drop_timer_ms = 0; // Reset drop timer to apply soft drop speed immediately
-        } else if !soft_drop && self.is_soft_dropping {
-            // Stopped soft dropping
-            self.is_soft_dropping = false;
-            self.soft_drop_timer_ms = 0;
-            self.drop_timer_ms = 0; // Reset to apply normal speed
         }
-
-        // Handle soft drop grace period
         if self.is_soft_dropping && self.soft_drop_timer_ms > 0 {
             self.soft_drop_timer_ms = self.soft_drop_timer_ms.saturating_sub(elapsed_ms);
+            if self.soft_drop_timer_ms == 0 {
+                self.is_soft_dropping = false;
+            }
         }
 
         let mut changed = false;
@@ -721,11 +718,6 @@ impl GameState {
                 continue;
             }
             changed = true;
-
-            // Score for soft drop (after grace).
-            if self.is_soft_dropping && self.soft_drop_timer_ms == 0 {
-                self.score += calculate_drop_score(1, false);
-            }
         }
 
         if self.is_grounded() {
@@ -751,11 +743,14 @@ impl GameState {
             GameAction::MoveLeft => self.try_move(-1, 0),
             GameAction::MoveRight => self.try_move(1, 0),
             GameAction::SoftDrop => {
-                // Soft drop is handled in tick, but we can try an immediate move down
+                // swiftui-tetris: softDropStep() moves once (if possible), adds +1 score per cell,
+                // and activates soft drop speed for a short grace window.
                 let moved = self.try_move(0, 1);
                 if moved {
                     self.score += calculate_drop_score(1, false);
                 }
+                self.is_soft_dropping = true;
+                self.soft_drop_timer_ms = SOFT_DROP_GRACE_MS;
                 moved
             }
             GameAction::HardDrop => {
@@ -1491,6 +1486,40 @@ mod tests {
         state.tick(50, true);
         assert!(state.is_soft_dropping);
         assert!(state.soft_drop_timer_ms > 0);
+    }
+
+    #[test]
+    fn test_soft_drop_timeout_expires_and_disables_speed() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        state.is_soft_dropping = true;
+        state.soft_drop_timer_ms = 10;
+
+        state.tick(16, false);
+        assert_eq!(state.soft_drop_timer_ms, 0);
+        assert!(!state.is_soft_dropping);
+    }
+
+    #[test]
+    fn test_soft_drop_gravity_does_not_add_score() {
+        let mut state = GameState::new(12345);
+        state.started = true;
+        state.active = Some(Tetromino {
+            kind: PieceKind::O,
+            rotation: Rotation::North,
+            x: 3,
+            y: 0,
+        });
+
+        state.is_soft_dropping = true;
+        state.soft_drop_timer_ms = SOFT_DROP_GRACE_MS;
+
+        let score_before = state.score;
+        state.drop_timer_ms = state.drop_interval_ms();
+
+        assert!(state.tick(0, false));
+        assert_eq!(state.score, score_before);
     }
 
     #[test]
