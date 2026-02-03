@@ -540,3 +540,86 @@ async fn acceptance_restart_and_pause_semantics() {
     server_handle.abort();
     engine_handle.abort();
 }
+
+#[tokio::test]
+async fn acceptance_actions_ignored_while_paused() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello
+    let hello = create_hello(1, "acceptance", "2.0.0");
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let _welcome = read_json_line(&mut lines).await;
+    let obs0 = read_json_line(&mut lines).await;
+    assert_eq!(obs0["type"], "observation");
+    assert_eq!(obs0["paused"], false);
+
+    // pause
+    let cmd_pause = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["pause"]}"#;
+    write_half.write_all(cmd_pause.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let _ack_pause = read_json_line(&mut lines).await;
+    let obs_paused = read_json_line(&mut lines).await;
+    assert_eq!(obs_paused["type"], "observation");
+    assert_eq!(obs_paused["paused"], true);
+
+    let paused_hash = obs_paused["state_hash"].as_str().unwrap().to_string();
+    let paused_piece_id = obs_paused["piece_id"].as_u64().unwrap();
+    let paused_board_id = obs_paused["board_id"].as_u64().unwrap();
+    let paused_active_x = obs_paused["active"]["x"].as_i64().unwrap();
+    let paused_active_y = obs_paused["active"]["y"].as_i64().unwrap();
+
+    // moveLeft while paused should be ignored (swiftui-tetris parity).
+    let cmd_move = r#"{"type":"command","seq":3,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd_move.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let ack_move = read_json_line(&mut lines).await;
+    assert_eq!(ack_move["type"], "ack");
+    assert_eq!(ack_move["seq"], 3);
+
+    let obs_after = read_json_line(&mut lines).await;
+    assert_eq!(obs_after["type"], "observation");
+    assert_eq!(obs_after["paused"], true);
+    assert_eq!(obs_after["state_hash"].as_str().unwrap(), paused_hash);
+    assert_eq!(obs_after["piece_id"].as_u64().unwrap(), paused_piece_id);
+    assert_eq!(obs_after["board_id"].as_u64().unwrap(), paused_board_id);
+    assert_eq!(obs_after["active"]["x"].as_i64().unwrap(), paused_active_x);
+    assert_eq!(obs_after["active"]["y"].as_i64().unwrap(), paused_active_y);
+
+    server_handle.abort();
+    engine_handle.abort();
+}
