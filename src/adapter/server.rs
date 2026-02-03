@@ -176,7 +176,10 @@ impl ServerState {
     /// Check if AI is disabled via environment
     pub fn is_disabled() -> bool {
         std::env::var("TETRIS_AI_DISABLED")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .map(|v| {
+                let v = v.trim();
+                v == "1" || v.eq_ignore_ascii_case("true")
+            })
             .unwrap_or(false)
     }
 }
@@ -646,7 +649,7 @@ async fn handle_client(
         }
 
         if let Some(tx) = wire_log_tx.as_ref() {
-            let _ = tx.send(WireRecord::Bytes(raw_line.as_bytes().to_vec()));
+            let _ = tx.send(WireRecord::LineArc(Arc::from(raw_line)));
         }
 
         // Parse the message
