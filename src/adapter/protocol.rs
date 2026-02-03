@@ -123,6 +123,56 @@ pub struct RequestedCapabilities {
     pub stream_observations: bool,
     #[serde(rename = "command_mode")]
     pub command_mode: CommandMode,
+    /// Optional role request for deterministic controller/observer negotiation.
+    /// Per spec, this MUST NOT change role unless explicitly supported by the adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<RequestedRole>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RequestedRole {
+    Auto,
+    Controller,
+    Observer,
+}
+
+impl<'de> Deserialize<'de> for RequestedRole {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <&str>::deserialize(deserializer)?;
+        if s.eq_ignore_ascii_case("auto") {
+            Ok(Self::Auto)
+        } else if s.eq_ignore_ascii_case("controller") {
+            Ok(Self::Controller)
+        } else if s.eq_ignore_ascii_case("observer") {
+            Ok(Self::Observer)
+        } else {
+            Err(serde::de::Error::custom("invalid requested role"))
+        }
+    }
+}
+
+impl Serialize for RequestedRole {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            RequestedRole::Auto => serializer.serialize_str("auto"),
+            RequestedRole::Controller => serializer.serialize_str("controller"),
+            RequestedRole::Observer => serializer.serialize_str("observer"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AssignedRole {
+    #[serde(rename = "controller")]
+    Controller,
+    #[serde(rename = "observer")]
+    Observer,
 }
 
 /// Command message (controller only)
@@ -359,6 +409,12 @@ pub struct WelcomeMessage {
     pub seq: u64,
     pub ts: u64,
     pub protocol_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<AssignedRole>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub controller_id: Option<u64>,
     pub game_id: String,
     pub capabilities: ServerCapabilities,
 }
@@ -756,17 +812,27 @@ pub fn create_hello(seq: u64, client_name: &str, protocol_version: &str) -> Hell
         requested: RequestedCapabilities {
             stream_observations: true,
             command_mode: CommandMode::Action,
+            role: Some(RequestedRole::Auto),
         },
     }
 }
 
 /// Create a welcome message
-pub fn create_welcome(seq: u64, protocol_version: &str) -> WelcomeMessage {
+pub fn create_welcome(
+    seq: u64,
+    protocol_version: &str,
+    client_id: u64,
+    role: AssignedRole,
+    controller_id: Option<u64>,
+) -> WelcomeMessage {
     WelcomeMessage {
         msg_type: WelcomeType::Welcome,
         seq,
         ts: current_timestamp_ms(),
         protocol_version: protocol_version.to_string(),
+        client_id: Some(client_id),
+        role: Some(role),
+        controller_id,
         game_id: "tui-tetris".to_string(),
         capabilities: ServerCapabilities {
             formats: [CapabilityFormat::Json],
@@ -886,10 +952,13 @@ mod tests {
 
     #[test]
     fn test_create_welcome() {
-        let welcome = create_welcome(1, "2.0.0");
+        let welcome = create_welcome(1, "2.0.0", 7, AssignedRole::Controller, Some(7));
         assert_eq!(welcome.msg_type, WelcomeType::Welcome);
         assert_eq!(welcome.seq, 1);
         assert_eq!(welcome.protocol_version, "2.0.0");
+        assert_eq!(welcome.client_id, Some(7));
+        assert_eq!(welcome.role, Some(AssignedRole::Controller));
+        assert_eq!(welcome.controller_id, Some(7));
         assert_eq!(welcome.game_id, "tui-tetris");
     }
 

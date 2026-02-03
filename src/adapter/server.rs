@@ -735,17 +735,62 @@ async fn handle_client(
                     continue;
                 }
 
-                // Mark client as handshaken.
+                // Mark client as handshaken and store requested capabilities.
                 {
                     let mut clients = state.clients.write().await;
                     if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
                         client.handshaken = true;
                         client.last_seq = Some(hello.seq);
+                        client.command_mode = hello.requested.command_mode;
+                        client.stream_observations = hello.requested.stream_observations;
                     }
                 }
 
-                // Send welcome
-                let welcome = create_welcome(hello.seq, &state.config.protocol_version);
+                // Role/controller assignment:
+                // - Default policy: when no controller is assigned, first hello becomes controller.
+                // - If hello.requested.role == observer: never auto-assign controller as a side-effect of hello.
+                let mut assigned_role = AssignedRole::Observer;
+                let controller_id: Option<usize> = {
+                    let mut controller = state.controller.write().await;
+
+                    // If a prior controller disconnected unexpectedly, we may have a stale controller_id
+                    // that blocks future claims. Clear it when it no longer exists in the client list.
+                    {
+                        let clients = state.clients.read().await;
+                        clear_stale_controller_id(&mut *controller, |id| {
+                            clients.iter().any(|c| c.id == id && !c.tx.is_closed())
+                        });
+                    }
+
+                    let requested_role = hello.requested.role.unwrap_or(RequestedRole::Auto);
+                    let allow_auto_controller = requested_role != RequestedRole::Observer;
+
+                    if *controller == Some(client_id) {
+                        assigned_role = AssignedRole::Controller;
+                    } else if controller.is_none() && allow_auto_controller {
+                        *controller = Some(client_id);
+                        assigned_role = AssignedRole::Controller;
+                    }
+
+                    *controller
+                };
+
+                // Keep per-client role flags consistent with the global controller id.
+                {
+                    let mut clients = state.clients.write().await;
+                    for c in clients.iter_mut() {
+                        c.is_controller = controller_id.is_some_and(|id| c.id == id);
+                    }
+                }
+
+                // Send welcome (with deterministic role/controller fields).
+                let welcome = create_welcome(
+                    hello.seq,
+                    &state.config.protocol_version,
+                    client_id as u64,
+                    assigned_role,
+                    controller_id.map(|id| id as u64),
+                );
                 let _ = tx.send(ClientOutbound::Welcome(welcome));
 
                 // Request an immediate snapshot for this client if desired.
@@ -755,33 +800,6 @@ async fn handle_client(
                         seq: hello.seq,
                         payload: InboundPayload::SnapshotRequest,
                     });
-                }
-
-                // First client to hello becomes controller.
-                {
-                    let mut controller = state.controller.write().await;
-                    // If a prior controller disconnected unexpectedly, we may have a stale controller_id
-                    // that blocks future claims. Clear it when it no longer exists in the client list.
-                    {
-                        let clients = state.clients.read().await;
-                        clear_stale_controller_id(&mut *controller, |id| clients.iter().any(|c| c.id == id && !c.tx.is_closed()));
-                    }
-                    if controller.is_none() {
-                        *controller = Some(client_id);
-                        let mut clients = state.clients.write().await;
-                        if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
-                            client.is_controller = true;
-                            client.command_mode = hello.requested.command_mode;
-                            client.stream_observations = hello.requested.stream_observations;
-                        }
-                    } else {
-                        // Store capabilities for observers too.
-                        let mut clients = state.clients.write().await;
-                        if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
-                            client.command_mode = hello.requested.command_mode;
-                            client.stream_observations = hello.requested.stream_observations;
-                        }
-                    }
                 }
 
                 emit_status(&state).await;
@@ -887,27 +905,45 @@ async fn handle_client(
                         continue;
                     }
 
-                    let mut controller = state.controller.write().await;
-                    // Clear stale controller_id (e.g. if the controller client crashed/disconnected).
+                    let mut should_emit_status = false;
                     {
-                        let clients = state.clients.read().await;
-                        clear_stale_controller_id(&mut *controller, |id| clients.iter().any(|c| c.id == id && !c.tx.is_closed()));
-                    }
-                    if controller.is_none() {
-                        *controller = Some(client_id);
-                        let mut clients = state.clients.write().await;
-                        if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
-                            client.is_controller = true;
+                        let mut controller = state.controller.write().await;
+                        // Clear stale controller_id (e.g. if the controller client crashed/disconnected).
+                        {
+                            let clients = state.clients.read().await;
+                            clear_stale_controller_id(&mut *controller, |id| {
+                                clients.iter().any(|c| c.id == id && !c.tx.is_closed())
+                            });
                         }
-                        let ack = create_ack(ctrl.seq, ctrl.seq);
-                        let _ = tx.send(ClientOutbound::Ack(ack));
-                    } else {
-                        let error = create_error(
-                            ctrl.seq,
-                            ErrorCode::ControllerActive,
-                            "Controller already assigned",
-                        );
-                        let _ = tx.send(ClientOutbound::Error(error));
+                        if *controller == Some(client_id) {
+                            // Idempotent self-claim: already controller.
+                            let mut clients = state.clients.write().await;
+                            for c in clients.iter_mut() {
+                                c.is_controller = c.id == client_id;
+                            }
+                            let ack = create_ack(ctrl.seq, ctrl.seq);
+                            let _ = tx.send(ClientOutbound::Ack(ack));
+                            should_emit_status = true;
+                        } else if controller.is_none() {
+                            *controller = Some(client_id);
+                            let mut clients = state.clients.write().await;
+                            for c in clients.iter_mut() {
+                                c.is_controller = c.id == client_id;
+                            }
+                            let ack = create_ack(ctrl.seq, ctrl.seq);
+                            let _ = tx.send(ClientOutbound::Ack(ack));
+                            should_emit_status = true;
+                        } else {
+                            let error = create_error(
+                                ctrl.seq,
+                                ErrorCode::ControllerActive,
+                                "Controller already assigned",
+                            );
+                            let _ = tx.send(ClientOutbound::Error(error));
+                        }
+                    }
+                    if should_emit_status {
+                        emit_status(&state).await;
                     }
                 }
                 ControlAction::Release => {
@@ -934,23 +970,30 @@ async fn handle_client(
                         continue;
                     }
 
-                    let mut controller = state.controller.write().await;
-                    if *controller == Some(client_id) {
-                        *controller = None;
-                        let mut clients = state.clients.write().await;
-                        if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
-                            client.is_controller = false;
+                    let mut should_emit_status = false;
+                    {
+                        let mut controller = state.controller.write().await;
+                        if *controller == Some(client_id) {
+                            *controller = None;
+                            let mut clients = state.clients.write().await;
+                            if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
+                                client.is_controller = false;
+                            }
+                            let ack = create_ack(ctrl.seq, ctrl.seq);
+                            let _ = tx.send(ClientOutbound::Ack(ack));
+                            should_emit_status = true;
+                        } else {
+                            let error =
+                                create_error(
+                                    ctrl.seq,
+                                    ErrorCode::NotController,
+                                    "Only controller may release",
+                                );
+                            let _ = tx.send(ClientOutbound::Error(error));
                         }
-                        let ack = create_ack(ctrl.seq, ctrl.seq);
-                        let _ = tx.send(ClientOutbound::Ack(ack));
-                    } else {
-                        let error =
-                            create_error(
-                                ctrl.seq,
-                                ErrorCode::NotController,
-                                "Only controller may release",
-                            );
-                        let _ = tx.send(ClientOutbound::Error(error));
+                    }
+                    if should_emit_status {
+                        emit_status(&state).await;
                     }
                 }
             },

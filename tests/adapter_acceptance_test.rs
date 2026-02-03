@@ -2063,6 +2063,114 @@ async fn acceptance_no_controller_after_release_rejects_commands_until_claim() {
 }
 
 #[tokio::test]
+async fn acceptance_control_claim_is_idempotent_for_controller() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (server_handle, addr, cmd_rx, out_tx) = spawn_server(config, 16).await;
+    let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
+
+    let stream_a = TcpStream::connect(addr).await.unwrap();
+    let (read_a, mut write_a) = stream_a.into_split();
+    let mut lines_a = BufReader::new(read_a).lines();
+
+    let hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    write_a
+        .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+
+    let welcome_a = read_json_line(&mut lines_a).await;
+    assert_eq!(welcome_a["type"], "welcome");
+    assert_eq!(welcome_a["role"], "controller");
+    assert_ne!(welcome_a["client_id"], serde_json::Value::Null);
+    assert_eq!(welcome_a["controller_id"], welcome_a["client_id"]);
+
+    let _obs_a0 = read_json_line(&mut lines_a).await;
+
+    // Claim again as controller should be idempotent (ack, not controller_active).
+    let claim_a = r#"{"type":"control","seq":2,"ts":1,"action":"claim"}"#;
+    write_a.write_all(claim_a.as_bytes()).await.unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+
+    let ack_claim = read_json_line(&mut lines_a).await;
+    assert_eq!(ack_claim["type"], "ack");
+    assert_eq!(ack_claim["seq"], 2);
+
+    server_handle.abort();
+    engine_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_requested_role_observer_never_auto_becomes_controller() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (server_handle, addr, cmd_rx, out_tx) = spawn_server(config, 16).await;
+    let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
+
+    let stream_a = TcpStream::connect(addr).await.unwrap();
+    let (read_a, mut write_a) = stream_a.into_split();
+    let mut lines_a = BufReader::new(read_a).lines();
+
+    // Request observer role in hello; this MUST NOT auto-assign controller as a side-effect of hello.
+    let hello_a = serde_json::json!({
+        "type": "hello",
+        "seq": 1,
+        "ts": 1,
+        "client": {"name": "acceptance-a", "version": "0.1.0"},
+        "protocol_version": "2.0.0",
+        "formats": ["json"],
+        "requested": {
+            "stream_observations": true,
+            "command_mode": "action",
+            "role": "observer"
+        }
+    });
+    write_a
+        .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+
+    let welcome_a = read_json_line(&mut lines_a).await;
+    assert_eq!(welcome_a["type"], "welcome");
+    assert_eq!(welcome_a["role"], "observer");
+
+    let _obs_a0 = read_json_line(&mut lines_a).await;
+
+    // With no controller assigned, commands must be rejected.
+    let cmd_a = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_a.write_all(cmd_a.as_bytes()).await.unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+
+    let err_a = read_json_line(&mut lines_a).await;
+    assert_eq!(err_a["type"], "error");
+    assert_eq!(err_a["seq"], 2);
+    assert_eq!(err_a["code"], "not_controller");
+
+    server_handle.abort();
+    engine_handle.abort();
+}
+
+#[tokio::test]
 async fn acceptance_controller_disconnect_promotes_next_client() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
