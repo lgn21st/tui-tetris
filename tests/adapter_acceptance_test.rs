@@ -386,6 +386,36 @@ async fn acceptance_handshake_ordering_command_before_hello_returns_handshake_re
 }
 
 #[tokio::test]
+async fn acceptance_handshake_ordering_control_before_hello_returns_handshake_required() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (server_handle, addr, _cmd_rx, _out_tx) = spawn_server(config, 8).await;
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    let ctrl = r#"{"type":"control","seq":1,"ts":1,"action":"claim"}"#;
+    write_half.write_all(ctrl.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let v = read_json_line(&mut lines).await;
+    assert_eq!(v["type"], "error");
+    assert_eq!(v["seq"], 1);
+    assert_eq!(v["code"], "handshake_required");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
 async fn acceptance_protocol_mismatch_returns_error() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
@@ -415,6 +445,61 @@ async fn acceptance_protocol_mismatch_returns_error() {
     assert_eq!(v["type"], "error");
     assert_eq!(v["seq"], 1);
     assert_eq!(v["code"], "protocol_mismatch");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_control_enforces_monotonic_seq_after_hello() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (server_handle, addr, _cmd_rx, _out_tx) = spawn_server(config, 8).await;
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello (seq must be 1)
+    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    hello.requested.stream_observations = false;
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let welcome = read_json_line(&mut lines).await;
+    assert_eq!(welcome["type"], "welcome");
+    assert_eq!(welcome["seq"], 1);
+
+    // release as controller (ok)
+    let release = r#"{"type":"control","seq":2,"ts":1,"action":"release"}"#;
+    write_half.write_all(release.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let ack = read_json_line(&mut lines).await;
+    assert_eq!(ack["type"], "ack");
+    assert_eq!(ack["seq"], 2);
+
+    // Duplicate seq must be rejected (strictly increasing).
+    let release_dup = r#"{"type":"control","seq":2,"ts":1,"action":"release"}"#;
+    write_half.write_all(release_dup.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let err = read_json_line(&mut lines).await;
+    assert_eq!(err["type"], "error");
+    assert_eq!(err["seq"], 2);
+    assert_eq!(err["code"], "invalid_command");
 
     server_handle.abort();
 }
