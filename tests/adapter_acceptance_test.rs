@@ -115,6 +115,106 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
     }
 }
 
+async fn engine_task_game_over(
+    mut cmd_rx: mpsc::Receiver<InboundCommand>,
+    out_tx: mpsc::UnboundedSender<OutboundMessage>,
+) {
+    enum Mode {
+        GameOver,
+        Playing(GameState),
+    }
+
+    let mut mode = Mode::GameOver;
+    let mut snap = tui_tetris::core::GameSnapshot::default();
+    snap.game_over = true;
+    snap.paused = false;
+    snap.seed = 1;
+    snap.timers.drop_ms = 1000;
+    let mut obs_seq: u64 = 100;
+
+    while let Some(inbound) = cmd_rx.recv().await {
+        match inbound.payload {
+            InboundPayload::SnapshotRequest => {
+                let (last_event, snap2) = match &mut mode {
+                    Mode::GameOver => (None, snap),
+                    Mode::Playing(gs) => (
+                        gs.take_last_event()
+                            .map(tui_tetris::adapter::protocol::LastEvent::from),
+                        gs.snapshot(),
+                    ),
+                };
+                let obs = build_observation(obs_seq, &snap2, last_event);
+                obs_seq += 1;
+                let line: std::sync::Arc<str> =
+                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
+                let _ = out_tx.send(OutboundMessage::ToClientArc {
+                    client_id: inbound.client_id,
+                    line,
+                });
+            }
+            InboundPayload::Command(cmd) => {
+                match cmd {
+                    ClientCommand::Actions(actions) => {
+                        for a in actions {
+                            match &mut mode {
+                                Mode::GameOver => {
+                                    if a == GameAction::Restart {
+                                        let mut gs = GameState::new(1);
+                                        gs.start();
+                                        mode = Mode::Playing(gs);
+                                    }
+                                }
+                                Mode::Playing(gs) => {
+                                    let _ = gs.apply_action(a);
+                                }
+                            }
+                        }
+
+                        let ack = create_ack(inbound.seq, inbound.seq);
+                        let line: std::sync::Arc<str> =
+                            std::sync::Arc::from(serde_json::to_string(&ack).unwrap());
+                        let _ = out_tx.send(OutboundMessage::ToClientArc {
+                            client_id: inbound.client_id,
+                            line,
+                        });
+                    }
+                    ClientCommand::Place { .. } => {
+                        let err = create_error(
+                            inbound.seq,
+                            ErrorCode::InvalidPlace,
+                            "place not supported in acceptance harness",
+                        );
+                        let line: std::sync::Arc<str> =
+                            std::sync::Arc::from(serde_json::to_string(&err).unwrap());
+                        let _ = out_tx.send(OutboundMessage::ToClientArc {
+                            client_id: inbound.client_id,
+                            line,
+                        });
+                    }
+                }
+
+                // Always follow with an observation so acceptance checks can verify state.
+                let (last_event, snap2) = match &mut mode {
+                    Mode::GameOver => (None, snap),
+                    Mode::Playing(gs) => (
+                        gs.take_last_event()
+                            .map(tui_tetris::adapter::protocol::LastEvent::from),
+                        gs.snapshot(),
+                    ),
+                };
+                let obs = build_observation(obs_seq, &snap2, last_event);
+                obs_seq += 1;
+                let line: std::sync::Arc<str> =
+                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
+                let _ = out_tx.send(OutboundMessage::ToClientArc {
+                    client_id: inbound.client_id,
+                    line,
+                });
+            }
+        }
+    }
+}
+
 async fn broadcast_observations_task(out_tx: mpsc::UnboundedSender<OutboundMessage>) {
     let mut gs = GameState::new(1);
     gs.start();
@@ -619,6 +719,97 @@ async fn acceptance_actions_ignored_while_paused() {
     assert_eq!(obs_after["board_id"].as_u64().unwrap(), paused_board_id);
     assert_eq!(obs_after["active"]["x"].as_i64().unwrap(), paused_active_x);
     assert_eq!(obs_after["active"]["y"].as_i64().unwrap(), paused_active_y);
+
+    server_handle.abort();
+    engine_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_actions_ignored_when_game_over() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task_game_over(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello
+    let hello = create_hello(1, "acceptance", "2.0.0");
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let _welcome = read_json_line(&mut lines).await;
+    let obs0 = read_json_line(&mut lines).await;
+    assert_eq!(obs0["type"], "observation");
+    assert_eq!(obs0["paused"], false);
+    assert_eq!(obs0["game_over"], true);
+    assert_eq!(obs0["playable"], false);
+
+    let game_over_hash = obs0["state_hash"].as_str().unwrap().to_string();
+    let game_over_piece_id = obs0["piece_id"].as_u64().unwrap();
+    let game_over_board_id = obs0["board_id"].as_u64().unwrap();
+    assert!(obs0["active"].is_null());
+
+    // moveLeft while game_over should be ignored (swiftui-tetris parity).
+    let cmd_move = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd_move.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let ack_move = read_json_line(&mut lines).await;
+    assert_eq!(ack_move["type"], "ack");
+    assert_eq!(ack_move["seq"], 2);
+
+    let obs_after = read_json_line(&mut lines).await;
+    assert_eq!(obs_after["type"], "observation");
+    assert_eq!(obs_after["paused"], false);
+    assert_eq!(obs_after["game_over"], true);
+    assert_eq!(obs_after["playable"], false);
+    assert_eq!(obs_after["state_hash"].as_str().unwrap(), game_over_hash);
+    assert_eq!(obs_after["piece_id"].as_u64().unwrap(), game_over_piece_id);
+    assert_eq!(obs_after["board_id"].as_u64().unwrap(), game_over_board_id);
+    assert!(obs_after["active"].is_null());
+
+    // restart should leave game_over and enter playable state.
+    let cmd_restart = r#"{"type":"command","seq":3,"ts":1,"mode":"action","actions":["restart"]}"#;
+    write_half.write_all(cmd_restart.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let ack_restart = read_json_line(&mut lines).await;
+    assert_eq!(ack_restart["type"], "ack");
+    assert_eq!(ack_restart["seq"], 3);
+
+    let obs_restart = read_json_line(&mut lines).await;
+    assert_eq!(obs_restart["type"], "observation");
+    assert_eq!(obs_restart["paused"], false);
+    assert_eq!(obs_restart["game_over"], false);
+    assert_eq!(obs_restart["playable"], true);
+    assert!(!obs_restart["active"].is_null());
 
     server_handle.abort();
     engine_handle.abort();

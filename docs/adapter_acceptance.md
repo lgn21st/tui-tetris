@@ -138,6 +138,13 @@ If `pause` exists:
 - While paused:
   - Observations must keep streaming (even if reduced rate).
   - `playable` must be consistent with whether the policy loop should proceed.
+  - Non-lifecycle actions (move/rotate/drop/hold) SHOULD be ignored. Implementations may still return `ack(status="ok")` for these commands; verification should rely on observation deltas rather than assuming an `ack` implies a state change.
+
+### 5.4 game_over command gating (RECOMMENDED)
+When `game_over=true`:
+- `playable` SHOULD be `false`.
+- Non-lifecycle actions (move/rotate/drop/hold/pause) SHOULD be ignored.
+- `restart` MUST transition back to a playable state (`game_over=false`, `paused=false`, `playable=true`) within a short time window.
 
 ---
 

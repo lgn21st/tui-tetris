@@ -79,6 +79,7 @@ Example:
 
 Notes:
 - Commands are acknowledged after they are mapped and applied during the adapter poll tick.
+- When `playable=false` (paused or game over), action commands may still be `ack(status="ok")` but be ignored (no state change). Clients should treat `playable` as the authoritative gate and confirm outcomes via subsequent observations.
 Examples:
 ```
 {"type":"command","seq":2,"ts":1738291200200,"mode":"action","actions":["moveLeft","rotateCw","hardDrop"]}
