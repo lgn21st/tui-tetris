@@ -1939,4 +1939,23 @@ mod tests {
         assert!(!state.back_to_back);
         assert_eq!(state.combo, 0);
     }
+
+    #[test]
+    fn test_full_tspin_single_applies_b2b_multiplier_when_chain_active() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        state.level = 0;
+        state.lines = 0;
+        state.combo = -1;
+        state.back_to_back = true; // chain active from prior qualifying clear
+
+        let score_before = state.score;
+        let base = state.apply_line_clear(1, TSpinKind::Full);
+
+        assert_eq!(base, 1200); // 800 * 3/2
+        assert_eq!(state.score - score_before, 1200);
+        assert_eq!(state.combo, 0);
+        assert!(state.back_to_back); // full tspin single qualifies
+    }
 }
