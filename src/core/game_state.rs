@@ -309,10 +309,7 @@ impl GameState {
                 ..active
             });
 
-            // If we moved while grounded, reset lock timer (with limit)
-            if dy != 0 || (dx != 0 && self.is_grounded()) {
-                self.reset_lock_timer();
-            }
+            self.handle_lock_reset();
 
             // Movement clears the "last action was rotate" flag
             if dx != 0 {
@@ -353,8 +350,7 @@ impl GameState {
                 ..active
             });
 
-            // Rotation resets lock timer if grounded (with limit)
-            self.reset_lock_timer();
+            self.handle_lock_reset();
             self.last_action_was_rotate = true;
 
             return true;
@@ -363,8 +359,16 @@ impl GameState {
         false
     }
 
-    /// Reset the lock timer (with reset limit)
-    fn reset_lock_timer(&mut self) {
+    /// Reset lock timers/counts to match swiftui-tetris semantics:
+    /// - When not grounded, lock timer and reset count are cleared.
+    /// - When grounded, successful moves/rotations may reset the lock timer up to `LOCK_RESET_LIMIT`.
+    fn handle_lock_reset(&mut self) {
+        if !self.is_grounded() {
+            self.lock_timer_ms = 0;
+            self.lock_reset_count = 0;
+            return;
+        }
+
         if self.lock_reset_count < LOCK_RESET_LIMIT {
             self.lock_timer_ms = 0;
             self.lock_reset_count += 1;
@@ -705,41 +709,39 @@ impl GameState {
             self.soft_drop_timer_ms = self.soft_drop_timer_ms.saturating_sub(elapsed_ms);
         }
 
-        // Check if grounded
-        let grounded = self.is_grounded();
+        let mut changed = false;
 
-        if grounded {
-            // Update lock timer
-            self.lock_timer_ms += elapsed_ms;
+        // Gravity: accumulate and advance (swiftui-tetris uses a while loop here).
+        let drop_interval = self.drop_interval_ms();
+        self.drop_timer_ms = self.drop_timer_ms.saturating_add(elapsed_ms);
+        while self.drop_timer_ms >= drop_interval {
+            self.drop_timer_ms -= drop_interval;
+            if !self.try_move(0, 1) {
+                break;
+            }
+            changed = true;
 
-            // Lock if timer exceeded
+            // Score for soft drop (after grace).
+            if self.is_soft_dropping && self.soft_drop_timer_ms == 0 {
+                self.score += calculate_drop_score(1, false);
+            }
+        }
+
+        if self.is_grounded() {
+            self.lock_timer_ms = self.lock_timer_ms.saturating_add(elapsed_ms);
             if self.lock_timer_ms >= LOCK_DELAY_MS {
+                self.lock_timer_ms = 0;
+                self.drop_timer_ms = 0;
                 self.lock_piece();
                 return true;
             }
         } else {
-            // Not grounded - update drop timer
-            let drop_interval = self.drop_interval_ms();
-            self.drop_timer_ms += elapsed_ms;
-
-            if self.drop_timer_ms >= drop_interval {
-                self.drop_timer_ms = 0;
-                // Try to drop by one
-                if !self.try_move(0, 1) {
-                    // Should not happen if not grounded, but handle anyway
-                    return false;
-                }
-
-                // Score for soft drop
-                if self.is_soft_dropping && self.soft_drop_timer_ms == 0 {
-                    self.score += calculate_drop_score(1, false);
-                }
-
-                return true;
-            }
+            // While falling, lock delay is inactive (clear timers/counters).
+            self.lock_timer_ms = 0;
+            self.lock_reset_count = 0;
         }
 
-        false
+        changed
     }
 
     /// Apply a game action
@@ -1274,6 +1276,52 @@ mod tests {
     }
 
     #[test]
+    fn test_lock_reset_count_resets_while_falling() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        // While the piece can move down, any movement should keep lock timer and reset count cleared
+        // (swiftui-tetris parity: lock reset count is only consumed when grounded).
+        state.lock_reset_count = 7;
+        state.lock_timer_ms = 123;
+
+        // Move down a few cells while not grounded.
+        for _ in 0..3 {
+            if state.is_grounded() {
+                break;
+            }
+            assert!(state.try_move(0, 1));
+            assert_eq!(state.lock_timer_ms, 0);
+            assert_eq!(state.lock_reset_count, 0);
+        }
+    }
+
+    #[test]
+    fn test_lock_timer_starts_immediately_after_landing() {
+        let mut state = GameState::new(12345);
+        state.started = true;
+
+        // Place an O piece one cell above the floor. After one gravity step it becomes grounded.
+        state.active = Some(Tetromino {
+            kind: PieceKind::O,
+            rotation: Rotation::North,
+            x: 3,
+            y: 17,
+        });
+
+        state.drop_timer_ms = state.drop_interval_ms();
+
+        assert!(state.tick(16, false));
+        assert_eq!(state.active.unwrap().y, 18);
+        assert!(state.is_grounded());
+
+        // swiftui-tetris: handleLockReset runs on the landing move (consuming one reset),
+        // then tick increments lockTimer in the same step once grounded.
+        assert_eq!(state.lock_reset_count, 1);
+        assert_eq!(state.lock_timer_ms, 16);
+    }
+
+    #[test]
     fn test_apply_action_move() {
         let mut state = GameState::new(12345);
         state.start();
@@ -1365,7 +1413,7 @@ mod tests {
 
         // Reset lock timer many times
         for _ in 0..20 {
-            state.reset_lock_timer();
+            state.handle_lock_reset();
         }
 
         // Should be limited to 15
@@ -1625,7 +1673,13 @@ mod tests {
                 state.lock_timer_ms, 0,
                 "Timer should reset when moving horizontally while grounded"
             );
-            assert_eq!(state.lock_reset_count, 1);
+            // swiftui-tetris resets lock timer/count when not grounded, and consumes a reset only
+            // when grounded after the move.
+            if state.is_grounded() {
+                assert_eq!(state.lock_reset_count, 1);
+            } else {
+                assert_eq!(state.lock_reset_count, 0);
+            }
         }
         // If we couldn't move, the test condition isn't met, so we pass vacuously
     }
@@ -1671,7 +1725,13 @@ mod tests {
         // If we successfully rotated while grounded, timer should reset
         if rotated {
             assert_eq!(state.lock_timer_ms, 0);
-            assert_eq!(state.lock_reset_count, 1);
+            // swiftui-tetris resets lock timer/count when not grounded, and consumes a reset only
+            // when grounded after the rotation.
+            if state.is_grounded() {
+                assert_eq!(state.lock_reset_count, 1);
+            } else {
+                assert_eq!(state.lock_reset_count, 0);
+            }
             assert!(state.last_action_was_rotate);
         }
         // If we couldn't rotate, the test condition isn't met, so we pass vacuously
