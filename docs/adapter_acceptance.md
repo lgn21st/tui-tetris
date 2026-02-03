@@ -25,6 +25,8 @@ Target defaults:
   - `mode=place` (final placement interface)
     - Invalid placements MUST return `error.code = "invalid_place"`.
     - If `useHold=true` is requested when hold is unavailable, MUST return `error.code = "hold_unavailable"`.
+    - A `place.rotation` that cannot be parsed MUST return `error.code = "invalid_place"`.
+    - If the sender is not controller, MUST return `error.code = "not_controller"` (same as action mode).
 - Streaming `observation` snapshots.
 - Deterministic rule application order: **apply commands → tick rules → emit snapshot**.
 

@@ -1026,6 +1026,200 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
 }
 
 #[tokio::test]
+async fn acceptance_place_invalid_rotation_returns_invalid_place() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello (place mode)
+    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
+    hello.requested.stream_observations = false;
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+    let _welcome = read_json_line(&mut lines).await;
+
+    // invalid rotation string should be rejected by the server mapping layer.
+    let cmd = r#"{"type":"command","seq":2,"ts":1,"mode":"place","place":{"x":3,"rotation":"northeast","useHold":false}}"#;
+    write_half.write_all(cmd.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let err = read_json_line(&mut lines).await;
+    assert_eq!(err["type"], "error");
+    assert_eq!(err["seq"], 2);
+    assert_eq!(err["code"], "invalid_place");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_place_rejected_when_paused() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task_with_place(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello (place mode)
+    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let _welcome = read_json_line(&mut lines).await;
+    let obs0 = read_json_line(&mut lines).await;
+    assert_eq!(obs0["type"], "observation");
+
+    // pause
+    let cmd_pause = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["pause"]}"#;
+    write_half.write_all(cmd_pause.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+    let ack_pause = read_json_line(&mut lines).await;
+    assert_eq!(ack_pause["type"], "ack");
+    assert_eq!(ack_pause["seq"], 2);
+    let obs_paused = read_json_line(&mut lines).await;
+    assert_eq!(obs_paused["type"], "observation");
+    assert_eq!(obs_paused["paused"], true);
+
+    // place while paused must be rejected (invalid_place).
+    let cmd_place = r#"{"type":"command","seq":3,"ts":1,"mode":"place","place":{"x":3,"rotation":"north","useHold":false}}"#;
+    write_half.write_all(cmd_place.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let err = read_json_line(&mut lines).await;
+    assert_eq!(err["type"], "error");
+    assert_eq!(err["seq"], 3);
+    assert_eq!(err["code"], "invalid_place");
+
+    server_handle.abort();
+    engine_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_place_from_observer_returns_not_controller() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task_with_place(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Client A (controller).
+    let stream_a = TcpStream::connect(addr).await.unwrap();
+    let (read_a, mut write_a) = stream_a.into_split();
+    let mut lines_a = BufReader::new(read_a).lines();
+    let mut hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    hello_a.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
+    hello_a.requested.stream_observations = false;
+    write_a
+        .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+    let _welcome_a = read_json_line(&mut lines_a).await;
+
+    // Client B (observer).
+    let stream_b = TcpStream::connect(addr).await.unwrap();
+    let (read_b, mut write_b) = stream_b.into_split();
+    let mut lines_b = BufReader::new(read_b).lines();
+    let mut hello_b = create_hello(1, "acceptance-b", "2.0.0");
+    hello_b.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
+    hello_b.requested.stream_observations = false;
+    write_b
+        .write_all(serde_json::to_string(&hello_b).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+    let _welcome_b = read_json_line(&mut lines_b).await;
+
+    // Observer attempts place -> not_controller.
+    let cmd = r#"{"type":"command","seq":2,"ts":1,"mode":"place","place":{"x":3,"rotation":"north","useHold":false}}"#;
+    write_b.write_all(cmd.as_bytes()).await.unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    let err = read_json_line(&mut lines_b).await;
+    assert_eq!(err["type"], "error");
+    assert_eq!(err["seq"], 2);
+    assert_eq!(err["code"], "not_controller");
+
+    server_handle.abort();
+    engine_handle.abort();
+}
+
+#[tokio::test]
 async fn acceptance_restart_and_pause_semantics() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
