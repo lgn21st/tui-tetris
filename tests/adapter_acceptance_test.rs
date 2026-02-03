@@ -416,6 +416,48 @@ async fn acceptance_handshake_ordering_control_before_hello_returns_handshake_re
 }
 
 #[tokio::test]
+async fn acceptance_hello_seq_must_be_one_and_does_not_handshake() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (server_handle, addr, _cmd_rx, _out_tx) = spawn_server(config, 8).await;
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello with seq!=1 must be rejected and MUST NOT handshake the connection.
+    let hello = r#"{"type":"hello","seq":2,"ts":1,"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.0.0","formats":["json"],"requested":{"stream_observations":false,"command_mode":"place"}}"#;
+    write_half.write_all(hello.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let v = read_json_line(&mut lines).await;
+    assert_eq!(v["type"], "error");
+    assert_eq!(v["seq"], 2);
+    assert_eq!(v["code"], "invalid_command");
+
+    // Since hello was rejected, command should still require handshake.
+    let cmd = r#"{"type":"command","seq":3,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let v2 = read_json_line(&mut lines).await;
+    assert_eq!(v2["type"], "error");
+    assert_eq!(v2["seq"], 3);
+    assert_eq!(v2["code"], "handshake_required");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
 async fn acceptance_protocol_mismatch_returns_error() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
@@ -502,6 +544,77 @@ async fn acceptance_control_enforces_monotonic_seq_after_hello() {
     assert_eq!(err["code"], "invalid_command");
 
     server_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_command_enforces_monotonic_seq_after_hello() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello
+    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    hello.requested.stream_observations = false;
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let welcome = read_json_line(&mut lines).await;
+    assert_eq!(welcome["type"], "welcome");
+    assert_eq!(welcome["seq"], 1);
+
+    // First command ok.
+    let cmd1 = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd1.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let ack = read_json_line(&mut lines).await;
+    assert_eq!(ack["type"], "ack");
+    assert_eq!(ack["seq"], 2);
+    // Engine harness follows with an observation.
+    let obs1 = read_json_line(&mut lines).await;
+    assert_eq!(obs1["type"], "observation");
+
+    // Duplicate seq must be rejected.
+    let cmd_dup = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd_dup.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let err = read_json_line(&mut lines).await;
+    assert_eq!(err["type"], "error");
+    assert_eq!(err["seq"], 2);
+    assert_eq!(err["code"], "invalid_command");
+
+    server_handle.abort();
+    engine_handle.abort();
 }
 
 #[tokio::test]
