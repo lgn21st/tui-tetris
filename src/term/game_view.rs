@@ -3,7 +3,7 @@
 //! This module is pure (no I/O). It can be unit-tested.
 
 use crate::core::{get_shape, GameSnapshot};
-use crate::fb::{CellStyle, FrameBuffer, Rgb};
+use crate::term::fb::{CellStyle, FrameBuffer, Rgb};
 use crate::types::{PieceKind, BOARD_HEIGHT, BOARD_WIDTH};
 
 /// Terminal viewport dimensions.
@@ -414,11 +414,11 @@ fn piece_letter(kind: PieceKind) -> &'static str {
 }
 
 trait IntoCell {
-    fn into_cell(self, ch: char) -> crate::fb::Cell;
+    fn into_cell(self, ch: char) -> crate::term::fb::Cell;
 }
 
 impl IntoCell for CellStyle {
-    fn into_cell(self, ch: char) -> crate::fb::Cell {
-        crate::fb::Cell { ch, style: self }
+    fn into_cell(self, ch: char) -> crate::term::fb::Cell {
+        crate::term::fb::Cell { ch, style: self }
     }
 }

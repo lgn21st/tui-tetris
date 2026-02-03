@@ -1,4 +1,4 @@
-use crate::Tetromino;
+use crate::core::Tetromino;
 use crate::types::{PieceKind, Rotation, BOARD_HEIGHT, BOARD_WIDTH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

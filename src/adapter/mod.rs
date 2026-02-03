@@ -75,9 +75,6 @@ pub mod protocol;
 pub mod runtime;
 pub mod server;
 
-pub use tui_tetris_core as core;
-pub use tui_tetris_types as types;
-
 // Re-export protocol types for convenience
 pub use protocol::*;
 pub use runtime::{Adapter, ClientCommand, InboundCommand, OutboundMessage};

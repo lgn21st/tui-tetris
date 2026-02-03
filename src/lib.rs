@@ -1,11 +1,78 @@
-//! TUI Tetris (workspace facade crate).
+//! TUI Tetris - A high-performance terminal Tetris implementation with AI control support
 //!
-//! This package keeps the original `tui_tetris::{core,adapter,term,input,engine,types}` public
-//! API stable while the implementation lives in dedicated crates under `crates/`.
+//! This crate implements a fully-featured Tetris game playable in the terminal,
+//! designed with a clean architecture that separates game logic, rendering,
+//! and external AI control.
+//!
+//! # Architecture
+//!
+//! The codebase is organized into three main modules:
+//!
+//! - [`core`]: Pure game logic with no external dependencies
+//!   - Board state management, piece rotation, line clearing
+//!   - Scoring, levels, timing mechanics
+//!   - Deterministic and testable
+//!
+//! - [`adapter`]: AI protocol handling via TCP socket
+//!   - JSON line protocol compatible with swiftui-tetris
+//!   - Supports both "action" and "place" command modes
+//!   - Allows external AI agents to control the game
+//!
+//! - [`term`]: Terminal game renderer and framebuffer pipeline
+//!   - Uses crossterm for terminal I/O (raw mode, alternate screen, input)
+//!   - Renders via a small framebuffer and renderer flush layer
+//!
+//! - [`input`]: Terminal input mapping and DAS/ARR handler
+//!   - Maps key events to game actions
+//!   - Implements DAS/ARR for responsive controls
+//!
+//! - [`types`]: Core types and constants shared across modules
+//!   - Game actions, piece kinds, rotation states
+//!   - Board dimensions, timing constants
+//!
+//! # Quick Start
+//!
+//! ```no_run
+//! use tui_tetris::core::GameState;
+//!
+//! // Create a new game with a specific seed
+//! let mut game = GameState::new(42);
+//!
+//! // Start the game
+//! game.start();
+//!
+//! // Game is now running with first piece spawned
+//! assert!(game.active().is_some());
+//! ```
+//!
+//! # AI Control
+//!
+//! To enable AI control, set environment variables before running:
+//!
+//! ```bash
+//! export TETRIS_AI_HOST=127.0.0.1
+//! export TETRIS_AI_PORT=7777
+//! cargo run
+//! ```
+//!
+//! Or disable AI entirely:
+//!
+//! ```bash
+//! export TETRIS_AI_DISABLED=1
+//! cargo run
+//! ```
+//!
+//! See [`adapter`] module documentation for protocol details.
+//!
+//! # Performance
+//!
+//! - Zero-allocation hot paths (tick, render)
+//! - 16ms fixed timestep for consistent gameplay
+//! - Diff-based terminal rendering (dirty-cell flush)
 
-pub use tui_tetris_adapter as adapter;
-pub use tui_tetris_core as core;
-pub use tui_tetris_engine as engine;
-pub use tui_tetris_input as input;
-pub use tui_tetris_term as term;
-pub use tui_tetris_types as types;
+pub mod adapter;
+pub mod core;
+pub mod engine;
+pub mod input;
+pub mod term;
+pub mod types;

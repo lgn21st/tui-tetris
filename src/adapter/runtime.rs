@@ -9,8 +9,8 @@ use arrayvec::ArrayVec;
 
 use std::sync::Arc;
 
-use crate::server::{run_server, ServerConfig, ServerState};
-use crate::protocol::{AckMessage, ErrorMessage, ObservationMessage};
+use crate::adapter::server::{run_server, ServerConfig, ServerState};
+use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage};
 use crate::types::{GameAction, Rotation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

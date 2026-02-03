@@ -31,8 +31,8 @@
 //! # Example
 //!
 //! ```
-//! use tui_tetris_core::GameState;
-//! use tui_tetris_types::GameAction;
+//! use tui_tetris::core::GameState;
+//! use tui_tetris::types::GameAction;
 //!
 //! // Create and start a game
 //! let mut game = GameState::new(12345);
@@ -63,8 +63,6 @@ pub mod pieces;
 pub mod rng;
 pub mod scoring;
 pub mod snapshot;
-
-pub use tui_tetris_types as types;
 
 // Re-export commonly used types for convenience
 pub use board::Board;

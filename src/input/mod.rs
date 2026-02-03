@@ -8,7 +8,5 @@
 pub mod handler;
 pub mod map;
 
-pub use tui_tetris_types as types;
-
 pub use handler::InputHandler;
 pub use map::{handle_key_event, should_quit};

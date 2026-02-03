@@ -13,9 +13,6 @@ pub mod fb;
 pub mod game_view;
 pub mod renderer;
 
-pub use tui_tetris_core as core;
-pub use tui_tetris_types as types;
-
 pub use fb::{Cell, CellStyle, FrameBuffer, Rgb};
 pub use game_view::{AdapterStatusView, AnchorY, GameView, Viewport};
 pub use renderer::{encode_diff_into, encode_full_into, TerminalRenderer};

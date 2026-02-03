@@ -15,7 +15,7 @@ use crossterm::{
     terminal, QueueableCommand,
 };
 
-use crate::fb::{CellStyle, FrameBuffer, Rgb};
+use crate::term::fb::{CellStyle, FrameBuffer, Rgb};
 
 pub struct TerminalRenderer {
     stdout: io::Stdout,
@@ -218,7 +218,7 @@ fn for_each_changed_run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fb::{Cell, CellStyle};
+    use crate::term::fb::{Cell, CellStyle};
 
     // This is not a perfect test of terminal output, but it ensures we can build
     // a framebuffer and iterate all cells without panicking.

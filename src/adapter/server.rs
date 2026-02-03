@@ -11,8 +11,8 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::io::BufWriter;
 use tokio::time::{Duration, MissedTickBehavior};
 
-use crate::protocol::*;
-use crate::runtime::{AdapterStatus, ClientCommand, InboundCommand, InboundPayload, OutboundMessage};
+use crate::adapter::protocol::*;
+use crate::adapter::runtime::{AdapterStatus, ClientCommand, InboundCommand, InboundPayload, OutboundMessage};
 use crate::core::GameSnapshot;
 use crate::types::{GameAction, Rotation};
 
