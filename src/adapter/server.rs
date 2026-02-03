@@ -8,6 +8,8 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::io::BufWriter;
+use tokio::time::{Duration, MissedTickBehavior};
 
 use crate::adapter::protocol::*;
 use crate::adapter::runtime::{AdapterStatus, ClientCommand, InboundCommand, InboundPayload, OutboundMessage};
@@ -514,7 +516,8 @@ async fn handle_client(
     command_tx: mpsc::Sender<InboundCommand>,
     wire_log_tx: Option<mpsc::UnboundedSender<WireRecord>>,
 ) -> anyhow::Result<()> {
-    let (reader, mut writer) = tokio::io::split(socket);
+    let (reader, writer) = tokio::io::split(socket);
+    let mut writer = BufWriter::with_capacity(16 * 1024, writer);
     let mut reader = BufReader::new(reader);
 
     // Channel to send messages to this client
@@ -544,7 +547,31 @@ async fn handle_client(
     // Spawn task to write messages to client
     let write_task = tokio::spawn(async move {
         let mut buf: Vec<u8> = Vec::with_capacity(4096);
-        while let Some(msg) = rx.recv().await {
+        let mut dirty = false;
+        let mut flush_tick = tokio::time::interval(Duration::from_millis(16));
+        flush_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+        loop {
+            let msg = tokio::select! {
+                msg = rx.recv() => msg,
+                _ = flush_tick.tick(), if dirty => {
+                    if writer.flush().await.is_err() {
+                        break;
+                    }
+                    dirty = false;
+                    continue;
+                }
+            };
+
+            let Some(msg) = msg else {
+                break;
+            };
+
+            let flush_after = matches!(
+                msg,
+                ClientOutbound::Ack(_) | ClientOutbound::Error(_) | ClientOutbound::Welcome(_)
+            );
+
             match msg {
                 ClientOutbound::LineArc(line) => {
                     if writer.write_all(line.as_bytes()).await.is_err() {
@@ -619,10 +646,16 @@ async fn handle_client(
             if writer.write_all(b"\n").await.is_err() {
                 break;
             }
-            if writer.flush().await.is_err() {
-                break;
+
+            dirty = true;
+            if flush_after {
+                if writer.flush().await.is_err() {
+                    break;
+                }
+                dirty = false;
             }
         }
+        let _ = writer.flush().await;
     });
 
     // Handle incoming messages
