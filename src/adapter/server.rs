@@ -190,14 +190,25 @@ async fn emit_status(state: &Arc<ServerState>) {
     };
     let controller = state.controller.read().await;
     let clients = state.clients.read().await;
+    let live_client_count = clients
+        .iter()
+        .filter(|c| !c.tx.is_closed())
+        .count()
+        .min(u16::MAX as usize) as u16;
+    let controller_id = controller.and_then(|id| {
+        clients
+            .iter()
+            .any(|c| c.id == id && !c.tx.is_closed())
+            .then_some(id)
+    });
     let streaming_count = clients
         .iter()
         .filter(|c| c.stream_observations && !c.tx.is_closed())
         .count()
         .min(u16::MAX as usize) as u16;
     let _ = tx.send(AdapterStatus {
-        client_count: clients.len().min(u16::MAX as usize) as u16,
-        controller_id: *controller,
+        client_count: live_client_count,
+        controller_id,
         streaming_count,
     });
 }

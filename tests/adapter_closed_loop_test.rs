@@ -39,9 +39,9 @@ async fn engine_loop(
                 let last_event = last_event_from_core(&mut gs);
                 let snap = gs.snapshot();
                 let obs = build_observation(inbound.seq, &snap, last_event);
-                let _ = out_tx.send(OutboundMessage::ToClient {
+                let _ = out_tx.send(OutboundMessage::ToClientArc {
                     client_id: inbound.client_id,
-                    line: serde_json::to_string(&obs).unwrap(),
+                    line: std::sync::Arc::from(serde_json::to_string(&obs).unwrap()),
                 });
             }
             InboundPayload::Command(cmd) => {
@@ -66,9 +66,9 @@ async fn engine_loop(
                 match result {
                     Ok(()) => {
                         let ack = create_ack(inbound.seq, inbound.seq);
-                        let _ = out_tx.send(OutboundMessage::ToClient {
+                        let _ = out_tx.send(OutboundMessage::ToClientArc {
                             client_id: inbound.client_id,
-                            line: serde_json::to_string(&ack).unwrap(),
+                            line: std::sync::Arc::from(serde_json::to_string(&ack).unwrap()),
                         });
                     }
                     Err(e) => {
@@ -78,9 +78,9 @@ async fn engine_loop(
                             _ => ErrorCode::InvalidCommand,
                         };
                         let err = create_error(inbound.seq, code, e.message());
-                        let _ = out_tx.send(OutboundMessage::ToClient {
+                        let _ = out_tx.send(OutboundMessage::ToClientArc {
                             client_id: inbound.client_id,
-                            line: serde_json::to_string(&err).unwrap(),
+                            line: std::sync::Arc::from(serde_json::to_string(&err).unwrap()),
                         });
                     }
                 }
@@ -89,9 +89,9 @@ async fn engine_loop(
                 let last_event = last_event_from_core(&mut gs);
                 let snap = gs.snapshot();
                 let obs = build_observation(inbound.seq.wrapping_add(10_000), &snap, last_event);
-                let _ = out_tx.send(OutboundMessage::ToClient {
+                let _ = out_tx.send(OutboundMessage::ToClientArc {
                     client_id: inbound.client_id,
-                    line: serde_json::to_string(&obs).unwrap(),
+                    line: std::sync::Arc::from(serde_json::to_string(&obs).unwrap()),
                 });
             }
         }

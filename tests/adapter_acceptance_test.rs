@@ -61,9 +61,11 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                 let snap = gs.snapshot();
                 let obs = build_observation(obs_seq, &snap, last_event);
                 obs_seq += 1;
-                let _ = out_tx.send(OutboundMessage::ToClient {
+                let line: std::sync::Arc<str> =
+                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
+                let _ = out_tx.send(OutboundMessage::ToClientArc {
                     client_id: inbound.client_id,
-                    line: serde_json::to_string(&obs).unwrap(),
+                    line,
                 });
             }
             InboundPayload::Command(cmd) => {
@@ -73,9 +75,11 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                             let _ = gs.apply_action(a);
                         }
                         let ack = create_ack(inbound.seq, inbound.seq);
-                        let _ = out_tx.send(OutboundMessage::ToClient {
+                        let line: std::sync::Arc<str> =
+                            std::sync::Arc::from(serde_json::to_string(&ack).unwrap());
+                        let _ = out_tx.send(OutboundMessage::ToClientArc {
                             client_id: inbound.client_id,
-                            line: serde_json::to_string(&ack).unwrap(),
+                            line,
                         });
                     }
                     ClientCommand::Place { .. } => {
@@ -84,9 +88,11 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                             ErrorCode::InvalidPlace,
                             "place not supported in acceptance harness",
                         );
-                        let _ = out_tx.send(OutboundMessage::ToClient {
+                        let line: std::sync::Arc<str> =
+                            std::sync::Arc::from(serde_json::to_string(&err).unwrap());
+                        let _ = out_tx.send(OutboundMessage::ToClientArc {
                             client_id: inbound.client_id,
-                            line: serde_json::to_string(&err).unwrap(),
+                            line,
                         });
                     }
                 }
@@ -98,9 +104,11 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                 let snap = gs.snapshot();
                 let obs = build_observation(obs_seq, &snap, last_event);
                 obs_seq += 1;
-                let _ = out_tx.send(OutboundMessage::ToClient {
+                let line: std::sync::Arc<str> =
+                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
+                let _ = out_tx.send(OutboundMessage::ToClientArc {
                     client_id: inbound.client_id,
-                    line: serde_json::to_string(&obs).unwrap(),
+                    line,
                 });
             }
         }
@@ -116,8 +124,10 @@ async fn broadcast_observations_task(out_tx: mpsc::UnboundedSender<OutboundMessa
         let snap = gs.snapshot();
         let obs = build_observation(seq, &snap, None);
         seq = seq.wrapping_add(1);
-        let _ = out_tx.send(OutboundMessage::Broadcast {
-            line: serde_json::to_string(&obs).unwrap(),
+        let line: std::sync::Arc<str> =
+            std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
+        let _ = out_tx.send(OutboundMessage::BroadcastArc {
+            line,
         });
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

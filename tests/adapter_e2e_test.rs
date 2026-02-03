@@ -199,8 +199,8 @@ async fn adapter_hello_command_ack_and_observation() {
     let snap = gs.snapshot();
     let obs = build_observation(10, &snap, None);
     out_tx
-        .send(OutboundMessage::Broadcast {
-            line: serde_json::to_string(&obs).unwrap(),
+        .send(OutboundMessage::BroadcastArc {
+            line: std::sync::Arc::from(serde_json::to_string(&obs).unwrap()),
         })
         .unwrap();
 
