@@ -30,6 +30,8 @@ pub struct InputHandler {
     arr_rate: u32,
     key_release_timeout_ms: u32,
     saw_repeat_event: bool,
+    last_repeat_time: Option<std::time::Instant>,
+    repeat_release_timeout_ms: u32,
 }
 
 // In terminals without key-release events, a short timeout prevents a single tap
@@ -38,7 +40,8 @@ const DEFAULT_KEY_RELEASE_TIMEOUT_MS: u32 = 150;
 // When the terminal emits repeat events but not release events, we can treat the
 // absence of repeats as a signal that the key was released. This shorter timeout
 // prevents a released key from continuing to generate repeats for too long.
-const DEFAULT_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS: u32 = 80;
+const MIN_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS: u32 = 80;
+const MAX_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS: u32 = 300;
 
 impl InputHandler {
     pub fn new() -> Self {
@@ -58,6 +61,8 @@ impl InputHandler {
             arr_rate,
             key_release_timeout_ms: DEFAULT_KEY_RELEASE_TIMEOUT_MS,
             saw_repeat_event: false,
+            last_repeat_time: None,
+            repeat_release_timeout_ms: MIN_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS,
         }
     }
 
@@ -143,6 +148,7 @@ impl InputHandler {
     }
 
     pub fn handle_key_repeat(&mut self, code: KeyCode) {
+        let now = std::time::Instant::now();
         match code {
             KeyCode::Left
             | KeyCode::Right
@@ -153,7 +159,7 @@ impl InputHandler {
             | KeyCode::Char('D')
             | KeyCode::Char('s')
             | KeyCode::Char('S') => {
-                self.last_key_time = std::time::Instant::now();
+                self.last_key_time = now;
                 self.saw_repeat_event = true;
             }
             KeyCode::Char('h')
@@ -162,10 +168,20 @@ impl InputHandler {
             | KeyCode::Char('L')
             | KeyCode::Char('j')
             | KeyCode::Char('J') => {
-                self.last_key_time = std::time::Instant::now();
+                self.last_key_time = now;
                 self.saw_repeat_event = true;
             }
             _ => {}
+        }
+
+        if self.saw_repeat_event {
+            if let Some(prev) = self.last_repeat_time {
+                let interval_ms = now.saturating_duration_since(prev).as_millis() as u32;
+                let target = interval_ms.saturating_mul(2);
+                self.repeat_release_timeout_ms = target
+                    .clamp(MIN_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS, MAX_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS);
+            }
+            self.last_repeat_time = Some(now);
         }
     }
 
@@ -219,7 +235,7 @@ impl InputHandler {
         // Auto-release when terminal does not emit release events.
         let time_since_last_key = self.last_key_time.elapsed().as_millis() as u32;
         let timeout_ms = if self.saw_repeat_event {
-            DEFAULT_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS
+            self.key_release_timeout_ms.min(self.repeat_release_timeout_ms)
         } else {
             self.key_release_timeout_ms
         };
@@ -302,6 +318,8 @@ impl InputHandler {
         self.horizontal_arr_accumulator = 0;
         self.down_arr_accumulator = 0;
         self.saw_repeat_event = false;
+        self.last_repeat_time = None;
+        self.repeat_release_timeout_ms = MIN_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS;
     }
 }
 
@@ -389,12 +407,35 @@ mod tests {
         ih.handle_key_repeat(KeyCode::Left);
         assert!(ih.saw_repeat_event);
 
+        // Simulate an observed repeat cadence and ensure the computed timeout is used.
+        ih.repeat_release_timeout_ms = 120;
+
         // Simulate repeats stopping (no release event): key should auto-release quickly.
-        ih.last_key_time = std::time::Instant::now()
-            - std::time::Duration::from_millis(DEFAULT_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS as u64 + 1);
+        ih.last_key_time =
+            std::time::Instant::now() - std::time::Duration::from_millis(121);
 
         let actions = ih.update(0);
         assert!(actions.is_empty());
+        assert_eq!(ih.horizontal, HorizontalDirection::None);
+    }
+
+    #[test]
+    fn test_repeat_driven_timeout_does_not_break_slow_repeat_cadence() {
+        let mut ih = InputHandler::with_config(100, 25).with_key_release_timeout_ms(500);
+        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(ih.horizontal, HorizontalDirection::Left);
+
+        ih.saw_repeat_event = true;
+        ih.repeat_release_timeout_ms = 240;
+
+        // A slower repeat cadence (e.g. 120ms) should not be treated as release.
+        ih.last_key_time = std::time::Instant::now() - std::time::Duration::from_millis(120);
+        let _ = ih.update(0);
+        assert_eq!(ih.horizontal, HorizontalDirection::Left);
+
+        // But exceeding the timeout should release.
+        ih.last_key_time = std::time::Instant::now() - std::time::Duration::from_millis(241);
+        let _ = ih.update(0);
         assert_eq!(ih.horizontal, HorizontalDirection::None);
     }
 
