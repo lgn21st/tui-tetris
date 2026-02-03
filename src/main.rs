@@ -17,7 +17,7 @@ use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
 use tui_tetris::term::AdapterStatusView;
 use tui_tetris::term::{GameView, TerminalRenderer, Viewport};
-use tui_tetris::types::{GameAction, SOFT_DROP_GRACE_MS, TICK_MS};
+use tui_tetris::types::{GameAction, TICK_MS};
 
 fn main() -> Result<()> {
     if headless_enabled() {
@@ -267,8 +267,6 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
 
     let mut last_tick = Instant::now();
     let tick_duration = Duration::from_millis(TICK_MS as u64);
-    let mut soft_drop_active = false;
-    let mut soft_drop_timer_ms: i32 = SOFT_DROP_GRACE_MS as i32;
 
     loop {
         // Drain adapter status updates.
@@ -316,8 +314,6 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         if let Some(action) = input_handler.handle_key_press(key.code) {
                             match action {
                                 GameAction::SoftDrop => {
-                                    soft_drop_active = true;
-                                    soft_drop_timer_ms = SOFT_DROP_GRACE_MS as i32;
                                     game_state.apply_action(action);
                                 }
                                 _ => {
@@ -453,26 +449,11 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             }
 
             for action in input_handler.update(TICK_MS) {
-                match action {
-                    GameAction::SoftDrop => {
-                        soft_drop_active = true;
-                        soft_drop_timer_ms = SOFT_DROP_GRACE_MS as i32;
-                        game_state.apply_action(action);
-                    }
-                    _ => {
-                        game_state.apply_action(action);
-                    }
-                }
+                game_state.apply_action(action);
             }
 
-            if soft_drop_active {
-                soft_drop_timer_ms -= TICK_MS as i32;
-                if soft_drop_timer_ms <= 0 {
-                    soft_drop_active = false;
-                }
-            }
-
-            game_state.tick(TICK_MS, soft_drop_active);
+            // Soft drop state is managed by core via the soft drop timeout (swiftui-tetris parity).
+            game_state.tick(TICK_MS, false);
 
             // Observation scheduling (20Hz + immediate on critical events).
             let mut critical = false;

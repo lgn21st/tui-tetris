@@ -766,6 +766,10 @@ impl GameState {
             GameAction::Hold => self.hold(),
             GameAction::Pause => {
                 self.paused = !self.paused;
+                if self.paused {
+                    self.is_soft_dropping = false;
+                    self.soft_drop_timer_ms = 0;
+                }
                 true
             }
             GameAction::Restart => {
@@ -1910,6 +1914,21 @@ mod tests {
         // Tick should not do anything
         let result = state.tick(16, false);
         assert!(!result);
+    }
+
+    #[test]
+    fn test_pause_clears_soft_drop_state() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        state.is_soft_dropping = true;
+        state.soft_drop_timer_ms = SOFT_DROP_GRACE_MS;
+
+        // Pause should clear soft drop state like swiftui-tetris.
+        assert!(state.apply_action(GameAction::Pause));
+        assert!(state.paused());
+        assert!(!state.is_soft_dropping);
+        assert_eq!(state.soft_drop_timer_ms, 0);
     }
 
     #[test]
