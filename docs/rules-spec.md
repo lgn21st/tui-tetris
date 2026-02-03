@@ -83,6 +83,12 @@ Matches swiftui-tetris for AI compatibility.
 | 8 | 160 |
 | 9+ | 120 |
 
+### Fixed-Step Semantics
+
+- The simulation runs at a fixed timestep of `TICK_MS` (16ms).
+- `step_in_piece` increments once per fixed step while an active piece exists, including while `LINE_CLEAR_PAUSE_MS` is counting down.
+- When `line_clear_ms` reaches `0` during a tick, gameplay resumes in the **same** `tick()` call (gravity/lock may advance immediately).
+
 ### DAS/ARR
 
 - **DAS (Delayed Auto Shift)**: 167ms

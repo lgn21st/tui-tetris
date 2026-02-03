@@ -670,15 +670,17 @@ impl GameState {
             self.landing_flash_ms = self.landing_flash_ms.saturating_sub(elapsed_ms);
         }
 
+        // Step counter for the current active piece (increments even during line clear pause).
+        if self.active.is_some() {
+            self.step_in_piece = self.step_in_piece.wrapping_add(1);
+        }
+
         // Handle line clear pause
         if self.line_clear_timer_ms > 0 {
             self.line_clear_timer_ms = self.line_clear_timer_ms.saturating_sub(elapsed_ms);
-            return false;
-        }
-
-        // Step counter for the current active piece (only when gameplay advances).
-        if self.active.is_some() {
-            self.step_in_piece = self.step_in_piece.wrapping_add(1);
+            if self.line_clear_timer_ms > 0 {
+                return false;
+            }
         }
 
         let Some(_) = self.active else {
@@ -914,13 +916,35 @@ mod tests {
     }
 
     #[test]
-    fn test_step_in_piece_does_not_increment_during_line_clear_pause() {
+    fn test_step_in_piece_increments_during_line_clear_pause() {
         let mut state = GameState::new(12345);
         state.start();
         // Force a pause.
         state.line_clear_timer_ms = 16;
         state.tick(16, false);
-        assert_eq!(state.step_in_piece, 0);
+        assert_eq!(state.step_in_piece, 1);
+    }
+
+    #[test]
+    fn test_tick_resumes_when_line_clear_timer_expires() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        state.active = Some(Tetromino {
+            kind: PieceKind::I,
+            rotation: Rotation::North,
+            x: 3,
+            y: 0,
+        });
+
+        // End the line clear pause in this tick, then ensure gravity proceeds in the same call.
+        state.line_clear_timer_ms = 16;
+        state.drop_timer_ms = state.drop_interval_ms();
+
+        let y_before = state.active.unwrap().y;
+        assert!(state.tick(16, false));
+        assert_eq!(state.line_clear_timer_ms, 0);
+        assert_eq!(state.active.unwrap().y, y_before + 1);
     }
 
     #[test]
