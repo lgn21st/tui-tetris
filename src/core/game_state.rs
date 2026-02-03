@@ -494,9 +494,16 @@ impl GameState {
         let line_clear_score = self.apply_line_clear(lines_cleared, tspin);
 
         // Emit last event (for adapter observation immediate flush).
-        let tspin_opt = match tspin {
-            TSpinKind::None => None,
-            _ => Some(tspin),
+        //
+        // swiftui-tetris reports the last T-Spin kind only for line clears (it resets it to `.none`
+        // when `lines_cleared == 0`), so we only include `tspin` when at least one line was cleared.
+        let tspin_opt = if lines_cleared > 0 {
+            match tspin {
+                TSpinKind::None => None,
+                _ => Some(tspin),
+            }
+        } else {
+            None
         };
         self.last_event = Some(CoreLastEvent {
             locked: true,
@@ -525,6 +532,20 @@ impl GameState {
         if lines_cleared == 0 {
             self.combo = -1;
             self.back_to_back = false;
+
+            // swiftui-tetris awards points for T-Spin "no lines", but it does not count as a
+            // line clear for combo/B2B/line_clear_score reporting.
+            let tspin_points = match tspin {
+                TSpinKind::Full => {
+                    crate::core::scoring::calculate_tspin_score(TSpinKind::Full, 0, self.level)
+                }
+                TSpinKind::Mini => {
+                    crate::core::scoring::calculate_tspin_score(TSpinKind::Mini, 0, self.level)
+                }
+                TSpinKind::None => 0,
+            };
+            self.score = self.score.saturating_add(tspin_points);
+
             return 0;
         }
 
@@ -2004,5 +2025,48 @@ mod tests {
         assert_eq!(state.score - score_before, 1200 + crate::types::COMBO_BASE); // combo=1 => +50
         assert!(state.back_to_back);
         assert_eq!(state.combo, 1);
+    }
+
+    #[test]
+    fn test_tspin_no_line_clear_awards_points_and_resets_chains_full() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        state.level = 2;
+        state.lines = 29;
+        state.combo = 3;
+        state.back_to_back = true;
+
+        let score_before = state.score;
+        let base = state.apply_line_clear(0, TSpinKind::Full);
+
+        // swiftui-tetris awards T-Spin no-lines points but resets combo/B2B and does not report a line-clear score.
+        assert_eq!(base, 0);
+        assert_eq!(state.score - score_before, 400 * (2 + 1));
+        assert_eq!(state.combo, -1);
+        assert!(!state.back_to_back);
+        assert_eq!(state.level, 2);
+        assert_eq!(state.lines, 29);
+    }
+
+    #[test]
+    fn test_tspin_no_line_clear_awards_points_and_resets_chains_mini() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        state.level = 1;
+        state.lines = 10;
+        state.combo = 0;
+        state.back_to_back = true;
+
+        let score_before = state.score;
+        let base = state.apply_line_clear(0, TSpinKind::Mini);
+
+        assert_eq!(base, 0);
+        assert_eq!(state.score - score_before, 100 * (1 + 1));
+        assert_eq!(state.combo, -1);
+        assert!(!state.back_to_back);
+        assert_eq!(state.level, 1);
+        assert_eq!(state.lines, 10);
     }
 }

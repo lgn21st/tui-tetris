@@ -120,6 +120,9 @@ Formula: `base_score * (level + 1)`
 Notes:
 - When a T-Spin is detected (Full/Mini), the T-Spin table score is used for the clear (it does **not** add the classic line-clear score on top).
 - Scoring uses the **pre-clear** level (i.e., level before adding the newly-cleared lines).
+- T-Spin with **0 lines cleared** awards points (Full: 400, Mini: 100, multiplied by `level+1`), but it does not count as a line clear:
+  - Combo/B2B chains reset.
+  - Adapter `last_event` does not report a T-Spin for `lines_cleared=0`, and `line_clear_score` remains `0` (score still increases).
 
 ### Combo Bonus
 

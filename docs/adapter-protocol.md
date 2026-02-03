@@ -70,6 +70,7 @@ Example:
 - `lines_cleared`: number of lines cleared by that lock (0..4).
 - `line_clear_score`: base clear points for that lock (includes any B2B multiplier; excludes combo bonus, soft/hard drop points).
 - `tspin`: `"mini"` / `"full"` when applicable; omitted/null when no T-Spin.
+  - Compatibility note: swiftui-tetris reports `tspin` only when `lines_cleared > 0`. A T-Spin with `lines_cleared=0` may still increase `score`, but `last_event.tspin` is omitted and `line_clear_score` remains `0`.
 - `combo`: combo index after applying the lock.
   - `-1` means no active combo chain (e.g., after a lock with `lines_cleared=0`).
   - `0` is the first clear in a chain (no combo bonus).
