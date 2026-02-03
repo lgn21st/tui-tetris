@@ -9,6 +9,7 @@ This file is the current, maintained roadmap for tui-tetris.
 - Core snapshots: stable `GameSnapshot` + `GameState::snapshot_into` for adapter/render usage
 - Input: DAS/ARR + timeout-based release for terminals without key-up events
 - Adapter: TCP newline-delimited JSON protocol compatible with swiftui-tetris (protocol v2.0.0 + schema gate)
+- Adapter performance: observation and line fanout avoid per-client clones (Arc-based fanout)
 - Acceptance: automated protocol gates + closed-loop stability tests
 
 ## Next Priorities
