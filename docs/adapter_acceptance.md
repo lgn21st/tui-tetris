@@ -87,6 +87,7 @@ The adapter MUST support:
 - `control(action="release")`
   - Only the current controller may release; otherwise server MUST return `error.code = "not_controller"`.
   - On success, server MUST `ack(status="ok")` and clear controller assignment.
+  - After a successful `release`, if no other controller is assigned, any `command` MUST return `error.code = "not_controller"` until a client successfully claims controller.
 
 ---
 
