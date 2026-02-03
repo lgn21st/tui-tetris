@@ -1981,4 +1981,28 @@ mod tests {
         assert_eq!(state.combo, 0);
         assert!(state.back_to_back);
     }
+
+    #[test]
+    fn test_b2b_chain_break_prevents_next_tetris_multiplier() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        state.level = 0;
+        state.lines = 0;
+        state.combo = -1;
+        state.back_to_back = true; // chain active from a prior qualifying clear
+
+        // Non-qualifying clear breaks the chain.
+        state.apply_line_clear(1, TSpinKind::None);
+        assert!(!state.back_to_back);
+        assert_eq!(state.combo, 0);
+
+        // Next Tetris should NOT receive the B2B multiplier.
+        let score_before = state.score;
+        let base = state.apply_line_clear(4, TSpinKind::None);
+        assert_eq!(base, 1200);
+        assert_eq!(state.score - score_before, 1200 + crate::types::COMBO_BASE); // combo=1 => +50
+        assert!(state.back_to_back);
+        assert_eq!(state.combo, 1);
+    }
 }
