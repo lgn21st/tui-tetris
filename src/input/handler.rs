@@ -32,6 +32,8 @@ pub struct InputHandler {
     saw_repeat_event: bool,
     last_repeat_time: Option<std::time::Instant>,
     repeat_release_timeout_ms: u32,
+    repeat_release_timeout_min_ms: u32,
+    repeat_release_timeout_max_ms: u32,
 }
 
 // In terminals without key-release events, a short timeout prevents a single tap
@@ -63,6 +65,8 @@ impl InputHandler {
             saw_repeat_event: false,
             last_repeat_time: None,
             repeat_release_timeout_ms: MIN_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS,
+            repeat_release_timeout_min_ms: MIN_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS,
+            repeat_release_timeout_max_ms: MAX_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS,
         }
     }
 
@@ -73,6 +77,21 @@ impl InputHandler {
 
     pub fn key_release_timeout_ms(&self) -> u32 {
         self.key_release_timeout_ms
+    }
+
+    pub fn with_repeat_release_timeout_bounds_ms(mut self, min_ms: u32, max_ms: u32) -> Self {
+        let min_ms = min_ms.max(1);
+        let max_ms = max_ms.max(1);
+        let (min_ms, max_ms) = if min_ms <= max_ms {
+            (min_ms, max_ms)
+        } else {
+            (max_ms, min_ms)
+        };
+        self.repeat_release_timeout_min_ms = min_ms;
+        self.repeat_release_timeout_max_ms = max_ms;
+        self.repeat_release_timeout_ms =
+            self.repeat_release_timeout_ms.clamp(min_ms, max_ms);
+        self
     }
 
     pub fn handle_key_press(&mut self, code: KeyCode) -> Option<GameAction> {
@@ -179,7 +198,7 @@ impl InputHandler {
                 let interval_ms = now.saturating_duration_since(prev).as_millis() as u32;
                 let target = interval_ms.saturating_mul(2);
                 self.repeat_release_timeout_ms = target
-                    .clamp(MIN_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS, MAX_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS);
+                    .clamp(self.repeat_release_timeout_min_ms, self.repeat_release_timeout_max_ms);
             }
             self.last_repeat_time = Some(now);
         }
@@ -319,7 +338,7 @@ impl InputHandler {
         self.down_arr_accumulator = 0;
         self.saw_repeat_event = false;
         self.last_repeat_time = None;
-        self.repeat_release_timeout_ms = MIN_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS;
+        self.repeat_release_timeout_ms = self.repeat_release_timeout_min_ms;
     }
 }
 
@@ -437,6 +456,14 @@ mod tests {
         ih.last_key_time = std::time::Instant::now() - std::time::Duration::from_millis(241);
         let _ = ih.update(0);
         assert_eq!(ih.horizontal, HorizontalDirection::None);
+    }
+
+    #[test]
+    fn test_repeat_release_timeout_bounds_can_be_overridden() {
+        let ih = InputHandler::new().with_repeat_release_timeout_bounds_ms(200, 220);
+        assert_eq!(ih.repeat_release_timeout_min_ms, 200);
+        assert_eq!(ih.repeat_release_timeout_max_ms, 220);
+        assert_eq!(ih.repeat_release_timeout_ms, 200);
     }
 
     #[test]

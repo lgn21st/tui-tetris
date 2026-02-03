@@ -238,6 +238,17 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             input_handler = input_handler.with_key_release_timeout_ms(ms);
         }
     }
+    // Optional: tune repeat-driven release bounds for terminals that emit Repeat but not Release.
+    // Useful for Ghostty-like terminals that have repeat events but no key-up events.
+    let repeat_min = std::env::var("TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MIN_MS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok());
+    let repeat_max = std::env::var("TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MAX_MS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok());
+    if let (Some(min_ms), Some(max_ms)) = (repeat_min, repeat_max) {
+        input_handler = input_handler.with_repeat_release_timeout_bounds_ms(min_ms, max_ms);
+    }
     let mut snap = GameSnapshot::default();
     let mut last_board_id = game_state.board_id();
     game_state.snapshot_board_into(&mut snap);

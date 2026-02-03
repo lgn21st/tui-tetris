@@ -102,6 +102,7 @@ Matches swiftui-tetris for AI compatibility.
 - Note: terminals without key-release events use a timeout-based auto-release in the input handler.
   - Config: `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (default: 150ms)
   - If the terminal emits key repeat events (but no key release events), the input handler switches to a repeat-driven auto-release timeout derived from the observed repeat cadence, so movement stops quickly after repeats stop without breaking slower repeat rates.
+    - Optional clamp: `TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MIN_MS` (default: 80ms) and `TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MAX_MS` (default: 300ms)
   - Tuning:
     - For “tap should move once” on terminals without key-release events, keep this below `DAS`.
     - For “hold should repeat” without terminal key-repeat events, set this above `DAS` (or use a terminal that emits key-repeat events).
