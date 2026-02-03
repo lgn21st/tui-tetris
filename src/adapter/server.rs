@@ -663,7 +663,14 @@ async fn handle_client(
 
     loop {
         line.clear();
-        let bytes_read = reader.read_line(&mut line).await?;
+        let bytes_read = match reader.read_line(&mut line).await {
+            Ok(n) => n,
+            Err(_) => {
+                // Treat I/O errors the same as a disconnect for lifecycle cleanup purposes.
+                // Some clients may terminate abruptly, and we must still release/promote controller.
+                break;
+            }
+        };
 
         if bytes_read == 0 {
             // Client disconnected
