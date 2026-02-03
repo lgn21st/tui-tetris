@@ -363,7 +363,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                             | crossterm::event::KeyCode::Char('D')
                             | crossterm::event::KeyCode::Char('s')
                             | crossterm::event::KeyCode::Char('S') => {
-                                let _ = input_handler.handle_key_press(key.code);
+                                input_handler.handle_key_repeat(key.code);
                             }
                             _ => {}
                         }
