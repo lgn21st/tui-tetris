@@ -335,7 +335,22 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         }
                     }
                     KeyEventKind::Repeat => {
-                        // Ignore terminal auto-repeat; DAS/ARR handles repeats internally.
+                        // Ignore terminal auto-repeat for actions, but treat movement repeats as
+                        // key activity so the timeout-based auto-release doesn't fire while held.
+                        match key.code {
+                            crossterm::event::KeyCode::Left
+                            | crossterm::event::KeyCode::Right
+                            | crossterm::event::KeyCode::Down
+                            | crossterm::event::KeyCode::Char('a')
+                            | crossterm::event::KeyCode::Char('A')
+                            | crossterm::event::KeyCode::Char('d')
+                            | crossterm::event::KeyCode::Char('D')
+                            | crossterm::event::KeyCode::Char('s')
+                            | crossterm::event::KeyCode::Char('S') => {
+                                let _ = input_handler.handle_key_press(key.code);
+                            }
+                            _ => {}
+                        }
                     }
                     KeyEventKind::Release => {
                         input_handler.handle_key_release(key.code);

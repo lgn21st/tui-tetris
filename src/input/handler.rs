@@ -52,10 +52,9 @@ impl InputHandler {
     }
 
     pub fn handle_key_press(&mut self, code: KeyCode) -> Option<GameAction> {
-        self.last_key_time = std::time::Instant::now();
-
         match code {
             KeyCode::Left | KeyCode::Char('a') | KeyCode::Char('A') => {
+                self.last_key_time = std::time::Instant::now();
                 if self.horizontal == HorizontalDirection::Left {
                     None
                 } else {
@@ -66,6 +65,7 @@ impl InputHandler {
                 }
             }
             KeyCode::Right | KeyCode::Char('d') | KeyCode::Char('D') => {
+                self.last_key_time = std::time::Instant::now();
                 if self.horizontal == HorizontalDirection::Right {
                     None
                 } else {
@@ -76,6 +76,7 @@ impl InputHandler {
                 }
             }
             KeyCode::Down | KeyCode::Char('s') | KeyCode::Char('S') => {
+                self.last_key_time = std::time::Instant::now();
                 if self.down_held {
                     None
                 } else {
@@ -203,5 +204,67 @@ impl InputHandler {
 impl Default for InputHandler {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_horizontal_das_arr_repeats_after_delay() {
+        let mut ih = InputHandler::with_config(100, 25);
+
+        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+
+        // Before DAS expires: no repeats.
+        let actions = ih.update(99);
+        assert!(actions.is_empty());
+
+        // Exactly at DAS: still no repeats (needs excess over DAS to accumulate ARR).
+        let actions = ih.update(1);
+        assert!(actions.is_empty());
+
+        // First ARR interval after DAS: one repeat.
+        let actions = ih.update(25);
+        assert_eq!(actions.as_slice(), &[GameAction::MoveLeft]);
+
+        // Another ARR interval: one repeat again.
+        let actions = ih.update(25);
+        assert_eq!(actions.as_slice(), &[GameAction::MoveLeft]);
+    }
+
+    #[test]
+    fn test_auto_release_triggers_after_timeout_without_key_release_events() {
+        let mut ih = InputHandler::with_config(100, 25);
+        ih.key_release_timeout_ms = 50;
+
+        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(ih.horizontal, HorizontalDirection::Left);
+
+        // Simulate no key-release events by moving the last key time into the past.
+        ih.last_key_time = std::time::Instant::now() - std::time::Duration::from_millis(51);
+
+        let actions = ih.update(0);
+        assert!(actions.is_empty());
+        assert_eq!(ih.horizontal, HorizontalDirection::None);
+    }
+
+    #[test]
+    fn test_non_movement_key_does_not_extend_auto_release_timeout() {
+        let mut ih = InputHandler::with_config(100, 25);
+        ih.key_release_timeout_ms = 50;
+
+        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(ih.horizontal, HorizontalDirection::Left);
+
+        // Simulate a stuck key (no release event) and then press a non-movement key.
+        ih.last_key_time = std::time::Instant::now() - std::time::Duration::from_millis(51);
+        assert_eq!(ih.handle_key_press(KeyCode::Up), None);
+
+        // The stale movement key should still auto-release.
+        let actions = ih.update(0);
+        assert!(actions.is_empty());
+        assert_eq!(ih.horizontal, HorizontalDirection::None);
     }
 }
