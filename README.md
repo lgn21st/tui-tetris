@@ -32,7 +32,7 @@ cargo test
 - ✅ Ghost piece
 - ✅ Hold
 - ✅ AI control: TCP protocol compatible with swiftui-tetris
-- ✅ DAS/ARR input (167ms / 33ms)
+- ✅ DAS/ARR input (150ms / 50ms)
 - ✅ Custom terminal renderer: framebuffer + diff flush (no ratatui widgets)
 
 ## Controls
@@ -157,7 +157,7 @@ Environment variables:
 - `TETRIS_AI_PORT` (default: `7777`)
 - `TETRIS_AI_DISABLED` (set to `1`/`true` to disable)
 - `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (input auto-release timeout for terminals without key release events; default: `150`)
-  - Set `<167` for “tap moves once”; set `>167` to allow “hold repeats” on terminals without key-repeat events.
+  - Set `<150` for “tap moves once”; set `>150` to allow “hold repeats” on terminals without key-repeat events.
   - If your terminal emits key repeat events but not key release events, movement should stop shortly after repeats stop.
   - Some terminals report repeats as additional press events; the input handler treats those as repeat activity for repeat-driven auto-release.
 - `TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MIN_MS` / `TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MAX_MS` (optional; repeat-driven release clamp for terminals with repeat-but-no-release)

@@ -22,7 +22,7 @@
 //!
 //! - **7-Bag Randomizer**: Pieces are drawn from a bag of 7, ensuring all piece types appear regularly
 //! - **SRS Rotation**: Super Rotation System with wall kicks for all pieces except O
-//! - **Lock Delay**: 500ms before a grounded piece locks, with 15 move/rotate reset limit
+//! - **Lock Delay**: 450ms before a grounded piece locks, with 15 move/rotate reset limit
 //! - **Ghost Piece**: Shows where the current piece will land
 //! - **Hold**: Store one piece for later use (once per piece)
 //! - **T-Spin Detection**: Mini and full T-spins based on corner occupancy
@@ -52,8 +52,8 @@
 //! The game uses a fixed timestep system:
 //! - **Tick Rate**: 16ms (approximately 60 FPS)
 //! - **Gravity**: Depends on level (1000ms at level 0, decreases with level)
-//! - **Soft Drop**: 20x faster than normal gravity
-//! - **Lock Delay**: 500ms when piece is grounded
+//! - **Soft Drop**: 10x faster than normal gravity
+//! - **Lock Delay**: 450ms when piece is grounded
 //!
 //! Call [`GameState::tick`](game_state::GameState::tick) every frame with elapsed time.
 

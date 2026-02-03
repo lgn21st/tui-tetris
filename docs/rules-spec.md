@@ -61,9 +61,9 @@ Matches swiftui-tetris for AI compatibility.
 |----------|-------|-------------|
 | TICK_MS | 16 | Logic update interval (60 FPS) |
 | BASE_DROP_MS | 1000 | Level 0 drop interval |
-| SOFT_DROP_MULTIPLIER | 20 | Soft drop speed multiplier |
+| SOFT_DROP_MULTIPLIER | 10 | Soft drop speed multiplier |
 | SOFT_DROP_GRACE_MS | 150 | Soft drop state timeout |
-| LOCK_DELAY_MS | 500 | Time before piece locks |
+| LOCK_DELAY_MS | 450 | Time before piece locks |
 | LOCK_RESET_LIMIT | 15 | Max lock delay resets per piece |
 | LINE_CLEAR_PAUSE_MS | 180 | Pause duration after clearing |
 | LANDING_FLASH_MS | 120 | Landing flash duration |
@@ -96,16 +96,16 @@ Matches swiftui-tetris for AI compatibility.
 
 ### DAS/ARR
 
-- **DAS (Delayed Auto Shift)**: 167ms
-- **ARR (Auto Repeat Rate)**: 33ms
+- **DAS (Delayed Auto Shift)**: 150ms
+- **ARR (Auto Repeat Rate)**: 50ms
 - Soft drop repeat: DAS=0ms, ARR=50ms (swiftui-tetris parity).
 - Note: terminals without key-release events use a timeout-based auto-release in the input handler.
   - Config: `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (default: 150ms)
   - If the terminal emits key repeat events (but no key release events), the input handler switches to a repeat-driven auto-release timeout derived from the observed repeat cadence, so movement stops quickly after repeats stop without breaking slower repeat rates.
     - Optional clamp: `TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MIN_MS` (default: 80ms) and `TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MAX_MS` (default: 300ms)
   - Tuning:
-    - For “tap should move once” on terminals without key-release events, keep this below `DAS`.
-    - For “hold should repeat” without terminal key-repeat events, set this above `DAS` (or use a terminal that emits key-repeat events).
+    - For “tap should move once” on terminals without key-release events, keep this below `DAS` (150ms).
+    - For “hold should repeat” without terminal key-repeat events, set this above `DAS` (150ms) (or use a terminal that emits key-repeat events).
 
 ## Scoring
 

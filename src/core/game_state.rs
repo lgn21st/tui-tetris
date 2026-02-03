@@ -1155,9 +1155,9 @@ mod tests {
         state.level = 5;
         assert_eq!(state.drop_interval_ms(), 320);
 
-        // Test soft drop (20x multiplier: 320 / 20 = 16)
+        // Test soft drop (10x multiplier: 320 / 10 = 32)
         state.is_soft_dropping = true;
-        assert_eq!(state.drop_interval_ms(), 16);
+        assert_eq!(state.drop_interval_ms(), 32);
     }
 
     #[test]
