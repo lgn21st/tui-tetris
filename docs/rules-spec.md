@@ -91,6 +91,9 @@ Matches swiftui-tetris for AI compatibility.
 
 ## Scoring
 
+This project follows the same scoring semantics as `swiftui-tetris`: a classic base line-clear table (40/100/300/1200 * (level+1)) plus modern extensions (T-Spin tables, back-to-back, combo, and drop scoring).
+This is closer to modern guideline-style scoring than legacy variants like NES.
+
 ### Classic Line Clear
 
 | Lines | Base Score |

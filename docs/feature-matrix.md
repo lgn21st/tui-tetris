@@ -35,6 +35,7 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - TCP server (tokio) ✅
 - JSON line framing ✅
 - hello/welcome handshake ✅
+- Welcome advertises `features_always` / `features_optional` ✅
 - Controller/observer enforcement ✅
 - Backpressure errors ✅
 - Monotonic seq enforcement ✅

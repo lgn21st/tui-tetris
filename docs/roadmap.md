@@ -12,6 +12,7 @@ This file is the current, maintained roadmap for tui-tetris.
 - Adapter performance: observation and line fanout avoid per-client clones (Arc-based fanout)
 - Adapter runtime: avoids building/broadcasting observations when there are no streaming subscribers
 - Adapter status: `client_count` and `controller_id` reflect live connections only
+- Adapter I/O: buffered writes with a flush policy (immediate for welcome/ack/error; otherwise ≤16ms)
 - Acceptance: automated protocol gates + closed-loop stability tests
 
 ## Next Priorities

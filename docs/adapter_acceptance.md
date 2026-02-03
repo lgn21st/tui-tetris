@@ -87,17 +87,19 @@ First observation after `welcome` MUST be a full snapshot.
 - `paused` (bool)
 - `game_over` (bool)
 - `board` (object)
-- `active` (object)
+- `active` (object) when `playable=true`
 - `score`, `level`, `lines` (numbers)
 - `timers` (object; if the game does not model timers, emit zeros consistently)
 
 ### 4.2 board
 `board` MUST include:
 - `width=10`, `height=20`
-- `cells`: 2D array `[height][width]` of ints (0 empty, 1 filled or per-cell occupancy)
+- `cells`: 2D array `[height][width]` of ints using the protocol encoding:
+  - `0` empty
+  - `1..7` map to `I,O,T,S,Z,J,L` (order is fixed)
 
 ### 4.3 active
-`active` MUST include:
+When `playable=true`, `active` MUST be present and include:
 - `kind` (one of I/O/T/S/Z/J/L)
 - `rotation` (`north|east|south|west`)
 - `x`, `y` (ints; consistent coordinate system across games)

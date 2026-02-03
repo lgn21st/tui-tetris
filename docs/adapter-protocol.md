@@ -43,8 +43,13 @@ Example:
 Fields: `type`, `seq`, `ts`, `protocol_version`, `game_id`, `capabilities`.
 Example:
 ```
-{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.0.0","game_id":"tui-tetris","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"]}}
+{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.0.0","game_id":"tui-tetris","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"],"features_always":["next","next_queue","can_hold","board_id","state_hash","score","timers"],"features_optional":["hold","ghost_y","last_event"]}}
 ```
+
+### Capabilities feature presence
+- `capabilities.features` is a legacy union list (backward compatible).
+- `capabilities.features_always` are guaranteed to be present in every observation (training can treat them as non-null).
+- `capabilities.features_optional` may be omitted when unknown/not-applicable (training must handle missing).
 
 ## Commands
 ### command (client -> game)
@@ -75,12 +80,6 @@ Notes:
 - Commands are acknowledged after they are mapped and applied during the adapter poll tick.
 Examples:
 ```
-
-Capabilities feature presence:
-- `capabilities.features` is the legacy union list (backward compatible).
-- `capabilities.features_always` are guaranteed to be present in every observation (training can treat them as non-null).
-- `capabilities.features_optional` may be omitted when unknown/not-applicable (training must handle missing).
-
 {"type":"command","seq":2,"ts":1738291200200,"mode":"action","actions":["moveLeft","rotateCw","hardDrop"]}
 {"type":"command","seq":3,"ts":1738291200300,"mode":"place","place":{"x":3,"rotation":"east","useHold":false}}
 ```
