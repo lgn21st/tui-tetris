@@ -88,6 +88,11 @@ Matches swiftui-tetris for AI compatibility.
 - The simulation runs at a fixed timestep of `TICK_MS` (16ms).
 - `step_in_piece` increments once per fixed step while an active piece exists, including while `LINE_CLEAR_PAUSE_MS` is counting down.
 - When `line_clear_ms` reaches `0` during a tick, gameplay resumes in the **same** `tick()` call (gravity/lock may advance immediately).
+- Gravity uses an accumulator (while-loop): if `elapsed_ms` spans multiple drop intervals, multiple row drops may occur in one tick.
+- Lock delay timing is grounded-only:
+  - While the active piece can still move down, `lock_ms` and `lock_reset_count` stay at `0`.
+  - When the active piece is grounded, `lock_ms` increases each step.
+  - Successful moves/rotations while grounded reset `lock_ms` and consume up to `LOCK_RESET_LIMIT` resets per piece.
 
 ### DAS/ARR
 
