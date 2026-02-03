@@ -184,9 +184,11 @@ mod tests {
 
         assert_eq!(calculate_tspin_score(TSpinKind::Mini, 0, 0), 100);
         assert_eq!(calculate_tspin_score(TSpinKind::Mini, 1, 0), 200);
+        assert_eq!(calculate_tspin_score(TSpinKind::Mini, 2, 0), 400);
 
         // Level 2
         assert_eq!(calculate_tspin_score(TSpinKind::Full, 1, 2), 800 * 3);
+        assert_eq!(calculate_tspin_score(TSpinKind::Mini, 2, 2), 400 * 3);
     }
 
     #[test]
@@ -250,6 +252,13 @@ mod tests {
         assert_eq!(result.line_clear_score, 200);
         assert_eq!(result.combo_bonus, 0);
         assert_eq!(result.total, 200);
+        assert!(!result.qualifies_for_b2b);
+        assert!(!result.b2b_applied);
+
+        let result = calculate_score(2, 3, TSpinKind::Mini, 0, true);
+        assert_eq!(result.line_clear_score, 400 * (3 + 1));
+        assert_eq!(result.combo_bonus, 0);
+        assert_eq!(result.total, 400 * (3 + 1));
         assert!(!result.qualifies_for_b2b);
         assert!(!result.b2b_applied);
 
