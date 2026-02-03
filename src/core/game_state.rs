@@ -461,6 +461,9 @@ impl GameState {
             return;
         };
 
+        // Trigger landing flash on every lock (swiftui-tetris parity).
+        self.landing_flash_ms = LANDING_FLASH_MS;
+
         // Lock piece to board
         let shape = active.shape();
         let lock_success = self
@@ -662,6 +665,11 @@ impl GameState {
             return false;
         }
 
+        // Handle landing flash (ticks down even during line clear pause).
+        if self.landing_flash_ms > 0 {
+            self.landing_flash_ms = self.landing_flash_ms.saturating_sub(elapsed_ms);
+        }
+
         // Handle line clear pause
         if self.line_clear_timer_ms > 0 {
             self.line_clear_timer_ms = self.line_clear_timer_ms.saturating_sub(elapsed_ms);
@@ -671,11 +679,6 @@ impl GameState {
         // Step counter for the current active piece (only when gameplay advances).
         if self.active.is_some() {
             self.step_in_piece = self.step_in_piece.wrapping_add(1);
-        }
-
-        // Handle landing flash
-        if self.landing_flash_ms > 0 {
-            self.landing_flash_ms = self.landing_flash_ms.saturating_sub(elapsed_ms);
         }
 
         let Some(_) = self.active else {
@@ -2221,5 +2224,29 @@ mod tests {
             &[(0, 0), (0, 2), (2, 0), (2, 2)],
             TSpinKind::Full,
         );
+    }
+
+    #[test]
+    fn test_landing_flash_is_set_on_lock_without_line_clear() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        assert_eq!(state.landing_flash_ms, 0);
+        state.lock_piece();
+        assert_eq!(state.landing_flash_ms, LANDING_FLASH_MS);
+    }
+
+    #[test]
+    fn test_landing_flash_ticks_down_during_line_clear_pause() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        state.landing_flash_ms = LANDING_FLASH_MS;
+        state.line_clear_timer_ms = 32;
+
+        let flash_before = state.landing_flash_ms;
+        assert!(!state.tick(16, false));
+        assert!(state.landing_flash_ms < flash_before);
+        assert!(state.line_clear_timer_ms < 32);
     }
 }
