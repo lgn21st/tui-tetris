@@ -104,9 +104,48 @@ async fn controller_disconnect_does_not_leave_stale_controller() {
         let welcome: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
         assert_eq!(welcome["type"], "welcome");
 
+        // If the server leaked a stale controller, this client would remain an observer:
+        // - release would fail with not_controller
+        // - claim would fail with controller_active
+        // Keeping this in the test ensures stale-controller bugs are caught even when the
+        // failure manifests as "controller_active forever".
+        let release = serde_json::json!({
+            "type": "control",
+            "seq": 2,
+            "ts": 1,
+            "action": "release"
+        });
+        write_half
+            .write_all(serde_json::to_string(&release).unwrap().as_bytes())
+            .await
+            .unwrap();
+        write_half.write_all(b"\n").await.unwrap();
+        write_half.flush().await.unwrap();
+
+        let resp: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
+        assert_eq!(resp["type"], "ack", "expected ack, got {resp}");
+        assert_eq!(resp["seq"], 2);
+
+        let claim = serde_json::json!({
+            "type": "control",
+            "seq": 3,
+            "ts": 1,
+            "action": "claim"
+        });
+        write_half
+            .write_all(serde_json::to_string(&claim).unwrap().as_bytes())
+            .await
+            .unwrap();
+        write_half.write_all(b"\n").await.unwrap();
+        write_half.flush().await.unwrap();
+
+        let resp: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
+        assert_eq!(resp["type"], "ack", "expected ack, got {resp}");
+        assert_eq!(resp["seq"], 3);
+
         let cmd = serde_json::json!({
             "type": "command",
-            "seq": 2,
+            "seq": 4,
             "ts": 1,
             "mode": "action",
             "actions": ["hardDrop"]
@@ -120,7 +159,7 @@ async fn controller_disconnect_does_not_leave_stale_controller() {
 
         let resp: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
         assert_eq!(resp["type"], "ack", "expected ack, got {resp}");
-        assert_eq!(resp["seq"], 2);
+        assert_eq!(resp["seq"], 4);
     }
 
     server_handle.abort();
