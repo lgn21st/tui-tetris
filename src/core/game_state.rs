@@ -914,7 +914,7 @@ mod tests {
         let seed = find_seed_with_first_piece(PieceKind::I);
         let mut state = GameState::new(seed);
 
-        // Force `Board::is_spawn_blocked()` to be true (these are y=0 cells), but keep the I
+        // Force the former spawn-area probe cells (these are y=0 cells) to be occupied, but keep the I
         // spawn cells at y=1 clear.
         assert!(state.board.set(3, 0, Some(PieceKind::T)));
         assert!(state.board.set(4, 0, Some(PieceKind::T)));

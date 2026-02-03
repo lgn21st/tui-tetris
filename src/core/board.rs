@@ -169,12 +169,6 @@ impl Board {
     }
 
     /// Check if spawn position is blocked (game over condition)
-    pub fn is_spawn_blocked(&self) -> bool {
-        // Check if the standard spawn area is blocked
-        // For most pieces, this is a reasonable approximation
-        !self.is_valid(3, 0) || !self.is_valid(4, 0) || !self.is_valid(5, 0)
-    }
-
     /// Get a reference to the internal cells array
     pub fn cells(&self) -> &[Cell] {
         &self.cells
