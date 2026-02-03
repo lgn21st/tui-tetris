@@ -16,6 +16,9 @@ cd tui-tetris
 # Run the game
 cargo run
 
+# Run without the TCP AI adapter (no listener)
+TETRIS_AI_DISABLED=1 cargo run
+
 # Run tests
 cargo test
 ```
