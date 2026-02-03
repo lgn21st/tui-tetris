@@ -31,6 +31,8 @@ pub struct InputHandler {
     key_release_timeout_ms: u32,
 }
 
+const DEFAULT_KEY_RELEASE_TIMEOUT_MS: u32 = 1000;
+
 impl InputHandler {
     pub fn new() -> Self {
         Self::with_config(DEFAULT_DAS_MS, DEFAULT_ARR_MS)
@@ -47,8 +49,17 @@ impl InputHandler {
             down_arr_accumulator: 0,
             das_delay,
             arr_rate,
-            key_release_timeout_ms: 150,
+            key_release_timeout_ms: DEFAULT_KEY_RELEASE_TIMEOUT_MS,
         }
+    }
+
+    pub fn with_key_release_timeout_ms(mut self, timeout_ms: u32) -> Self {
+        self.key_release_timeout_ms = timeout_ms;
+        self
+    }
+
+    pub fn key_release_timeout_ms(&self) -> u32 {
+        self.key_release_timeout_ms
     }
 
     pub fn handle_key_press(&mut self, code: KeyCode) -> Option<GameAction> {
@@ -266,5 +277,14 @@ mod tests {
         let actions = ih.update(0);
         assert!(actions.is_empty());
         assert_eq!(ih.horizontal, HorizontalDirection::None);
+    }
+
+    #[test]
+    fn test_default_key_release_timeout_exceeds_default_das() {
+        let ih = InputHandler::new();
+        assert!(
+            ih.key_release_timeout_ms > ih.das_delay,
+            "default key release timeout must exceed DAS so ARR can work without key-repeat events"
+        );
     }
 }

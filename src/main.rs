@@ -233,6 +233,11 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let view = GameView::default();
     let mut fb = tui_tetris::term::FrameBuffer::new(80, 24);
     let mut input_handler = InputHandler::new();
+    if let Ok(s) = std::env::var("TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS") {
+        if let Ok(ms) = s.parse::<u32>() {
+            input_handler = input_handler.with_key_release_timeout_ms(ms);
+        }
+    }
     let mut snap = GameSnapshot::default();
     let mut last_board_id = game_state.board_id();
     game_state.snapshot_board_into(&mut snap);

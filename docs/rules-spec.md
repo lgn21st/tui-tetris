@@ -93,7 +93,8 @@ Matches swiftui-tetris for AI compatibility.
 
 - **DAS (Delayed Auto Shift)**: 167ms
 - **ARR (Auto Repeat Rate)**: 33ms
-- Note: terminals without key-release events use a timeout-based auto-release in the input handler
+- Note: terminals without key-release events use a timeout-based auto-release in the input handler.
+  - Config: `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (default: 1000ms)
 
 ## Scoring
 
