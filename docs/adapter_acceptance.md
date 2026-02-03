@@ -79,6 +79,10 @@ Notes:
   - `command_modes` includes `"place"` (required) and `"action"` (recommended)
   - `features` should truthfully reflect what observations support (e.g. `hold`, `next_queue`, `timers`)
 
+### 3.3.1 hello formats (MUST)
+- `hello.formats` MUST include `"json"`.
+- If not, the server MUST return `error.code = "invalid_command"` and MUST NOT treat the client as handshaken.
+
 ### 3.4 Controller control messages (MUST)
 The adapter MUST support:
 - `control(action="claim")`
