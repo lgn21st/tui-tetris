@@ -2138,4 +2138,88 @@ mod tests {
         assert_eq!(ev.combo, -1);
         assert!(!ev.back_to_back);
     }
+
+    fn assert_tspin_for_rotation(
+        rotation: Rotation,
+        filled_corners: &[(i8, i8)],
+        expected: TSpinKind,
+    ) {
+        let mut state = GameState::new(12345);
+        let x = 3;
+        let y = 10;
+        for &(dx, dy) in filled_corners {
+            state.board.set(x + dx, y + dy, Some(PieceKind::I));
+        }
+        state.last_action_was_rotate = true;
+
+        let piece = Tetromino {
+            kind: PieceKind::T,
+            rotation,
+            x,
+            y,
+        };
+        let tspin = state.t_spin_kind(&piece, &[]);
+        assert_eq!(tspin, expected);
+    }
+
+    #[test]
+    fn test_t_spin_front_corner_mapping_north_full_vs_mini() {
+        // Corners are relative to the piece origin: (0,0), (2,0), (0,2), (2,2).
+        // North-facing "front" corners are the top corners: (0,0) and (2,0).
+        assert_tspin_for_rotation(
+            Rotation::North,
+            &[(0, 0), (0, 2), (2, 2)],
+            TSpinKind::Mini,
+        );
+        assert_tspin_for_rotation(
+            Rotation::North,
+            &[(0, 0), (2, 0), (0, 2), (2, 2)],
+            TSpinKind::Full,
+        );
+    }
+
+    #[test]
+    fn test_t_spin_front_corner_mapping_east_full_vs_mini() {
+        // East-facing "front" corners are the right corners: (2,0) and (2,2).
+        assert_tspin_for_rotation(
+            Rotation::East,
+            &[(2, 0), (0, 0), (0, 2)],
+            TSpinKind::Mini,
+        );
+        assert_tspin_for_rotation(
+            Rotation::East,
+            &[(2, 0), (2, 2), (0, 0), (0, 2)],
+            TSpinKind::Full,
+        );
+    }
+
+    #[test]
+    fn test_t_spin_front_corner_mapping_south_full_vs_mini() {
+        // South-facing "front" corners are the bottom corners: (0,2) and (2,2).
+        assert_tspin_for_rotation(
+            Rotation::South,
+            &[(0, 2), (0, 0), (2, 0)],
+            TSpinKind::Mini,
+        );
+        assert_tspin_for_rotation(
+            Rotation::South,
+            &[(0, 2), (2, 2), (0, 0), (2, 0)],
+            TSpinKind::Full,
+        );
+    }
+
+    #[test]
+    fn test_t_spin_front_corner_mapping_west_full_vs_mini() {
+        // West-facing "front" corners are the left corners: (0,0) and (0,2).
+        assert_tspin_for_rotation(
+            Rotation::West,
+            &[(0, 0), (2, 0), (2, 2)],
+            TSpinKind::Mini,
+        );
+        assert_tspin_for_rotation(
+            Rotation::West,
+            &[(0, 0), (0, 2), (2, 0), (2, 2)],
+            TSpinKind::Full,
+        );
+    }
 }
