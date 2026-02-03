@@ -113,8 +113,11 @@ pub const DEFAULT_DAS_MS: u32 = 167;
 /// ARR (Auto Repeat Rate) in milliseconds (33ms = Tetris Guideline)
 pub const DEFAULT_ARR_MS: u32 = 33;
 
-/// Soft drop ARR rate (same as normal ARR)
-pub const SOFT_DROP_ARR_MS: u32 = 33;
+/// Soft drop DAS in milliseconds (swiftui-tetris parity).
+pub const SOFT_DROP_DAS_MS: u32 = 0;
+
+/// Soft drop ARR in milliseconds (swiftui-tetris parity).
+pub const SOFT_DROP_ARR_MS: u32 = 50;
 
 /// Drop intervals by level (milliseconds per row)
 ///

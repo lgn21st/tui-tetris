@@ -6,7 +6,7 @@ use crossterm::event::KeyCode;
 
 use arrayvec::ArrayVec;
 
-use crate::types::{GameAction, DEFAULT_ARR_MS, DEFAULT_DAS_MS};
+use crate::types::{GameAction, DEFAULT_ARR_MS, DEFAULT_DAS_MS, SOFT_DROP_ARR_MS, SOFT_DROP_DAS_MS};
 
 /// Direction for horizontal movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,16 +183,16 @@ impl InputHandler {
             let prev_das = self.down_das_timer;
             self.down_das_timer += elapsed_ms;
 
-            if self.down_das_timer >= self.das_delay {
-                let excess = if prev_das < self.das_delay {
-                    self.down_das_timer - self.das_delay
+            if self.down_das_timer >= SOFT_DROP_DAS_MS {
+                let excess = if prev_das < SOFT_DROP_DAS_MS {
+                    self.down_das_timer - SOFT_DROP_DAS_MS
                 } else {
                     elapsed_ms
                 };
                 self.down_arr_accumulator += excess;
-                while self.down_arr_accumulator >= self.arr_rate {
+                while self.down_arr_accumulator >= SOFT_DROP_ARR_MS {
                     let _ = actions.try_push(GameAction::SoftDrop);
-                    self.down_arr_accumulator -= self.arr_rate;
+                    self.down_arr_accumulator -= SOFT_DROP_ARR_MS;
                 }
             }
         } else {
@@ -285,5 +285,27 @@ mod tests {
     fn test_default_key_release_timeout_is_non_zero() {
         let ih = InputHandler::new();
         assert!(ih.key_release_timeout_ms() > 0);
+    }
+
+    #[test]
+    fn test_soft_drop_repeats_use_zero_das_and_50ms_arr() {
+        let mut ih = InputHandler::new().with_key_release_timeout_ms(10_000);
+
+        assert_eq!(ih.handle_key_press(KeyCode::Down), Some(GameAction::SoftDrop));
+
+        // Before 50ms: no repeats.
+        let actions = ih.update(49);
+        assert!(actions.is_empty());
+
+        // At 50ms: exactly one repeat.
+        let actions = ih.update(1);
+        assert_eq!(actions.as_slice(), &[GameAction::SoftDrop]);
+
+        // Another 100ms: two repeats.
+        let actions = ih.update(100);
+        assert_eq!(
+            actions.as_slice(),
+            &[GameAction::SoftDrop, GameAction::SoftDrop]
+        );
     }
 }
