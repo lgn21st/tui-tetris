@@ -79,6 +79,15 @@ Notes:
   - `command_modes` includes `"place"` (required) and `"action"` (recommended)
   - `features` should truthfully reflect what observations support (e.g. `hold`, `next_queue`, `timers`)
 
+### 3.4 Controller control messages (MUST)
+The adapter MUST support:
+- `control(action="claim")`
+  - If no controller is currently assigned, server MUST `ack(status="ok")` and assign the sender as controller.
+  - If a controller is already assigned, server MUST return `error.code = "controller_active"`.
+- `control(action="release")`
+  - Only the current controller may release; otherwise server MUST return `error.code = "not_controller"`.
+  - On success, server MUST `ack(status="ok")` and clear controller assignment.
+
 ---
 
 ## 4) Observation Schema (MUST)
