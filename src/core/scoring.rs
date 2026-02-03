@@ -244,6 +244,25 @@ mod tests {
     }
 
     #[test]
+    fn test_mini_tspin_never_gets_b2b_multiplier() {
+        // Even if the previous clear was B2B-qualifying, Mini T-Spins do not qualify for B2B.
+        let result = calculate_score(1, 0, TSpinKind::Mini, 0, true);
+        assert_eq!(result.line_clear_score, 200);
+        assert_eq!(result.combo_bonus, 0);
+        assert_eq!(result.total, 200);
+        assert!(!result.qualifies_for_b2b);
+        assert!(!result.b2b_applied);
+
+        // Combo bonus is still added on top of the base (non-B2B) points.
+        let result = calculate_score(1, 0, TSpinKind::Mini, 2, true);
+        assert_eq!(result.line_clear_score, 200);
+        assert_eq!(result.combo_bonus, 100);
+        assert_eq!(result.total, 300);
+        assert!(!result.qualifies_for_b2b);
+        assert!(!result.b2b_applied);
+    }
+
+    #[test]
     fn test_drop_scores() {
         assert_eq!(calculate_drop_score(10, false), 10); // Soft drop 10 cells
         assert_eq!(calculate_drop_score(10, true), 20); // Hard drop 10 cells

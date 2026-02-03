@@ -931,5 +931,18 @@ mod tests {
         assert_eq!(mapped.tspin, Some(TSpinLower::Full));
         assert_eq!(mapped.combo, 1);
         assert!(mapped.back_to_back);
+
+        let ev = CoreLastEvent {
+            locked: true,
+            lines_cleared: 1,
+            line_clear_score: 200,
+            tspin: Some(crate::types::TSpinKind::Mini),
+            combo: 0,
+            back_to_back: false,
+        };
+        let mapped = LastEvent::from(ev);
+        assert_eq!(mapped.tspin, Some(TSpinLower::Mini));
+        assert_eq!(mapped.combo, 0);
+        assert!(!mapped.back_to_back);
     }
 }

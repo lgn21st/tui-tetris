@@ -1896,4 +1896,25 @@ mod tests {
         assert_eq!(ev.line_clear_score, expected_line_clear_score);
         assert_eq!(state.score - score_before, expected_delta);
     }
+
+    #[test]
+    fn test_mini_tspin_clear_resets_b2b_chain() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        // Set up as if we are already in a B2B chain.
+        state.back_to_back = true;
+        state.combo = -1;
+        state.level = 0;
+        state.lines = 0;
+
+        let score_before = state.score;
+        let base = state.apply_line_clear(1, TSpinKind::Mini);
+
+        // Mini T-Spins use their own table but do not qualify for B2B carry.
+        assert_eq!(base, 200);
+        assert_eq!(state.combo, 0);
+        assert!(!state.back_to_back);
+        assert_eq!(state.score - score_before, 200);
+    }
 }
