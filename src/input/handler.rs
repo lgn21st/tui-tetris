@@ -31,7 +31,9 @@ pub struct InputHandler {
     key_release_timeout_ms: u32,
 }
 
-const DEFAULT_KEY_RELEASE_TIMEOUT_MS: u32 = 1000;
+// In terminals without key-release events, a short timeout prevents a single tap
+// from turning into a sustained "held" state that triggers DAS/ARR repeats.
+const DEFAULT_KEY_RELEASE_TIMEOUT_MS: u32 = 150;
 
 impl InputHandler {
     pub fn new() -> Self {
@@ -280,11 +282,8 @@ mod tests {
     }
 
     #[test]
-    fn test_default_key_release_timeout_exceeds_default_das() {
+    fn test_default_key_release_timeout_is_non_zero() {
         let ih = InputHandler::new();
-        assert!(
-            ih.key_release_timeout_ms > ih.das_delay,
-            "default key release timeout must exceed DAS so ARR can work without key-repeat events"
-        );
+        assert!(ih.key_release_timeout_ms() > 0);
     }
 }

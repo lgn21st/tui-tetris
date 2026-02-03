@@ -152,6 +152,7 @@ Environment variables:
 - `TETRIS_AI_HOST` (default: `127.0.0.1`)
 - `TETRIS_AI_PORT` (default: `7777`)
 - `TETRIS_AI_DISABLED` (set to `1`/`true` to disable)
+- `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (input auto-release timeout for terminals without key release events; default: `150`)
 
 ## Contributing
 
