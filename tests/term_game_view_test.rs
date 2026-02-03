@@ -1,5 +1,5 @@
 use tui_tetris::core::GameState;
-use tui_tetris::term::{GameView, Viewport};
+use tui_tetris::term::{AnchorY, GameView, Viewport};
 use tui_tetris::types::PieceKind;
 
 #[test]
@@ -62,4 +62,30 @@ fn term_view_draws_side_panel_when_wide_enough() {
         all.push('\n');
     }
     assert!(all.contains("SCORE"));
+}
+
+#[test]
+fn term_view_centers_board_by_default_on_tall_viewports() {
+    let state = GameState::new(1);
+    let snap = state.snapshot();
+    let view = GameView::default();
+
+    // Board frame is 22 rows tall (20 + border).
+    let vp = Viewport::new(22, 30);
+    let fb = view.render(&snap, vp);
+
+    // start_y = (30 - 22) / 2 = 4 => top-left corner at (0,4).
+    assert_eq!(fb.get(0, 4).unwrap().ch, '┌');
+}
+
+#[test]
+fn term_view_can_anchor_board_to_top() {
+    let state = GameState::new(1);
+    let snap = state.snapshot();
+    let view = GameView::default().with_anchor_y(AnchorY::Top);
+
+    let vp = Viewport::new(22, 30);
+    let fb = view.render(&snap, vp);
+
+    assert_eq!(fb.get(0, 0).unwrap().ch, '┌');
 }

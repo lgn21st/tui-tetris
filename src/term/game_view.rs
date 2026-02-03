@@ -33,6 +33,13 @@ pub struct GameView {
     cell_w: u16,
     /// Board cell height in terminal rows.
     cell_h: u16,
+    anchor_y: AnchorY,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnchorY {
+    Center,
+    Top,
 }
 
 impl Default for GameView {
@@ -41,13 +48,23 @@ impl Default for GameView {
         Self {
             cell_w: 2,
             cell_h: 1,
+            anchor_y: AnchorY::Center,
         }
     }
 }
 
 impl GameView {
     pub fn new(cell_w: u16, cell_h: u16) -> Self {
-        Self { cell_w, cell_h }
+        Self {
+            cell_w,
+            cell_h,
+            anchor_y: AnchorY::Center,
+        }
+    }
+
+    pub fn with_anchor_y(mut self, anchor_y: AnchorY) -> Self {
+        self.anchor_y = anchor_y;
+        self
     }
 
     /// Render the current game state into an existing framebuffer.
@@ -74,7 +91,10 @@ impl GameView {
         let frame_h = board_px_h + 2;
 
         let start_x = viewport.width.saturating_sub(frame_w) / 2;
-        let start_y = viewport.height.saturating_sub(frame_h) / 2;
+        let start_y = match self.anchor_y {
+            AnchorY::Center => viewport.height.saturating_sub(frame_h) / 2,
+            AnchorY::Top => 0,
+        };
 
         let bg = CellStyle {
             fg: Rgb::new(80, 80, 90),

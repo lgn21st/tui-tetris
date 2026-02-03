@@ -16,7 +16,7 @@ use tui_tetris::core::{GameSnapshot, GameState};
 use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
 use tui_tetris::term::AdapterStatusView;
-use tui_tetris::term::{GameView, TerminalRenderer, Viewport};
+use tui_tetris::term::{AnchorY, GameView, TerminalRenderer, Viewport};
 use tui_tetris::types::{GameAction, TICK_MS};
 
 fn main() -> Result<()> {
@@ -230,7 +230,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut game_state = GameState::new(1);
     game_state.start();
 
-    let view = GameView::default();
+    let view = game_view_from_env();
     let mut fb = tui_tetris::term::FrameBuffer::new(80, 24);
     let mut input_handler = InputHandler::new();
     if let Ok(s) = std::env::var("TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS") {
@@ -548,4 +548,18 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             }
         }
     }
+}
+
+fn game_view_from_env() -> GameView {
+    let anchor_y = std::env::var("TUI_TETRIS_ANCHOR_Y")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .as_deref()
+        .map(|v| match v {
+            "top" => AnchorY::Top,
+            "center" | "" => AnchorY::Center,
+            _ => AnchorY::Center,
+        })
+        .unwrap_or(AnchorY::Center);
+    GameView::default().with_anchor_y(anchor_y)
 }
