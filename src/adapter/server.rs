@@ -187,9 +187,15 @@ async fn emit_status(state: &Arc<ServerState>) {
     };
     let controller = state.controller.read().await;
     let clients = state.clients.read().await;
+    let streaming_count = clients
+        .iter()
+        .filter(|c| c.stream_observations && !c.tx.is_closed())
+        .count()
+        .min(u16::MAX as usize) as u16;
     let _ = tx.send(AdapterStatus {
         client_count: clients.len().min(u16::MAX as usize) as u16,
         controller_id: *controller,
+        streaming_count,
     });
 }
 
@@ -378,6 +384,7 @@ pub async fn run_server(
         let _ = tx.send(AdapterStatus {
             client_count: 0,
             controller_id: None,
+            streaming_count: 0,
         });
     }
     if let Some(tx) = ready_tx {

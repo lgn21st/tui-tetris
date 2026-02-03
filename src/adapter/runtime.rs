@@ -17,6 +17,7 @@ use crate::types::{GameAction, Rotation};
 pub struct AdapterStatus {
     pub client_count: u16,
     pub controller_id: Option<usize>,
+    pub streaming_count: u16,
 }
 
 /// Message delivered to the game loop.

@@ -18,6 +18,7 @@ pub struct AdapterStatusView {
     pub enabled: bool,
     pub client_count: u16,
     pub controller_id: Option<usize>,
+    pub streaming_count: u16,
 }
 
 impl Viewport {
@@ -330,6 +331,9 @@ impl GameView {
             y = y.saturating_add(1);
             fb.put_str(panel_x, y, "C", value);
             fb.put_u32(panel_x + 2, y, st.client_count as u32, value);
+            y = y.saturating_add(1);
+            fb.put_str(panel_x, y, "S", value);
+            fb.put_u32(panel_x + 2, y, st.streaming_count as u32, value);
             y = y.saturating_add(1);
             fb.put_str(panel_x, y, "CTRL", value);
             if let Some(id) = st.controller_id {

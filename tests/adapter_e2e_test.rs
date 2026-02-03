@@ -483,9 +483,12 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
         .unwrap();
 
     // Initial status (0 clients).
-    let _ = tokio::time::timeout(Duration::from_secs(2), status_rx.recv())
+    let st0 = tokio::time::timeout(Duration::from_secs(2), status_rx.recv())
         .await
-        .unwrap();
+        .unwrap()
+        .expect("status channel closed");
+    assert_eq!(st0.client_count, 0);
+    assert_eq!(st0.streaming_count, 0);
 
     let stream = TcpStream::connect(addr).await.unwrap();
     let (read_half, mut write_half) = stream.into_split();
@@ -519,16 +522,16 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
         .unwrap()
         .unwrap();
 
-    // Status should eventually show controller_id=Some(1).
+    // Status should eventually show controller_id set and stream_observations enabled.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
         if let Ok(Some(st)) = tokio::time::timeout(Duration::from_millis(50), status_rx.recv()).await {
-            if st.controller_id == Some(1) {
+            if st.controller_id.is_some() && st.streaming_count >= 1 {
                 break;
             }
         }
         if tokio::time::Instant::now() >= deadline {
-            panic!("did not observe controller_id == Some(1)");
+            panic!("did not observe controller_id set and streaming_count >= 1");
         }
     }
 

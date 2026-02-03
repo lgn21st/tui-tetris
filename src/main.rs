@@ -53,6 +53,7 @@ fn run_headless() -> Result<()> {
     game_state.snapshot_board_into(&mut snap);
 
     let mut adapter = Adapter::start_from_env();
+    let mut adapter_streaming_count: u16 = 0;
 
     let obs_interval_ms: u32 = std::env::var("TETRIS_AI_OBS_HZ")
         .ok()
@@ -76,7 +77,9 @@ fn run_headless() -> Result<()> {
     loop {
         // Drain adapter status updates to avoid unbounded growth.
         if let Some(ad) = adapter.as_mut() {
-            while ad.try_recv_status().is_some() {}
+            while let Some(st) = ad.try_recv_status() {
+                adapter_streaming_count = st.streaming_count;
+            }
         }
 
         // Apply AI commands before tick (determinism).
@@ -207,6 +210,9 @@ fn run_headless() -> Result<()> {
             let last_event = pending_last_event.take();
 
             if let Some(ad) = adapter.as_ref() {
+                if adapter_streaming_count == 0 {
+                    continue;
+                }
                 if game_state.board_id() != last_board_id {
                     last_board_id = game_state.board_id();
                     game_state.snapshot_board_into(&mut snap);
@@ -236,6 +242,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
         enabled: adapter.is_some(),
         client_count: 0,
         controller_id: None,
+        streaming_count: 0,
     };
     let obs_interval_ms: u32 = std::env::var("TETRIS_AI_OBS_HZ")
         .ok()
@@ -265,6 +272,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 adapter_view.enabled = true;
                 adapter_view.client_count = st.client_count;
                 adapter_view.controller_id = st.controller_id;
+                adapter_view.streaming_count = st.streaming_count;
             }
         }
 
@@ -489,6 +497,9 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 let last_event = pending_last_event.take();
 
                 if let Some(ad) = adapter.as_ref() {
+                    if adapter_view.streaming_count == 0 {
+                        continue;
+                    }
                     if game_state.board_id() != last_board_id {
                         last_board_id = game_state.board_id();
                         game_state.snapshot_board_into(&mut snap);
