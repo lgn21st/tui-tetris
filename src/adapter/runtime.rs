@@ -2,8 +2,12 @@
 //!
 //! Bridges the sync game loop with the async TCP server.
 
+use std::net::SocketAddr;
+use std::time::Duration;
+
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 use arrayvec::ArrayVec;
 
@@ -76,6 +80,7 @@ pub struct Adapter {
     cmd_rx: mpsc::Receiver<InboundCommand>,
     out_tx: mpsc::UnboundedSender<OutboundMessage>,
     status_rx: mpsc::UnboundedReceiver<AdapterStatus>,
+    listen_addr: Option<SocketAddr>,
 }
 
 impl Adapter {
@@ -92,10 +97,18 @@ impl Adapter {
         let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(max_pending);
         let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
         let (status_tx, status_rx) = mpsc::unbounded_channel::<AdapterStatus>();
+        let (ready_tx, ready_rx) = oneshot::channel::<SocketAddr>();
 
         let rt = Runtime::new().expect("Failed to create tokio runtime");
         rt.spawn(async move {
-            let _ = run_server(config, cmd_tx, out_rx, None, Some(status_tx)).await;
+            let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), Some(status_tx)).await;
+        });
+
+        let listen_addr = rt.block_on(async move {
+            tokio::time::timeout(Duration::from_millis(200), ready_rx)
+                .await
+                .ok()
+                .and_then(|r| r.ok())
         });
 
         Some(Self {
@@ -103,6 +116,7 @@ impl Adapter {
             cmd_rx,
             out_tx,
             status_rx,
+            listen_addr,
         })
     }
 
@@ -112,6 +126,10 @@ impl Adapter {
 
     pub fn try_recv_status(&mut self) -> Option<AdapterStatus> {
         self.status_rx.try_recv().ok()
+    }
+
+    pub fn listen_addr(&self) -> Option<SocketAddr> {
+        self.listen_addr
     }
 
     pub fn send(&self, msg: OutboundMessage) {

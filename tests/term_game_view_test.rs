@@ -1,5 +1,5 @@
 use tui_tetris::core::GameState;
-use tui_tetris::term::{AnchorY, GameView, Viewport};
+use tui_tetris::term::{AdapterStatusView, AnchorY, GameView, Viewport};
 use tui_tetris::types::PieceKind;
 
 #[test]
@@ -88,4 +88,67 @@ fn term_view_can_anchor_board_to_top() {
     let fb = view.render(&snap, vp);
 
     assert_eq!(fb.get(0, 0).unwrap().ch, '┌');
+}
+
+#[test]
+fn term_view_renders_adapter_pid_and_ip_when_enabled() {
+    let mut gs = GameState::new(1);
+    gs.start();
+    let snap = gs.snapshot();
+    let view = GameView::default();
+
+    let adapter = AdapterStatusView {
+        enabled: true,
+        client_count: 2,
+        controller_id: Some(1),
+        streaming_count: 1,
+        pid: 4242,
+        listen_addr: Some("127.0.0.1:7777".parse().unwrap()),
+    };
+
+    let fb = view.render_with_adapter(&snap, Some(&adapter), Viewport::new(60, 22));
+
+    let mut all = String::new();
+    for y in 0..fb.height() {
+        for x in 0..fb.width() {
+            all.push(fb.get(x, y).unwrap().ch);
+        }
+        all.push('\n');
+    }
+
+    assert!(all.contains("PID"));
+    assert!(all.contains("4242"));
+    assert!(all.contains("TCP"));
+    assert!(all.contains("127.0.0.1"));
+}
+
+#[test]
+fn term_view_renders_adapter_port_when_space_allows() {
+    let mut gs = GameState::new(1);
+    gs.start();
+    let snap = gs.snapshot();
+    let view = GameView::default();
+
+    let adapter = AdapterStatusView {
+        enabled: true,
+        client_count: 2,
+        controller_id: Some(1),
+        streaming_count: 1,
+        pid: 4242,
+        listen_addr: Some("127.0.0.1:7777".parse().unwrap()),
+    };
+
+    let fb = view.render_with_adapter(&snap, Some(&adapter), Viewport::new(80, 22));
+
+    let mut all = String::new();
+    for y in 0..fb.height() {
+        for x in 0..fb.width() {
+            all.push(fb.get(x, y).unwrap().ch);
+        }
+        all.push('\n');
+    }
+
+    assert!(all.contains("TCP"));
+    assert!(all.contains("127.0.0.1"));
+    assert!(all.contains("7777"));
 }

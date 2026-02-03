@@ -254,11 +254,29 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     game_state.snapshot_board_into(&mut snap);
 
     let mut adapter = Adapter::start_from_env();
+    let listen_addr = adapter
+        .as_ref()
+        .and_then(|a| a.listen_addr())
+        .or_else(|| {
+            // Fallback to configured env, mirroring adapter defaults.
+            let host_s = std::env::var("TETRIS_AI_HOST").ok().unwrap_or_else(|| "127.0.0.1".to_string());
+            let port = std::env::var("TETRIS_AI_PORT")
+                .ok()
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(7777);
+            host_s
+                .trim()
+                .parse::<std::net::IpAddr>()
+                .ok()
+                .map(|ip| std::net::SocketAddr::new(ip, port))
+        });
     let mut adapter_view = AdapterStatusView {
         enabled: adapter.is_some(),
         client_count: 0,
         controller_id: None,
         streaming_count: 0,
+        pid: std::process::id(),
+        listen_addr,
     };
     let obs_interval_ms: u32 = std::env::var("TETRIS_AI_OBS_HZ")
         .ok()
