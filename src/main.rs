@@ -4,6 +4,7 @@
 //! It uses crossterm for input and a custom framebuffer-based renderer
 //! (no ratatui widgets/layout).
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::thread;
 
@@ -96,9 +97,9 @@ fn run_headless() -> Result<()> {
                             &snap,
                             pending_last_event.take(),
                         );
-                        ad.send(OutboundMessage::ToClientObservation {
+                        ad.send(OutboundMessage::ToClientObservationArc {
                             client_id: cmd.client_id,
-                            obs,
+                            obs: Arc::new(obs),
                         });
                         continue;
                     }
@@ -241,7 +242,7 @@ fn run_headless() -> Result<()> {
                 }
                 game_state.snapshot_meta_into(&mut snap);
                 let obs = tui_tetris::adapter::server::build_observation(obs_seq, &snap, last_event);
-                ad.send(OutboundMessage::BroadcastObservation { obs });
+                ad.send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) });
             }
         }
     }
@@ -389,9 +390,9 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                                 &snap,
                                 pending_last_event.take(),
                             );
-                            ad.send(OutboundMessage::ToClientObservation {
+                            ad.send(OutboundMessage::ToClientObservationArc {
                                 client_id: cmd.client_id,
-                                obs,
+                                obs: Arc::new(obs),
                             });
                             continue;
                         }
@@ -554,7 +555,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                     game_state.snapshot_meta_into(&mut snap);
                     let obs =
                         tui_tetris::adapter::server::build_observation(obs_seq, &snap, last_event);
-                    ad.send(OutboundMessage::BroadcastObservation { obs });
+                    ad.send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) });
                 }
             }
         }

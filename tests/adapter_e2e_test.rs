@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -211,6 +212,86 @@ async fn adapter_hello_command_ack_and_observation() {
     let obs_v: serde_json::Value = serde_json::from_str(&obs_line).unwrap();
     assert_eq!(obs_v["type"], "observation");
     assert_eq!(obs_v["seq"], 10);
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn adapter_broadcast_observation_arc_fanout() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .expect("server did not signal ready")
+        .expect("ready channel dropped");
+
+    async fn connect_and_handshake(
+        addr: std::net::SocketAddr,
+        name: &str,
+    ) -> (tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>, tokio::net::tcp::OwnedWriteHalf) {
+        let stream = TcpStream::connect(addr).await.expect("connect failed");
+        let (read_half, mut write_half) = stream.into_split();
+        let mut lines = BufReader::new(read_half).lines();
+
+        let hello = create_hello(1, name, "2.0.0");
+        let hello_line = serde_json::to_string(&hello).unwrap();
+        write_half.write_all(hello_line.as_bytes()).await.unwrap();
+        write_half.write_all(b"\n").await.unwrap();
+        write_half.flush().await.unwrap();
+
+        // welcome
+        let welcome_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("expected welcome line");
+        let welcome_v: serde_json::Value = serde_json::from_str(&welcome_line).unwrap();
+        assert_eq!(welcome_v["type"], "welcome");
+
+        (lines, write_half)
+    }
+
+    let (mut lines_a, _write_a) = connect_and_handshake(addr, "fanout-a").await;
+    let (mut lines_b, _write_b) = connect_and_handshake(addr, "fanout-b").await;
+
+    let mut gs = GameState::new(1);
+    gs.start();
+    let snap = gs.snapshot();
+    let obs = build_observation(123, &snap, None);
+
+    out_tx
+        .send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) })
+        .unwrap();
+
+    let line_a = tokio::time::timeout(Duration::from_secs(2), lines_a.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("expected broadcast observation for a");
+    let v_a: serde_json::Value = serde_json::from_str(&line_a).unwrap();
+    assert_eq!(v_a["type"], "observation");
+
+    let line_b = tokio::time::timeout(Duration::from_secs(2), lines_b.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("expected broadcast observation for b");
+    let v_b: serde_json::Value = serde_json::from_str(&line_b).unwrap();
+    assert_eq!(v_b["type"], "observation");
 
     server_handle.abort();
 }

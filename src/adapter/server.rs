@@ -243,6 +243,7 @@ pub enum ClientOutbound {
     Error(ErrorMessage),
     Welcome(WelcomeMessage),
     Observation(ObservationMessage),
+    ObservationArc(Arc<ObservationMessage>),
 }
 
 #[derive(Debug, Clone)]
@@ -252,6 +253,7 @@ enum WireRecord {
     Ack(AckMessage),
     Error(ErrorMessage),
     Observation(ObservationMessage),
+    ObservationArc(Arc<ObservationMessage>),
 }
 
 /// Start the TCP server
@@ -338,6 +340,15 @@ pub async fn run_server(
                             break;
                         }
                     }
+                    WireRecord::ObservationArc(v) => {
+                        buf.clear();
+                        if serde_json::to_writer(&mut buf, v.as_ref()).is_err() {
+                            continue;
+                        }
+                        if file.write_all(&buf).await.is_err() {
+                            break;
+                        }
+                    }
                 }
                 if file.write_all(b"\n").await.is_err() {
                     break;
@@ -400,6 +411,20 @@ pub async fn run_server(
                         for c in clients.iter() {
                             if c.stream_observations {
                                 let _ = c.tx.send(ClientOutbound::Observation(obs.clone()));
+                            }
+                        }
+                    }
+                    OutboundMessage::ToClientObservationArc { client_id, obs } => {
+                        let clients = state.clients.read().await;
+                        if let Some(c) = clients.iter().find(|c| c.id == client_id) {
+                            let _ = c.tx.send(ClientOutbound::ObservationArc(obs));
+                        }
+                    }
+                    OutboundMessage::BroadcastObservationArc { obs } => {
+                        let clients = state.clients.read().await;
+                        for c in clients.iter() {
+                            if c.stream_observations {
+                                let _ = c.tx.send(ClientOutbound::ObservationArc(Arc::clone(&obs)));
                             }
                         }
                     }
@@ -539,6 +564,18 @@ async fn handle_client(
                     }
                     if let Some(tx) = wire_log_tx_out.as_ref() {
                         let _ = tx.send(WireRecord::Observation(obs));
+                    }
+                }
+                ClientOutbound::ObservationArc(obs) => {
+                    buf.clear();
+                    if serde_json::to_writer(&mut buf, obs.as_ref()).is_err() {
+                        continue;
+                    }
+                    if writer.write_all(&buf).await.is_err() {
+                        break;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(WireRecord::ObservationArc(obs));
                     }
                 }
             }

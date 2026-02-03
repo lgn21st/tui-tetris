@@ -7,6 +7,8 @@ use tokio::sync::mpsc;
 
 use arrayvec::ArrayVec;
 
+use std::sync::Arc;
+
 use crate::adapter::server::{run_server, ServerConfig, ServerState};
 use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage};
 use crate::types::{GameAction, Rotation};
@@ -52,6 +54,13 @@ pub enum OutboundMessage {
     Broadcast { line: String },
     ToClientObservation { client_id: usize, obs: ObservationMessage },
     BroadcastObservation { obs: ObservationMessage },
+    /// Same as `ToClientObservation` but avoids cloning large observations for fan-out paths.
+    ToClientObservationArc {
+        client_id: usize,
+        obs: Arc<ObservationMessage>,
+    },
+    /// Same as `BroadcastObservation` but avoids cloning large observations for each client.
+    BroadcastObservationArc { obs: Arc<ObservationMessage> },
     ToClientAck { client_id: usize, ack: AckMessage },
     ToClientError { client_id: usize, err: ErrorMessage },
 }
