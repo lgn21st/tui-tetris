@@ -1761,4 +1761,95 @@ mod tests {
         // The first piece should be different or the queue shifted
         assert_eq!(state.next_queue.len(), 5);
     }
+
+    #[test]
+    fn test_last_event_line_clear_score_excludes_combo_bonus() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        // Make a deterministic "Tetris" clear: 4 full rows with a 1-cell hole in the same column.
+        // Then place a vertical I piece to fill the holes.
+        let hole_x = 2;
+        for y in 16..=19 {
+            for x in 0..10 {
+                if x != hole_x {
+                    state.board.set(x, y, Some(PieceKind::I));
+                }
+            }
+        }
+
+        // Align internal level/lines so pre-clear level matches expectations.
+        state.level = 2;
+        state.lines = 20;
+
+        // Simulate consecutive clear chain (combo already started) and B2B already active.
+        state.combo = 0;
+        state.back_to_back = true;
+
+        // Vertical I (rotation East) occupies (x+2, y+0..3).
+        state.active = Some(Tetromino {
+            kind: PieceKind::I,
+            rotation: Rotation::East,
+            x: 0,
+            y: 16,
+        });
+
+        let score_before = state.score;
+        state.lock_piece();
+        let ev = state.take_last_event().expect("expected last_event");
+
+        let expected_base = 1200 * (state.level + 1); // pre-clear level = 2 => *3
+        let expected_line_clear_score = expected_base * 3 / 2; // B2B multiplier
+        let expected_combo_after = 1; // combo was 0, +1 on clear
+        let expected_combo_bonus = crate::types::COMBO_BASE * (expected_combo_after as u32);
+        let expected_delta = expected_line_clear_score + expected_combo_bonus;
+
+        assert!(ev.locked);
+        assert_eq!(ev.lines_cleared, 4);
+        assert_eq!(ev.tspin, None);
+        assert_eq!(ev.back_to_back, true);
+        assert_eq!(ev.combo, expected_combo_after);
+        assert_eq!(ev.line_clear_score, expected_line_clear_score);
+        assert_eq!(state.score - score_before, expected_delta);
+    }
+
+    #[test]
+    fn test_last_event_combo_starts_at_zero_and_b2b_applies_on_next_clear() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        let hole_x = 2;
+        for y in 16..=19 {
+            for x in 0..10 {
+                if x != hole_x {
+                    state.board.set(x, y, Some(PieceKind::I));
+                }
+            }
+        }
+
+        state.level = 0;
+        state.lines = 0;
+        state.combo = -1;
+        state.back_to_back = false;
+
+        state.active = Some(Tetromino {
+            kind: PieceKind::I,
+            rotation: Rotation::East,
+            x: 0,
+            y: 16,
+        });
+
+        let score_before = state.score;
+        state.lock_piece();
+        let ev = state.take_last_event().expect("expected last_event");
+
+        let expected_line_clear_score = 1200 * (0 + 1);
+        let expected_delta = expected_line_clear_score; // first clear in chain => combo=0, no combo bonus
+
+        assert_eq!(ev.lines_cleared, 4);
+        assert_eq!(ev.combo, 0);
+        assert_eq!(ev.back_to_back, true);
+        assert_eq!(ev.line_clear_score, expected_line_clear_score);
+        assert_eq!(state.score - score_before, expected_delta);
+    }
 }

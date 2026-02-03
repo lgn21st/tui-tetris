@@ -129,6 +129,7 @@ Where:
 - `combo_index` starts at `0` on the first clear in a chain (no bonus), then `1, 2, 3, ...` for consecutive clears.
 - When a piece locks with `lines_cleared = 0`, the combo chain resets (`combo_index = -1` for diagnostics/adapter event reporting).
 - Combo bonus is added **after** the base clear score (and after any B2B multiplier). It does not have a level multiplier.
+  - In adapter observations, `last_event.line_clear_score` refers to the base clear score (including any B2B multiplier) and explicitly excludes combo and drop points.
 
 ### Back-to-Back
 
