@@ -144,7 +144,7 @@ pub fn apply_place(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::PieceKind;
+    use crate::types::{PieceKind, BOARD_HEIGHT};
 
     #[test]
     fn place_rejected_when_paused() {
@@ -200,5 +200,86 @@ mod tests {
 
         let err = apply_place(&mut gs, target_x, a.rotation, false).unwrap_err();
         assert!(matches!(err, PlaceError::XBlocked));
+    }
+
+    #[test]
+    fn place_rejected_when_game_over() {
+        let mut gs = GameState::new(1);
+        gs.start();
+
+        // Force a game-over by blocking the spawn area for the next piece.
+        // Move the active piece down first so we don't overlap its current cells.
+        for _ in 0..5 {
+            if !gs.try_move(0, 1) {
+                break;
+            }
+        }
+
+        // Fill most of the top rows (but not all 10 cells) so no line clears occur.
+        // This reliably blocks the next spawn and triggers game over.
+        for y in 0..4i8 {
+            for x in 0..BOARD_WIDTH as i8 {
+                if x == 0 {
+                    continue; // keep the row not-full to avoid line clears
+                }
+                let _ = gs.board_mut().set(x, y, Some(PieceKind::I));
+            }
+        }
+
+        // Lock current piece to trigger spawn -> blocked -> game_over.
+        let _ = gs.apply_action(GameAction::HardDrop);
+        assert!(gs.game_over());
+
+        assert!(gs.active().is_none(), "expected no active piece after game over");
+
+        // Once game_over, place should be rejected as not playable.
+        let err = apply_place(&mut gs, 3, Rotation::North, false).unwrap_err();
+        assert!(matches!(err, PlaceError::NotPlayable));
+    }
+
+    #[test]
+    fn place_rejected_when_rotation_blocked() {
+        let mut gs = GameState::new(1);
+        gs.start();
+
+        // Move the piece down away from top-of-board edge cases.
+        for _ in 0..5 {
+            if !gs.try_move(0, 1) {
+                break;
+            }
+        }
+
+        let a = gs.active().expect("expected active piece");
+        let cur_rot = a.rotation;
+        let target_rot = if cur_rot == Rotation::North {
+            Rotation::East
+        } else {
+            Rotation::North
+        };
+
+        // Fill a dense region around the active piece to prevent any rotation+kicks.
+        // Keep the active minos empty so the current state remains valid.
+        let mut occupied = std::collections::BTreeSet::<(i8, i8)>::new();
+        for (dx, dy) in a.shape() {
+            occupied.insert((a.x + dx, a.y + dy));
+        }
+
+        for y in (a.y - 4)..=(a.y + 4) {
+            for x in (a.x - 4)..=(a.x + 4) {
+                if x < 0 || x >= BOARD_WIDTH as i8 {
+                    continue;
+                }
+                if y < 0 || y >= BOARD_HEIGHT as i8 {
+                    continue;
+                }
+                if occupied.contains(&(x, y)) {
+                    continue;
+                }
+                let _ = gs.board_mut().set(x, y, Some(PieceKind::I));
+            }
+        }
+
+        let err = apply_place(&mut gs, a.x, target_rot, false).unwrap_err();
+        assert!(matches!(err, PlaceError::RotationBlocked));
     }
 }
