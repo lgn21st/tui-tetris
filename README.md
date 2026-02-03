@@ -153,6 +153,7 @@ Environment variables:
 - `TETRIS_AI_PORT` (default: `7777`)
 - `TETRIS_AI_DISABLED` (set to `1`/`true` to disable)
 - `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (input auto-release timeout for terminals without key release events; default: `150`)
+  - Set `<167` for “tap moves once”; set `>167` to allow “hold repeats” on terminals without key-repeat events.
 
 ## Contributing
 

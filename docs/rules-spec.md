@@ -100,6 +100,9 @@ Matches swiftui-tetris for AI compatibility.
 - **ARR (Auto Repeat Rate)**: 33ms
 - Note: terminals without key-release events use a timeout-based auto-release in the input handler.
   - Config: `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (default: 150ms)
+  - Tuning:
+    - For “tap should move once” on terminals without key-release events, keep this below `DAS`.
+    - For “hold should repeat” without terminal key-repeat events, set this above `DAS` (or use a terminal that emits key-repeat events).
 
 ## Scoring
 
