@@ -7,12 +7,14 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
 use tui_tetris::adapter::protocol::{create_ack, create_hello};
+use tui_tetris::adapter::protocol::LastEvent;
 use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::runtime::AdapterStatus;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
+use tui_tetris::core::GameSnapshot;
 use tui_tetris::core::GameState;
-use tui_tetris::types::GameAction;
+use tui_tetris::types::{CoreLastEvent, GameAction, TSpinKind};
 
 async fn recv_next_command(rx: &mut mpsc::Receiver<InboundCommand>) -> InboundCommand {
     loop {
@@ -21,6 +23,52 @@ async fn recv_next_command(rx: &mut mpsc::Receiver<InboundCommand>) -> InboundCo
             return inbound;
         }
     }
+}
+
+#[test]
+fn adapter_observation_last_event_scoring_fields_match_core_semantics() {
+    // Case 1: combo=-1 must roundtrip (swiftui-tetris uses -1 as "no active combo chain").
+    let mut snap = GameSnapshot::default();
+    snap.score = 0;
+    let last_event = CoreLastEvent {
+        locked: true,
+        lines_cleared: 0,
+        line_clear_score: 0,
+        tspin: None,
+        combo: -1,
+        back_to_back: false,
+    };
+    let obs = build_observation(1, &snap, Some(LastEvent::from(last_event)));
+    let v: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
+    assert_eq!(v["type"], "observation");
+    assert_eq!(v["last_event"]["combo"], -1);
+    assert_eq!(v["last_event"]["line_clear_score"], 0);
+    assert_eq!(v["last_event"]["back_to_back"], false);
+
+    // Case 2: line_clear_score is base-only (includes B2B; excludes combo + drop points).
+    let mut snap = GameSnapshot::default();
+    snap.score = 5450; // base (5400) + combo bonus (50)
+    let last_event = CoreLastEvent {
+        locked: true,
+        lines_cleared: 4,
+        line_clear_score: 5400,
+        tspin: Some(TSpinKind::Full),
+        combo: 1,
+        back_to_back: true,
+    };
+    let obs = build_observation(2, &snap, Some(LastEvent::from(last_event)));
+    let v: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
+    assert_eq!(v["type"], "observation");
+    assert_eq!(v["seq"], 2);
+    assert_eq!(v["score"], 5450);
+    assert_eq!(v["last_event"]["locked"], true);
+    assert_eq!(v["last_event"]["lines_cleared"], 4);
+    assert_eq!(v["last_event"]["line_clear_score"], 5400);
+    assert_eq!(v["last_event"]["tspin"], "full");
+    assert_eq!(v["last_event"]["combo"], 1);
+    assert_eq!(v["last_event"]["back_to_back"], true);
 }
 
 #[tokio::test]

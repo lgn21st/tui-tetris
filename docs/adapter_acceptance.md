@@ -96,7 +96,7 @@ First observation after `welcome` MUST be a full snapshot.
 - `width=10`, `height=20`
 - `cells`: 2D array `[height][width]` of ints using the protocol encoding:
   - `0` empty
-  - `1..7` map to `I,O,T,S,Z,J,L` (order is fixed)
+  - `1..7` map to `I,O,T,S,Z,J,L` (order is fixed and must match `docs/adapter-protocol.md`)
 
 ### 4.3 active
 When `playable=true`, `active` MUST be present and include:
