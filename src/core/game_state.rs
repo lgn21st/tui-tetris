@@ -246,14 +246,14 @@ impl GameState {
 
     /// Spawn a new piece from the queue
     fn spawn_piece(&mut self) -> bool {
-        // Check if spawn position is blocked
-        if self.board.is_spawn_blocked() {
+        // Peek the next piece and validate spawn before consuming it from the queue.
+        //
+        // This matters for determinism/restart semantics: if spawn fails and we set game_over,
+        // we should not advance the RNG/queue state.
+        let Some(kind) = self.piece_queue.peek() else {
             self.game_over = true;
             return false;
-        }
-
-        // Draw next piece from queue
-        let kind = self.piece_queue.draw();
+        };
         let piece = Tetromino::new(kind);
 
         // Verify spawn position is valid
@@ -261,6 +261,10 @@ impl GameState {
             self.game_over = true;
             return false;
         }
+
+        // Consume the validated piece.
+        let drawn = self.piece_queue.draw();
+        debug_assert_eq!(drawn, kind);
 
         self.active = Some(piece);
 
@@ -820,6 +824,19 @@ impl Default for GameState {
 mod tests {
     use super::*;
     use crate::core::scoring::qualifies_for_b2b;
+    use crate::core::PieceQueue;
+
+    fn find_seed_with_first_piece(kind: PieceKind) -> u32 {
+        // Brute force a small seed range to find a deterministic queue whose first draw is `kind`.
+        // This keeps tests stable without adding test-only hooks into the core RNG.
+        for seed in 1u32..50_000 {
+            let q = PieceQueue::new(seed);
+            if q.peek() == Some(kind) {
+                return seed;
+            }
+        }
+        panic!("failed to find seed whose first piece is {kind:?}");
+    }
 
     #[test]
     fn test_new_game_state() {
@@ -888,6 +905,61 @@ mod tests {
         assert_eq!(state.active.unwrap().kind, next_kind);
         // And it should be different from the first piece (7-bag has no repeats)
         assert_ne!(state.active.unwrap().kind, first_kind);
+    }
+
+    #[test]
+    fn test_spawn_piece_does_not_preemptively_game_over_on_top_row_blocks_for_i_piece() {
+        // The I piece spawns entirely on y=1 in North orientation, so occupied cells in y=0
+        // should not necessarily trigger game over.
+        let seed = find_seed_with_first_piece(PieceKind::I);
+        let mut state = GameState::new(seed);
+
+        // Force `Board::is_spawn_blocked()` to be true (these are y=0 cells), but keep the I
+        // spawn cells at y=1 clear.
+        assert!(state.board.set(3, 0, Some(PieceKind::T)));
+        assert!(state.board.set(4, 0, Some(PieceKind::T)));
+        assert!(state.board.set(5, 0, Some(PieceKind::T)));
+
+        state.start();
+
+        assert!(!state.game_over);
+        assert!(state.active.is_some());
+        assert_eq!(state.active.unwrap().kind, PieceKind::I);
+        assert!(state.active.unwrap().is_valid(&state.board));
+    }
+
+    #[test]
+    fn test_failed_spawn_does_not_advance_queue() {
+        // If spawning fails, the RNG/queue must not advance. Otherwise deterministic retries
+        // (and restart semantics based on queue seed/state) become unstable.
+        let seed = find_seed_with_first_piece(PieceKind::I);
+        let mut state = GameState::new(seed);
+
+        // Block a cell that the I piece would occupy at spawn (x=3..6, y=1).
+        assert!(state.board.set(3, 1, Some(PieceKind::T)));
+
+        let next_before = *state.next_queue();
+        state.start();
+
+        assert!(state.game_over);
+        assert!(state.active.is_none());
+        assert_eq!(state.piece_id, 0);
+        assert_eq!(*state.next_queue(), next_before);
+        assert_eq!(state.next_queue()[0], PieceKind::I);
+    }
+
+    #[test]
+    fn repro_user_hard_drop_7_times_should_not_game_over() {
+        let mut state = GameState::new(1);
+        state.start();
+
+        for i in 0..7 {
+            assert!(state.apply_action(GameAction::HardDrop));
+            assert!(
+                !state.game_over(),
+                "unexpected game over after hard drop #{i}"
+            );
+        }
     }
 
     #[test]

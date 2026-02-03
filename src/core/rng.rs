@@ -93,7 +93,28 @@ impl PieceQueue {
 
     /// Peek at the next piece without removing it
     pub fn peek(&self) -> Option<PieceKind> {
-        self.bag.get(self.bag_index).copied()
+        if self.bag_index < 7 {
+            return self.bag.get(self.bag_index).copied();
+        }
+
+        // Preview the next bag without touching the main RNG (and without mutating the queue).
+        //
+        // This matters for callers that need to validate spawn state before consuming the next
+        // piece. `draw()` will refill the bag using the main RNG, and because the preview RNG
+        // is seeded from the same RNG state, this preview is deterministic and consistent with
+        // the next `draw()`.
+        let mut preview_rng = SimpleRng::new(self.rng.state);
+        let mut next_bag = [
+            PieceKind::I,
+            PieceKind::O,
+            PieceKind::T,
+            PieceKind::S,
+            PieceKind::Z,
+            PieceKind::J,
+            PieceKind::L,
+        ];
+        preview_rng.shuffle(&mut next_bag);
+        Some(next_bag[0])
     }
 
     /// Peek at the next 5 pieces (for next queue).
@@ -257,6 +278,24 @@ mod tests {
 
         // Peek should match first draw
         assert_eq!(peeked, drawn);
+    }
+
+    #[test]
+    fn test_piece_queue_peek_after_seven_draws_previews_next_bag() {
+        let mut queue = PieceQueue::new(1);
+
+        // Consume the current bag.
+        for _ in 0..7 {
+            let _ = queue.draw();
+        }
+
+        // peek() should still produce a next piece (previewing the next bag) rather than None.
+        let peeked = queue.peek();
+        assert!(peeked.is_some());
+
+        // draw() should return the same piece as the peek preview.
+        let drawn = queue.draw();
+        assert_eq!(peeked, Some(drawn));
     }
 
     #[test]
