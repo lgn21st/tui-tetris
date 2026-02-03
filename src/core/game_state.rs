@@ -1276,6 +1276,25 @@ mod tests {
     }
 
     #[test]
+    fn test_tick_gravity_accumulates_multiple_intervals_in_one_call() {
+        let mut state = GameState::new(12345);
+        state.started = true;
+        state.active = Some(Tetromino {
+            kind: PieceKind::O,
+            rotation: Rotation::North,
+            x: 3,
+            y: 0,
+        });
+
+        let interval = state.drop_interval_ms();
+        let y_before = state.active.unwrap().y;
+        assert!(state.tick(interval * 3, false));
+        assert_eq!(state.active.unwrap().y, y_before + 3);
+        assert_eq!(state.drop_timer_ms, 0);
+        assert_eq!(state.lock_timer_ms, 0);
+    }
+
+    #[test]
     fn test_lock_reset_count_resets_while_falling() {
         let mut state = GameState::new(12345);
         state.start();

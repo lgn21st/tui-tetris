@@ -1184,6 +1184,19 @@ mod tests {
     }
 
     #[test]
+    fn test_build_observation_copies_timers_fields() {
+        let mut snap = crate::core::snapshot::GameSnapshot::default();
+        snap.timers.drop_ms = 12;
+        snap.timers.lock_ms = 34;
+        snap.timers.line_clear_ms = 56;
+
+        let obs = build_observation(1, &snap, None);
+        assert_eq!(obs.timers.drop_ms, 12);
+        assert_eq!(obs.timers.lock_ms, 34);
+        assert_eq!(obs.timers.line_clear_ms, 56);
+    }
+
+    #[test]
     fn test_server_config_from_env() {
         // This test just ensures it doesn't panic
         let _config = ServerConfig::from_env();
