@@ -146,6 +146,9 @@ When `game_over=true`:
 - Non-lifecycle actions (move/rotate/drop/hold/pause) SHOULD be ignored.
 - `restart` MUST transition back to a playable state (`game_over=false`, `paused=false`, `playable=true`) within a short time window.
 
+### 5.5 Controller promotion on disconnect (RECOMMENDED)
+If the current controller disconnects, the server SHOULD automatically promote the next available client to controller (typically the lowest connected `client_id`) so runs can continue without restarting the process.
+
 ---
 
 ## 6) Closed-loop Stability (MUST)

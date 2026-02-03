@@ -1029,3 +1029,87 @@ async fn acceptance_control_claim_release_and_controller_enforcement() {
     server_handle.abort();
     engine_handle.abort();
 }
+
+#[tokio::test]
+async fn acceptance_controller_disconnect_promotes_next_client() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Client A (controller by default).
+    let stream_a = TcpStream::connect(addr).await.unwrap();
+    let (read_a, mut write_a) = stream_a.into_split();
+    let mut lines_a = BufReader::new(read_a).lines();
+
+    let hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    write_a
+        .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+
+    let welcome_a = read_json_line(&mut lines_a).await;
+    assert_eq!(welcome_a["type"], "welcome");
+    let _obs_a0 = read_json_line(&mut lines_a).await;
+
+    // Client B (observer initially).
+    let stream_b = TcpStream::connect(addr).await.unwrap();
+    let (read_b, mut write_b) = stream_b.into_split();
+    let mut lines_b = BufReader::new(read_b).lines();
+
+    let hello_b = create_hello(1, "acceptance-b", "2.0.0");
+    write_b
+        .write_all(serde_json::to_string(&hello_b).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    let welcome_b = read_json_line(&mut lines_b).await;
+    assert_eq!(welcome_b["type"], "welcome");
+    let _obs_b0 = read_json_line(&mut lines_b).await;
+
+    // Disconnect controller A.
+    drop(write_a);
+    drop(lines_a);
+
+    // B should be promoted to controller and commands should succeed.
+    let cmd_b = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_b.write_all(cmd_b.as_bytes()).await.unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    // We may see an observation before the ack depending on scheduling; scan a few frames.
+    let mut saw_ack = false;
+    for _ in 0..10 {
+        let v = read_json_line(&mut lines_b).await;
+        if v["type"] == "ack" && v["seq"] == 2 {
+            saw_ack = true;
+            break;
+        }
+    }
+    assert!(saw_ack, "expected ack after controller disconnect promotion");
+
+    server_handle.abort();
+    engine_handle.abort();
+}
