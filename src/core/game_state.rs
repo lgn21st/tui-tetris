@@ -5,7 +5,7 @@
 
 use crate::core::{
     calculate_drop_score, calculate_score, get_shape,
-    scoring::{get_drop_interval_ms, qualifies_for_b2b},
+    scoring::get_drop_interval_ms,
     try_rotate, Board, PieceQueue,
 };
 use crate::types::*;
@@ -75,7 +75,7 @@ pub struct GameState {
     score: u32,
     level: u32,
     lines: u32,
-    combo: u32,
+    combo: i32,
     back_to_back: bool,
     drop_timer_ms: u32,
     lock_timer_ms: u32,
@@ -113,7 +113,7 @@ impl GameState {
             score: 0,
             level: 0,
             lines: 0,
-            combo: 0,
+            combo: -1,
             back_to_back: false,
             drop_timer_ms: 0,
             lock_timer_ms: 0,
@@ -491,37 +491,7 @@ impl GameState {
         };
 
         // Update game state
-        let mut line_clear_score: u32 = 0;
-        if lines_cleared > 0 {
-            // Update combo
-            self.combo += 1;
-
-            // Update lines and level
-            self.lines += lines_cleared as u32;
-            self.level = self.lines / 10;
-
-            // Calculate score
-            let score_result = calculate_score(
-                lines_cleared,
-                self.level,
-                tspin,
-                self.combo,
-                self.back_to_back,
-            );
-
-            self.score += score_result.total;
-            line_clear_score = score_result.total;
-            self.back_to_back =
-                score_result.is_back_to_back || qualifies_for_b2b(tspin, lines_cleared);
-
-            // Start line clear timer
-            self.line_clear_timer_ms = LINE_CLEAR_PAUSE_MS;
-            self.landing_flash_ms = LANDING_FLASH_MS;
-        } else {
-            // No lines cleared - reset combo
-            self.combo = 0;
-            self.back_to_back = false;
-        }
+        let line_clear_score = self.apply_line_clear(lines_cleared, tspin);
 
         // Emit last event (for adapter observation immediate flush).
         let tspin_opt = match tspin {
@@ -546,6 +516,39 @@ impl GameState {
     /// Take and clear the last lock/line-clear event.
     pub fn take_last_event(&mut self) -> Option<CoreLastEvent> {
         self.last_event.take()
+    }
+
+    /// Apply line-clear scoring and update combo/B2B/lines/level.
+    ///
+    /// Returns the base clear points for the event (includes B2B multiplier, excludes combo bonus).
+    fn apply_line_clear(&mut self, lines_cleared: usize, tspin: TSpinKind) -> u32 {
+        if lines_cleared == 0 {
+            self.combo = -1;
+            self.back_to_back = false;
+            return 0;
+        }
+
+        // Scoring uses the pre-clear level.
+        let combo_after_clear = self.combo.saturating_add(1);
+        let score_result = calculate_score(
+            lines_cleared,
+            self.level,
+            tspin,
+            combo_after_clear,
+            self.back_to_back,
+        );
+
+        self.combo = combo_after_clear;
+        self.lines = self.lines.saturating_add(lines_cleared as u32);
+        self.level = self.lines / 10;
+        self.back_to_back = score_result.qualifies_for_b2b;
+        self.score = self.score.saturating_add(score_result.total);
+
+        // Start line clear timer.
+        self.line_clear_timer_ms = LINE_CLEAR_PAUSE_MS;
+        self.landing_flash_ms = LANDING_FLASH_MS;
+
+        score_result.line_clear_score
     }
 
     /// Detect T-spin type based on corner occupancy
@@ -778,6 +781,7 @@ impl Default for GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::scoring::qualifies_for_b2b;
 
     #[test]
     fn test_new_game_state() {
@@ -789,7 +793,7 @@ mod tests {
         assert_eq!(state.score, 0);
         assert_eq!(state.level, 0);
         assert_eq!(state.lines, 0);
-        assert_eq!(state.combo, 0);
+        assert_eq!(state.combo, -1);
         assert!(!state.back_to_back);
         assert_eq!(state.episode_id, 0);
         assert!(state.active.is_none());
@@ -1378,6 +1382,52 @@ mod tests {
 
         // Verify state
         assert_eq!(state.combo, 3);
+        assert!(state.back_to_back);
+    }
+
+    #[test]
+    fn test_tspin_full_single_uses_modern_table_only() {
+        let mut state = GameState::new(1);
+        state.apply_line_clear(1, TSpinKind::Full);
+
+        assert_eq!(state.score, 800);
+        assert_eq!(state.combo, 0);
+        assert!(state.back_to_back);
+    }
+
+    #[test]
+    fn test_combo_bonus_starts_after_second_clear() {
+        let mut state = GameState::new(1);
+        state.apply_line_clear(1, TSpinKind::None);
+        assert_eq!(state.score, 40);
+        assert_eq!(state.combo, 0);
+
+        state.apply_line_clear(1, TSpinKind::None);
+        assert_eq!(state.score, 40 + (40 + 50));
+        assert_eq!(state.combo, 1);
+    }
+
+    #[test]
+    fn test_level_multiplier_uses_pre_clear_level() {
+        let mut state = GameState::new(1);
+        state.lines = 9;
+        state.level = 0;
+        state.apply_line_clear(1, TSpinKind::None);
+        assert_eq!(state.score, 40);
+        assert_eq!(state.lines, 10);
+        assert_eq!(state.level, 1);
+    }
+
+    #[test]
+    fn test_b2b_multiplier_excludes_combo_bonus() {
+        let mut state = GameState::new(1);
+        state.back_to_back = true;
+        state.combo = 0; // already have one prior clear in the chain
+        state.apply_line_clear(4, TSpinKind::None);
+
+        // Base: 1200 * 3/2 = 1800, then combo bonus +50.
+        assert_eq!(state.score, 1850);
+        assert_eq!(state.combo, 1);
         assert!(state.back_to_back);
     }
 

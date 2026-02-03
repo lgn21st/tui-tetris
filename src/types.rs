@@ -373,7 +373,7 @@ pub struct CoreLastEvent {
     pub lines_cleared: u32,
     pub line_clear_score: u32,
     pub tspin: Option<TSpinKind>,
-    pub combo: u32,
+    pub combo: i32,
     pub back_to_back: bool,
 }
 
@@ -413,7 +413,7 @@ pub const LINE_SCORES: [u32; 5] = [0, 40, 100, 300, 1200];
 
 /// Combo scoring base value (50 points per combo step)
 ///
-/// Combo bonus is added to the line clear score.
+/// Combo bonus is added after the base line-clear score (and after any B2B multiplier).
 pub const COMBO_BASE: u32 = 50;
 
 /// Back-to-back bonus numerator (3/2 = 1.5x multiplier)

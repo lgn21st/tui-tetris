@@ -114,14 +114,23 @@ Formula: `base_score * (level + 1)`
 | Mini | 1 | 200 |
 | Mini | 2 | 400 |
 
+Notes:
+- When a T-Spin is detected (Full/Mini), the T-Spin table score is used for the clear (it does **not** add the classic line-clear score on top).
+- Scoring uses the **pre-clear** level (i.e., level before adding the newly-cleared lines).
+
 ### Combo Bonus
 
-`combo_score = 50 * combo_count * (level + 1)`
+`combo_bonus = 50 * combo_index`
+
+Where:
+- `combo_index` starts at `0` on the first clear in a chain (no bonus), then `1, 2, 3, ...` for consecutive clears.
+- When a piece locks with `lines_cleared = 0`, the combo chain resets (`combo_index = -1` for diagnostics/adapter event reporting).
+- Combo bonus is added **after** the base clear score (and after any B2B multiplier). It does not have a level multiplier.
 
 ### Back-to-Back
 
 - **Qualifies**: T-spin full with lines OR Tetris (4 lines)
-- **Bonus**: 1.5× total score (applies to next qualifying clear)
+- **Bonus**: 1.5× base clear score (applies only to consecutive qualifying clears; multiplier is applied before combo bonus)
 
 ### Drop Scoring
 

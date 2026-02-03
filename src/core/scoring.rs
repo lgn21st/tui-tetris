@@ -1,20 +1,25 @@
 //! Scoring module - Classic and Modern Tetris scoring rules
 //!
-//! Classic rules: 40/100/300/1200 * (level + 1) for 1/2/3/4 lines
-//! Modern rules: adds T-spins, B2B, and combo bonuses
+//! Compatibility note:
+//! This scoring behavior is intended to match `swiftui-tetris` (and its rules-spec).
+//! In particular:
+//! - T-Spin scoring uses the T-Spin tables (it does not add classic line-clear points).
+//! - B2B applies a 3/2 multiplier to the base clear points (before combo bonus).
+//! - Combo bonus is `combo_base * combo_index` with no level multiplier.
 
-use crate::types::{TSpinKind, COMBO_BASE, LINE_SCORES};
+use crate::types::{B2B_DENOMINATOR, B2B_NUMERATOR, TSpinKind, COMBO_BASE, LINE_SCORES};
 
 /// Score calculation result
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ScoreResult {
+    /// Base points for the clear (includes B2B multiplier, excludes combo bonus).
     pub line_clear_score: u32,
-    pub tspin_score: u32,
-    pub combo_score: u32,
-    pub back_to_back_bonus: u32,
+    /// Combo bonus added on top of `line_clear_score`.
+    pub combo_bonus: u32,
     pub total: u32,
-    pub is_back_to_back: bool,
-    pub combo_count: u32,
+    pub qualifies_for_b2b: bool,
+    /// Whether a B2B multiplier was applied to this clear.
+    pub b2b_applied: bool,
 }
 
 /// Calculate line clear score (Classic rules)
@@ -42,14 +47,17 @@ pub fn calculate_tspin_score(tspin: TSpinKind, lines: usize, level: u32) -> u32 
     }
 }
 
-/// Calculate combo score
-/// combo: consecutive line clears (starts at 0, first combo is 1)
-pub fn calculate_combo_score(combo: u32, level: u32) -> u32 {
-    if combo == 0 {
+/// Calculate combo bonus (modern rules).
+///
+/// `combo_index` matches swiftui-tetris semantics:
+/// - `-1`: no combo chain
+/// - `0`: first clear in chain (no bonus)
+/// - `1+`: bonus applies as `combo_base * combo_index`
+pub fn calculate_combo_bonus(combo_index: i32) -> u32 {
+    if combo_index <= 0 {
         return 0;
     }
-    // Combo adds 50 * combo_count * (level + 1)
-    COMBO_BASE * combo * (level + 1)
+    COMBO_BASE * (combo_index as u32)
 }
 
 /// Check if this clear qualifies for back-to-back
@@ -65,54 +73,49 @@ pub fn qualifies_for_b2b(tspin: TSpinKind, lines: usize) -> bool {
 // Re-export for use in game_state
 pub use self::qualifies_for_b2b as check_b2b_qualification;
 
-/// Calculate back-to-back bonus
-/// Returns bonus points (3/2 multiplier applied to total score)
-pub fn calculate_b2b_bonus(base_score: u32) -> u32 {
-    // B2B gives 3/2 = 1.5x bonus
-    // So bonus = base_score * 0.5 = base_score / 2
-    base_score / 2
+/// Apply the B2B multiplier (3/2) to a point value.
+pub fn apply_b2b_multiplier(points: u32) -> u32 {
+    points
+        .saturating_mul(B2B_NUMERATOR)
+        .saturating_div(B2B_DENOMINATOR)
 }
 
-/// Calculate complete score for a line clear
-/// This is the main scoring function that combines all rules
+/// Calculate complete score for a line clear (modern ruleset behavior).
+///
+/// Notes:
+/// - T-Spin uses its table score instead of the classic line-clear score.
+/// - B2B applies a multiplier to the base clear points.
+/// - Combo bonus is added after the base clear points.
 pub fn calculate_score(
     lines: usize,
     level: u32,
     tspin: TSpinKind,
-    combo: u32,
+    combo_index: i32,
     previous_b2b: bool,
 ) -> ScoreResult {
-    // Calculate base scores
-    let line_clear_score = calculate_line_score(lines, level);
-    let tspin_score = calculate_tspin_score(tspin, lines, level);
-    let base_score = line_clear_score + tspin_score;
-
-    // Check if this qualifies for B2B
     let qualifies_b2b = qualifies_for_b2b(tspin, lines);
-    let is_back_to_back = qualifies_b2b && previous_b2b;
 
-    // Calculate combo score first (needed for B2B calculation)
-    let combo_score = calculate_combo_score(combo, level);
-
-    // Calculate B2B bonus
-    // Note: In modern Tetris, B2B applies to base score + combo score
-    let back_to_back_bonus = if is_back_to_back {
-        calculate_b2b_bonus(base_score + combo_score)
-    } else {
-        0
+    let base_points = match tspin {
+        TSpinKind::Full | TSpinKind::Mini => calculate_tspin_score(tspin, lines, level),
+        TSpinKind::None => calculate_line_score(lines, level),
     };
 
-    // Total score
-    let total = base_score + back_to_back_bonus + combo_score;
+    let b2b_applied = qualifies_b2b && previous_b2b;
+    let line_clear_score = if b2b_applied {
+        apply_b2b_multiplier(base_points)
+    } else {
+        base_points
+    };
+
+    let combo_bonus = calculate_combo_bonus(combo_index);
+    let total = line_clear_score.saturating_add(combo_bonus);
 
     ScoreResult {
         line_clear_score,
-        tspin_score,
-        combo_score,
-        back_to_back_bonus,
+        combo_bonus,
         total,
-        is_back_to_back,
-        combo_count: combo,
+        qualifies_for_b2b: qualifies_b2b,
+        b2b_applied,
     }
 }
 
@@ -187,18 +190,11 @@ mod tests {
     }
 
     #[test]
-    fn test_combo_scores() {
-        // No combo
-        assert_eq!(calculate_combo_score(0, 0), 0);
-
-        // Combo 1 (first consecutive clear)
-        assert_eq!(calculate_combo_score(1, 0), 50);
-
-        // Combo 3
-        assert_eq!(calculate_combo_score(3, 0), 150);
-
-        // Combo with level
-        assert_eq!(calculate_combo_score(2, 5), 100 * 6);
+    fn test_combo_bonus() {
+        assert_eq!(calculate_combo_bonus(-1), 0);
+        assert_eq!(calculate_combo_bonus(0), 0);
+        assert_eq!(calculate_combo_bonus(1), 50);
+        assert_eq!(calculate_combo_bonus(3), 150);
     }
 
     #[test]
@@ -219,34 +215,32 @@ mod tests {
     }
 
     #[test]
-    fn test_b2b_bonus() {
-        let base = 1000;
-        let bonus = calculate_b2b_bonus(base);
-        assert_eq!(bonus, 500); // Half of base score
+    fn test_b2b_multiplier() {
+        assert_eq!(apply_b2b_multiplier(0), 0);
+        assert_eq!(apply_b2b_multiplier(1200), 1800);
     }
 
     #[test]
     fn test_full_score_calculation() {
-        // Regular Tetris, no combo, no B2B
-        let result = calculate_score(4, 0, TSpinKind::None, 0, false);
-        assert_eq!(result.line_clear_score, 1200);
-        assert_eq!(result.total, 1200);
-        assert!(!result.is_back_to_back);
+        // T-spin full single uses table (no classic add)
+        let result = calculate_score(1, 0, TSpinKind::Full, 0, false);
+        assert_eq!(result.line_clear_score, 800);
+        assert_eq!(result.combo_bonus, 0);
+        assert_eq!(result.total, 800);
 
-        // T-spin double with combo
-        // Line clear: 100, T-spin: 1200, Combo 2: 100 = 1400
-        let result = calculate_score(2, 0, TSpinKind::Full, 2, false);
-        assert_eq!(result.line_clear_score, 100);
-        assert_eq!(result.tspin_score, 1200);
-        assert_eq!(result.combo_score, 100);
-        assert_eq!(result.total, 1400);
+        // Second consecutive clear has combo bonus (combo_index = 1).
+        let result = calculate_score(1, 0, TSpinKind::None, 1, false);
+        assert_eq!(result.line_clear_score, 40);
+        assert_eq!(result.combo_bonus, 50);
+        assert_eq!(result.total, 90);
 
-        // Back-to-back Tetris
-        let result = calculate_score(4, 0, TSpinKind::None, 0, true);
-        assert_eq!(result.line_clear_score, 1200);
-        assert_eq!(result.back_to_back_bonus, 600);
-        assert_eq!(result.total, 1800);
-        assert!(result.is_back_to_back);
+        // Back-to-back Tetris multiplies the base clear points only.
+        let result = calculate_score(4, 0, TSpinKind::None, 1, true);
+        assert_eq!(result.line_clear_score, 1800);
+        assert_eq!(result.combo_bonus, 50);
+        assert_eq!(result.total, 1850);
+        assert!(result.qualifies_for_b2b);
+        assert!(result.b2b_applied);
     }
 
     #[test]

@@ -643,7 +643,7 @@ pub struct LastEvent {
     pub line_clear_score: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tspin: Option<TSpinLower>,
-    pub combo: u32,
+    pub combo: i32,
     #[serde(rename = "back_to_back")]
     pub back_to_back: bool,
 }
