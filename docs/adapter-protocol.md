@@ -58,6 +58,18 @@ Example:
   - `hold` is omitted when there is no hold piece.
   - `last_event` is emitted only when an event occurred (typically on lock/line clear); otherwise it is omitted.
 
+#### last_event semantics
+`last_event` is intended to match swiftui-tetris:
+- `locked`: true when the active piece locked this step.
+- `lines_cleared`: number of lines cleared by that lock (0..4).
+- `line_clear_score`: base clear points for that lock (includes any B2B multiplier; excludes combo bonus, soft/hard drop points).
+- `tspin`: `"mini"` / `"full"` when applicable; omitted/null when no T-Spin.
+- `combo`: combo index after applying the lock.
+  - `-1` means no active combo chain (e.g., after a lock with `lines_cleared=0`).
+  - `0` is the first clear in a chain (no combo bonus).
+  - `1+` are consecutive clears (combo bonus applies).
+- `back_to_back`: whether the current clear qualifies to carry B2B to the next qualifying clear (i.e., it is a Tetris or Full T-Spin with lines).
+
 Notes:
 - Commands are acknowledged after they are mapped and applied during the adapter poll tick.
 Examples:

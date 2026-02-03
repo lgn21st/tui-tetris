@@ -24,7 +24,7 @@ cargo test
 
 - ✅ **完整 Tetris 规则**: SRS 旋转系统、T-Spin 检测、B2B、连击
 - ✅ **7-bag 随机生成器**: 确定性 RNG，支持种子
-- ✅ **Classic + Modern 计分**: 40/100/300/1200 + T-Spin 加成
+- ✅ **计分与 swiftui-tetris 对齐**: 经典行消、T-Spin 表分、B2B、Combo、Soft/Hard drop
 - ✅ **完整游戏生命周期**: 开始、暂停、结束、重启
 - ✅ **幽灵块 (Ghost Piece)**: 预览落点
 - ✅ **Hold 功能**: 交换当前方块
@@ -97,13 +97,10 @@ tui-tetris/
 │       └── place.rs      # place-mode 应用逻辑
 ├── tests/                # 集成测试
 ├── docs/                 # 文档
-│   ├── architecture-review.md  # 专家级架构评审 (15 模块深度分析)
-│   ├── IMPROVEMENT-PLAN.md # 全面改进方案与路线图
-│   ├── TODO.md           # 实施检查清单
 │   ├── rules-spec.md     # 游戏规则详情
-│   ├── PERFORMANCE.md    # 性能优化指南
 │   └── adapter-protocol.md # AI 协议规范
 │   ├── adapter_acceptance.md # AI 验收标准
+│   ├── adapter-protocol.schema.json # 协议 JSON schema
 │   ├── roadmap.md        # 当前维护路线图
 │   └── feature-matrix.md # 功能矩阵
 └── Cargo.toml
@@ -153,45 +150,17 @@ cargo tarpaulin --out Html
 
 ## 📊 性能基准
 
-在 MacBook Pro M3 上测试：
-
-| 操作 | 当前 | 目标 |
-|------|------|------|
-| 渲染一帧 | ~2ms | <1ms |
-| 消行计算 | ~50μs | <10μs |
-| 内存分配/帧 | (依赖 input/adapter) | 0（core 热路径） |
-
-*详见 docs/PERFORMANCE.md*
-
-## 🏛️ 架构评审
-
-专家级架构评审报告: [docs/architecture-review.md](docs/architecture-review.md)
-
-### 关键发现
-
-**优势**:
-- 模块边界清晰
-- 测试覆盖全面
-- 游戏规则正确
-
-**需改进**:
-- 端到端分配压缩（input/adapter/观测构建）
-- API 封装不足
+主要性能门槛与后续优化计划见 `docs/roadmap.md`；基准测试用 `cargo bench`（见 `benches/`）。
 
 ## 📚 文档
 
-### 设计与评审
-- [架构评审](docs/architecture-review.md) - 专家级代码审查 (15 模块深度分析)
-- [改进方案](docs/IMPROVEMENT-PLAN.md) - 全面改进方案与 5 阶段路线图
-- [实施清单](docs/TODO.md) - 详细任务分解与验收标准
-- [Roadmap](docs/roadmap.md) - 当前维护的路线图
-- [Feature Matrix](docs/feature-matrix.md) - 功能清单与状态
-
 ### 技术规范
 - [游戏规则](docs/rules-spec.md) - 完整 Tetris 规则 (SRS/计分/计时)
-- [性能指南](docs/PERFORMANCE.md) - 优化技术与基准测试
 - [AI 协议](docs/adapter-protocol.md) - JSON 协议规范
+- [AI Schema](docs/adapter-protocol.schema.json) - JSON schema（便于生成/校验）
 - [AI 验收标准](docs/adapter_acceptance.md) - 协议/行为门槛与自测命令
+- [Roadmap](docs/roadmap.md) - 当前维护的路线图
+- [Feature Matrix](docs/feature-matrix.md) - 功能清单与状态
 - [开发约定](AGENTS.md) - TDD 工作流程
 
 ## 🤝 兼容性

@@ -47,6 +47,9 @@ An adapter release is considered **ACCEPTED** only if it passes **all** of:
 Score targets are **not** hard acceptance gates for adapter correctness.
 Score is used as a **regression signal** once correctness/stability gates pass.
 
+Notes:
+- `last_event.combo` is an integer and may be negative (swiftui-tetris uses `-1` to mean “no active combo chain”).
+
 ---
 
 ## 3) Handshake & Capabilities (MUST)
