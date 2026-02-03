@@ -54,7 +54,7 @@
 //! # Examples
 //!
 //! ```
-//! use tui_tetris::types::{PieceKind, Rotation, GameAction, BOARD_WIDTH, BOARD_HEIGHT};
+//! use tui_tetris_types::{PieceKind, Rotation, GameAction, BOARD_WIDTH, BOARD_HEIGHT};
 //!
 //! // Create a piece kind
 //! let piece = PieceKind::T;
@@ -178,7 +178,7 @@ impl PieceKind {
     /// # Examples
     ///
     /// ```
-    /// use tui_tetris::types::PieceKind;
+    /// use tui_tetris_types::PieceKind;
     ///
     /// assert_eq!(PieceKind::from_str("i"), Some(PieceKind::I));
     /// assert_eq!(PieceKind::from_str("O"), Some(PieceKind::O));
@@ -203,7 +203,7 @@ impl PieceKind {
     /// # Examples
     ///
     /// ```
-    /// use tui_tetris::types::PieceKind;
+    /// use tui_tetris_types::PieceKind;
     ///
     /// assert_eq!(PieceKind::I.as_str(), "i");
     /// assert_eq!(PieceKind::O.as_str(), "o");
@@ -243,7 +243,7 @@ impl Rotation {
     /// # Examples
     ///
     /// ```
-    /// use tui_tetris::types::Rotation;
+    /// use tui_tetris_types::Rotation;
     ///
     /// assert_eq!(Rotation::North.rotate_cw(), Rotation::East);
     /// assert_eq!(Rotation::East.rotate_cw(), Rotation::South);
@@ -264,7 +264,7 @@ impl Rotation {
     /// # Examples
     ///
     /// ```
-    /// use tui_tetris::types::Rotation;
+    /// use tui_tetris_types::Rotation;
     ///
     /// assert_eq!(Rotation::North.rotate_ccw(), Rotation::West);
     /// assert_eq!(Rotation::West.rotate_ccw(), Rotation::South);
@@ -337,7 +337,7 @@ impl GameAction {
     /// # Examples
     ///
     /// ```
-    /// use tui_tetris::types::GameAction;
+    /// use tui_tetris_types::GameAction;
     ///
     /// assert_eq!(GameAction::from_str("moveLeft"), Some(GameAction::MoveLeft));
     /// assert_eq!(GameAction::from_str("rotateCw"), Some(GameAction::RotateCw));

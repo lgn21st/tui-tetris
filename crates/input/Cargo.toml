@@ -1,0 +1,10 @@
+[package]
+name = "tui-tetris-input"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arrayvec = "0.7"
+crossterm = { version = "0.28", features = ["use-dev-tty"] }
+tui-tetris-types = { path = "../types" }
+

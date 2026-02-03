@@ -74,28 +74,18 @@ cargo test
 
 ```
 tui-tetris/
+├── crates/
+│   ├── types/             # shared types/constants
+│   ├── core/              # deterministic game logic
+│   ├── engine/            # place-mode helpers
+│   ├── input/             # key mapping + DAS/ARR
+│   ├── term/              # framebuffer + diff renderer
+│   └── adapter/           # TCP AI protocol server
 ├── src/
 │   ├── main.rs           # entrypoint + main loop
 │   ├── lib.rs            # crate exports
-│   ├── types.rs          # shared types/constants
-│   ├── input/            # terminal input (DAS/ARR)
-│   │   ├── map.rs        # key mapping
-│   │   └── handler.rs    # DAS/ARR handler
-│   ├── core/             # game logic (no external deps)
-│   │   ├── board.rs
-│   │   ├── pieces.rs
-│   │   ├── rng.rs
-│   │   ├── scoring.rs
-│   │   └── game_state.rs
-│   ├── term/             # terminal rendering (framebuffer + diff flush)
-│   │   ├── fb.rs
-│   │   ├── game_view.rs
-│   │   └── renderer.rs
-│   ├── adapter/          # AI protocol server
-│   │   ├── protocol.rs   # JSON messages
-│   │   └── mod.rs
-│   └── engine/           # reusable engine helpers
-│       └── place.rs      # place-mode application logic
+│   └── bin/
+│       └── input_test.rs
 ├── tests/                # integration tests
 ├── docs/                 # documentation
 │   ├── rules-spec.md

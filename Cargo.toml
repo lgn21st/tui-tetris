@@ -1,3 +1,13 @@
+[workspace]
+members = [
+    "crates/adapter",
+    "crates/core",
+    "crates/engine",
+    "crates/input",
+    "crates/term",
+    "crates/types",
+]
+
 [package]
 name = "tui-tetris"
 version = "0.1.0"
@@ -15,18 +25,20 @@ name = "input-test"
 path = "src/bin/input_test.rs"
 
 [dependencies]
+anyhow = "1.0"
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
 
-# Async networking for AI adapter
+tui-tetris-adapter = { path = "crates/adapter" }
+tui-tetris-core = { path = "crates/core" }
+tui-tetris-engine = { path = "crates/engine" }
+tui-tetris-input = { path = "crates/input" }
+tui-tetris-term = { path = "crates/term" }
+tui-tetris-types = { path = "crates/types" }
+
+[dev-dependencies]
 tokio = { version = "1.42", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-# Utilities
-anyhow = "1.0"
-arrayvec = "0.7"
-
-[dev-dependencies]
 tokio-test = "0.4"
 criterion = { version = "0.5", features = ["html_reports"] }
 

@@ -3,10 +3,9 @@
 //! This module ties together all core components: board, pieces, RNG, and scoring.
 //! It handles game timing, piece movement, rotation, line clears, and game lifecycle.
 
-use crate::core::{
-    calculate_drop_score, calculate_score, get_shape,
-    scoring::get_drop_interval_ms,
-    try_rotate, Board, PieceQueue,
+use crate::scoring::get_drop_interval_ms;
+use crate::{
+    calculate_drop_score, calculate_score, get_shape, try_rotate, Board, PieceQueue,
 };
 use crate::types::*;
 
@@ -204,18 +203,18 @@ impl GameState {
         &mut self.board
     }
 
-    pub fn snapshot_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
+    pub fn snapshot_into(&self, out: &mut crate::snapshot::GameSnapshot) {
         self.snapshot_board_into(out);
         self.snapshot_meta_into(out);
     }
 
-    pub fn snapshot_board_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
+    pub fn snapshot_board_into(&self, out: &mut crate::snapshot::GameSnapshot) {
         self.board.write_u8_grid(&mut out.board);
         out.board_id = self.board_id;
     }
 
-    pub fn snapshot_meta_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
-        use crate::core::snapshot::{ActiveSnapshot, TimersSnapshot};
+    pub fn snapshot_meta_into(&self, out: &mut crate::snapshot::GameSnapshot) {
+        use crate::snapshot::{ActiveSnapshot, TimersSnapshot};
 
         out.active = self.active.map(ActiveSnapshot::from);
         out.ghost_y = self.ghost_y();
@@ -238,8 +237,8 @@ impl GameState {
         };
     }
 
-    pub fn snapshot(&self) -> crate::core::snapshot::GameSnapshot {
-        let mut s = crate::core::snapshot::GameSnapshot::default();
+    pub fn snapshot(&self) -> crate::snapshot::GameSnapshot {
+        let mut s = crate::snapshot::GameSnapshot::default();
         self.snapshot_into(&mut s);
         s
     }
@@ -295,7 +294,7 @@ impl GameState {
     }
 
     /// Try to move the active piece
-    pub(crate) fn try_move(&mut self, dx: i8, dy: i8) -> bool {
+    pub fn try_move(&mut self, dx: i8, dy: i8) -> bool {
         let Some(active) = self.active else {
             return false;
         };
@@ -327,7 +326,7 @@ impl GameState {
     }
 
     /// Try to rotate the active piece with SRS wall kicks
-    pub(crate) fn try_rotate(&mut self, clockwise: bool) -> bool {
+    pub fn try_rotate(&mut self, clockwise: bool) -> bool {
         let Some(active) = self.active else {
             return false;
         };
@@ -380,7 +379,7 @@ impl GameState {
     }
 
     /// Hard drop the active piece to the bottom
-    pub(crate) fn hard_drop(&mut self) -> u32 {
+    pub fn hard_drop(&mut self) -> u32 {
         let Some(active) = self.active else {
             return 0;
         };
@@ -548,10 +547,10 @@ impl GameState {
             // line clear for combo/B2B/line_clear_score reporting.
             let tspin_points = match tspin {
                 TSpinKind::Full => {
-                    crate::core::scoring::calculate_tspin_score(TSpinKind::Full, 0, self.level)
+                    crate::scoring::calculate_tspin_score(TSpinKind::Full, 0, self.level)
                 }
                 TSpinKind::Mini => {
-                    crate::core::scoring::calculate_tspin_score(TSpinKind::Mini, 0, self.level)
+                    crate::scoring::calculate_tspin_score(TSpinKind::Mini, 0, self.level)
                 }
                 TSpinKind::None => 0,
             };
@@ -823,8 +822,8 @@ impl Default for GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::scoring::qualifies_for_b2b;
-    use crate::core::PieceQueue;
+    use crate::scoring::qualifies_for_b2b;
+    use crate::PieceQueue;
 
     fn find_seed_with_first_piece(kind: PieceKind) -> u32 {
         // Brute force a small seed range to find a deterministic queue whose first draw is `kind`.

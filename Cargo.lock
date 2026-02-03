@@ -721,14 +721,71 @@ name = "tui-tetris"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrayvec",
  "criterion",
  "crossterm",
  "serde",
  "serde_json",
  "tokio",
  "tokio-test",
+ "tui-tetris-adapter",
+ "tui-tetris-core",
+ "tui-tetris-engine",
+ "tui-tetris-input",
+ "tui-tetris-term",
+ "tui-tetris-types",
 ]
+
+[[package]]
+name = "tui-tetris-adapter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tui-tetris-core",
+ "tui-tetris-types",
+]
+
+[[package]]
+name = "tui-tetris-core"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "tui-tetris-types",
+]
+
+[[package]]
+name = "tui-tetris-engine"
+version = "0.1.0"
+dependencies = [
+ "tui-tetris-core",
+ "tui-tetris-types",
+]
+
+[[package]]
+name = "tui-tetris-input"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "crossterm",
+ "tui-tetris-types",
+]
+
+[[package]]
+name = "tui-tetris-term"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossterm",
+ "tui-tetris-core",
+ "tui-tetris-types",
+]
+
+[[package]]
+name = "tui-tetris-types"
+version = "0.1.0"
 
 [[package]]
 name = "unicode-ident"

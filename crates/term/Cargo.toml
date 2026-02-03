@@ -1,0 +1,11 @@
+[package]
+name = "tui-tetris-term"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+crossterm = { version = "0.28", features = ["use-dev-tty"] }
+tui-tetris-core = { path = "../core" }
+tui-tetris-types = { path = "../types" }
+

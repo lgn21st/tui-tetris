@@ -1,0 +1,9 @@
+[package]
+name = "tui-tetris-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tui-tetris-core = { path = "../core" }
+tui-tetris-types = { path = "../types" }
+
