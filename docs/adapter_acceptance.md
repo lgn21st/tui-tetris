@@ -27,6 +27,7 @@ Target defaults:
     - If `useHold=true` is requested when hold is unavailable, MUST return `error.code = "hold_unavailable"`.
     - A `place.rotation` that cannot be parsed MUST return `error.code = "invalid_place"`.
     - If the sender is not controller, MUST return `error.code = "not_controller"` (same as action mode).
+    - If the game is not playable (`paused=true` or `game_over=true`), MUST return `error.code = "invalid_place"`.
 - Streaming `observation` snapshots.
 - Deterministic rule application order: **apply commands → tick rules → emit snapshot**.
 

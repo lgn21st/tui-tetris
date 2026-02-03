@@ -29,6 +29,7 @@ That means `definitions.command.required` may be empty at the top-level; require
 - Place mode: validate `x`, `rotation`, `useHold`; apply before tick; reply `invalid_place` when the placement cannot be applied (rotation blocked, x out-of-bounds, x blocked, not playable, etc.).
   - If `useHold=true` is requested when hold is unavailable, reply `hold_unavailable`.
   - Invalid `rotation` strings must be rejected as `invalid_place`.
+  - If `paused=true` or `game_over=true`, place requests must be rejected as `invalid_place` (not playable).
 - Backpressure: if command queue is full, return `backpressure` and continue streaming observations.
 - Determinism: apply commands before `GameState.tick` on each fixed step; do not let rendering/UI mutate core.
 - Debugging: optionally enable wire logging via `TETRIS_AI_LOG_PATH` to capture raw adapter traffic.
