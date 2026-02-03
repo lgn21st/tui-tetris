@@ -7,13 +7,26 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub fn handle_key_event(key: KeyEvent) -> Option<GameAction> {
     match key.code {
         // Movement
-        KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('a') => Some(GameAction::MoveLeft),
-        KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('d') => Some(GameAction::MoveRight),
-        KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('s') => Some(GameAction::SoftDrop),
+        KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('H') | KeyCode::Char('a') | KeyCode::Char('A') => {
+            Some(GameAction::MoveLeft)
+        }
+        KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') | KeyCode::Char('d') | KeyCode::Char('D') => {
+            Some(GameAction::MoveRight)
+        }
+        KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Char('s') | KeyCode::Char('S') => {
+            Some(GameAction::SoftDrop)
+        }
 
         // Rotation
-        KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('w') => Some(GameAction::RotateCw),
-        KeyCode::Char('z') | KeyCode::Char('y') => Some(GameAction::RotateCcw),
+        KeyCode::Up
+        | KeyCode::Char('k')
+        | KeyCode::Char('K')
+        | KeyCode::Char('w')
+        | KeyCode::Char('W') => Some(GameAction::RotateCw),
+        KeyCode::Char('z')
+        | KeyCode::Char('Z')
+        | KeyCode::Char('y')
+        | KeyCode::Char('Y') => Some(GameAction::RotateCcw),
 
         // Actions
         KeyCode::Char(' ') => Some(GameAction::HardDrop),
@@ -52,6 +65,19 @@ mod tests {
             handle_key_event(KeyEvent::from(KeyCode::Down)),
             Some(GameAction::SoftDrop)
         );
+
+        assert_eq!(
+            handle_key_event(KeyEvent::from(KeyCode::Char('H'))),
+            Some(GameAction::MoveLeft)
+        );
+        assert_eq!(
+            handle_key_event(KeyEvent::from(KeyCode::Char('L'))),
+            Some(GameAction::MoveRight)
+        );
+        assert_eq!(
+            handle_key_event(KeyEvent::from(KeyCode::Char('J'))),
+            Some(GameAction::SoftDrop)
+        );
     }
 
     #[test]
@@ -62,6 +88,19 @@ mod tests {
         );
         assert_eq!(
             handle_key_event(KeyEvent::from(KeyCode::Char('z'))),
+            Some(GameAction::RotateCcw)
+        );
+
+        assert_eq!(
+            handle_key_event(KeyEvent::from(KeyCode::Char('W'))),
+            Some(GameAction::RotateCw)
+        );
+        assert_eq!(
+            handle_key_event(KeyEvent::from(KeyCode::Char('Z'))),
+            Some(GameAction::RotateCcw)
+        );
+        assert_eq!(
+            handle_key_event(KeyEvent::from(KeyCode::Char('Y'))),
             Some(GameAction::RotateCcw)
         );
     }
