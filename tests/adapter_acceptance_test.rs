@@ -458,6 +458,48 @@ async fn acceptance_hello_seq_must_be_one_and_does_not_handshake() {
 }
 
 #[tokio::test]
+async fn acceptance_hello_formats_must_include_json_and_does_not_handshake() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (server_handle, addr, _cmd_rx, _out_tx) = spawn_server(config, 8).await;
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello without json format must be rejected and MUST NOT handshake the connection.
+    let hello = r#"{"type":"hello","seq":1,"ts":1,"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.0.0","formats":["text"],"requested":{"stream_observations":false,"command_mode":"place"}}"#;
+    write_half.write_all(hello.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let v = read_json_line(&mut lines).await;
+    assert_eq!(v["type"], "error");
+    assert_eq!(v["seq"], 1);
+    assert_eq!(v["code"], "invalid_command");
+
+    // Since hello was rejected, command should still require handshake.
+    let cmd = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_half.write_all(cmd.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let v2 = read_json_line(&mut lines).await;
+    assert_eq!(v2["type"], "error");
+    assert_eq!(v2["seq"], 2);
+    assert_eq!(v2["code"], "handshake_required");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
 async fn acceptance_protocol_mismatch_returns_error() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
