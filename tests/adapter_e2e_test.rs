@@ -833,14 +833,13 @@ async fn adapter_backpressure_returns_error() {
     write_half.write_all(b"\n").await.unwrap();
     write_half.flush().await.unwrap();
 
-    // First should be queued.
-    let _first = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
-        .await
-        .unwrap();
+    // Allow the server to process both commands while the bounded queue is still full.
+    // If we drain `cmd_rx` too early, `cmd2` may be enqueued instead of backpressured.
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Expect an error for seq=3.
     let mut got_backpressure = false;
-    for _ in 0..5 {
+    for _ in 0..10 {
         let next = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
             .await
             .unwrap();
@@ -852,6 +851,12 @@ async fn adapter_backpressure_returns_error() {
         }
     }
     assert!(got_backpressure);
+
+    // First should be queued.
+    let first = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
+        .await
+        .unwrap();
+    assert_eq!(first.seq, 2);
 
     // Ensure the backpressured command was NOT enqueued.
     assert!(tokio::time::timeout(Duration::from_millis(100), recv_next_command(&mut cmd_rx))
