@@ -751,9 +751,12 @@ impl GameState {
                 }
                 self.is_soft_dropping = true;
                 self.soft_drop_timer_ms = SOFT_DROP_GRACE_MS;
+                self.last_action_was_rotate = false;
                 moved
             }
             GameAction::HardDrop => {
+                // swiftui-tetris: hard drop is an action, so it clears the rotate flag before lock.
+                self.last_action_was_rotate = false;
                 let drop_score = self.hard_drop();
                 self.score += drop_score;
                 true
@@ -1921,6 +1924,24 @@ mod tests {
 
         // Score should increase by 1 per cell soft dropped
         assert!(state.score > initial_score || state.active.unwrap().y > 0);
+    }
+
+    #[test]
+    fn test_soft_drop_action_clears_last_action_was_rotate() {
+        let mut state = GameState::new(12345);
+        state.start();
+        state.last_action_was_rotate = true;
+        let _ = state.apply_action(GameAction::SoftDrop);
+        assert!(!state.last_action_was_rotate);
+    }
+
+    #[test]
+    fn test_hard_drop_action_clears_last_action_was_rotate() {
+        let mut state = GameState::new(12345);
+        state.start();
+        state.last_action_was_rotate = true;
+        let _ = state.apply_action(GameAction::HardDrop);
+        assert!(!state.last_action_was_rotate);
     }
 
     #[test]
