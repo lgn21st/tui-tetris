@@ -716,8 +716,9 @@ impl GameState {
         self.drop_timer_ms = self.drop_timer_ms.saturating_add(elapsed_ms);
         while self.drop_timer_ms >= drop_interval {
             self.drop_timer_ms -= drop_interval;
-            if !self.try_move(0, 1) {
-                break;
+            let moved = self.try_move(0, 1);
+            if !moved {
+                continue;
             }
             changed = true;
 
@@ -1292,6 +1293,30 @@ mod tests {
         assert_eq!(state.active.unwrap().y, y_before + 3);
         assert_eq!(state.drop_timer_ms, 0);
         assert_eq!(state.lock_timer_ms, 0);
+    }
+
+    #[test]
+    fn test_tick_gravity_consumes_drop_timer_even_when_grounded() {
+        let mut state = GameState::new(12345);
+        state.started = true;
+        state.level = 9; // drop interval 120ms; keep elapsed < LOCK_DELAY_MS
+        state.active = Some(Tetromino {
+            kind: PieceKind::O,
+            rotation: Rotation::North,
+            x: 3,
+            y: 18, // grounded for O at y=18 (bottom at y=19)
+        });
+        assert!(state.is_grounded());
+
+        let interval = state.drop_interval_ms();
+        assert!(interval > 0);
+
+        // swiftui-tetris: dropTimerMs is reduced in a while-loop even if the piece cannot move down.
+        let y_before = state.active.unwrap().y;
+        assert!(!state.tick(interval * 3, false));
+        assert_eq!(state.active.unwrap().y, y_before);
+        assert_eq!(state.drop_timer_ms, 0);
+        assert_eq!(state.lock_timer_ms, interval * 3);
     }
 
     #[test]
