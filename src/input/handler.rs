@@ -83,6 +83,17 @@ impl InputHandler {
                     Some(GameAction::MoveLeft)
                 }
             }
+            KeyCode::Char('h') | KeyCode::Char('H') => {
+                self.last_key_time = std::time::Instant::now();
+                if self.horizontal == HorizontalDirection::Left {
+                    None
+                } else {
+                    self.horizontal = HorizontalDirection::Left;
+                    self.horizontal_das_timer = 0;
+                    self.horizontal_arr_accumulator = 0;
+                    Some(GameAction::MoveLeft)
+                }
+            }
             KeyCode::Right | KeyCode::Char('d') | KeyCode::Char('D') => {
                 self.last_key_time = std::time::Instant::now();
                 if self.horizontal == HorizontalDirection::Right {
@@ -94,7 +105,29 @@ impl InputHandler {
                     Some(GameAction::MoveRight)
                 }
             }
+            KeyCode::Char('l') | KeyCode::Char('L') => {
+                self.last_key_time = std::time::Instant::now();
+                if self.horizontal == HorizontalDirection::Right {
+                    None
+                } else {
+                    self.horizontal = HorizontalDirection::Right;
+                    self.horizontal_das_timer = 0;
+                    self.horizontal_arr_accumulator = 0;
+                    Some(GameAction::MoveRight)
+                }
+            }
             KeyCode::Down | KeyCode::Char('s') | KeyCode::Char('S') => {
+                self.last_key_time = std::time::Instant::now();
+                if self.down_held {
+                    None
+                } else {
+                    self.down_held = true;
+                    self.down_das_timer = 0;
+                    self.down_arr_accumulator = 0;
+                    Some(GameAction::SoftDrop)
+                }
+            }
+            KeyCode::Char('j') | KeyCode::Char('J') => {
                 self.last_key_time = std::time::Instant::now();
                 if self.down_held {
                     None
@@ -123,6 +156,15 @@ impl InputHandler {
                 self.last_key_time = std::time::Instant::now();
                 self.saw_repeat_event = true;
             }
+            KeyCode::Char('h')
+            | KeyCode::Char('H')
+            | KeyCode::Char('l')
+            | KeyCode::Char('L')
+            | KeyCode::Char('j')
+            | KeyCode::Char('J') => {
+                self.last_key_time = std::time::Instant::now();
+                self.saw_repeat_event = true;
+            }
             _ => {}
         }
     }
@@ -136,6 +178,13 @@ impl InputHandler {
                     self.horizontal_arr_accumulator = 0;
                 }
             }
+            KeyCode::Char('h') | KeyCode::Char('H') => {
+                if self.horizontal == HorizontalDirection::Left {
+                    self.horizontal = HorizontalDirection::None;
+                    self.horizontal_das_timer = 0;
+                    self.horizontal_arr_accumulator = 0;
+                }
+            }
             KeyCode::Right | KeyCode::Char('d') | KeyCode::Char('D') => {
                 if self.horizontal == HorizontalDirection::Right {
                     self.horizontal = HorizontalDirection::None;
@@ -143,7 +192,19 @@ impl InputHandler {
                     self.horizontal_arr_accumulator = 0;
                 }
             }
+            KeyCode::Char('l') | KeyCode::Char('L') => {
+                if self.horizontal == HorizontalDirection::Right {
+                    self.horizontal = HorizontalDirection::None;
+                    self.horizontal_das_timer = 0;
+                    self.horizontal_arr_accumulator = 0;
+                }
+            }
             KeyCode::Down | KeyCode::Char('s') | KeyCode::Char('S') => {
+                self.down_held = false;
+                self.down_das_timer = 0;
+                self.down_arr_accumulator = 0;
+            }
+            KeyCode::Char('j') | KeyCode::Char('J') => {
                 self.down_held = false;
                 self.down_das_timer = 0;
                 self.down_arr_accumulator = 0;
@@ -357,6 +418,17 @@ mod tests {
             actions.as_slice(),
             &[GameAction::SoftDrop, GameAction::SoftDrop]
         );
+    }
+
+    #[test]
+    fn test_vim_keys_map_to_movement_and_soft_drop() {
+        let mut ih = InputHandler::new();
+
+        assert_eq!(ih.handle_key_press(KeyCode::Char('h')), Some(GameAction::MoveLeft));
+        ih.reset();
+        assert_eq!(ih.handle_key_press(KeyCode::Char('l')), Some(GameAction::MoveRight));
+        ih.reset();
+        assert_eq!(ih.handle_key_press(KeyCode::Char('j')), Some(GameAction::SoftDrop));
     }
 
     #[test]

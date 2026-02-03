@@ -357,6 +357,12 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                             crossterm::event::KeyCode::Left
                             | crossterm::event::KeyCode::Right
                             | crossterm::event::KeyCode::Down
+                            | crossterm::event::KeyCode::Char('h')
+                            | crossterm::event::KeyCode::Char('H')
+                            | crossterm::event::KeyCode::Char('j')
+                            | crossterm::event::KeyCode::Char('J')
+                            | crossterm::event::KeyCode::Char('l')
+                            | crossterm::event::KeyCode::Char('L')
                             | crossterm::event::KeyCode::Char('a')
                             | crossterm::event::KeyCode::Char('A')
                             | crossterm::event::KeyCode::Char('d')
