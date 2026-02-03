@@ -10,6 +10,7 @@ This file is the current, maintained roadmap for tui-tetris.
 - Input: DAS/ARR + timeout-based release for terminals without key-up events
 - Adapter: TCP newline-delimited JSON protocol compatible with swiftui-tetris (protocol v2.0.0 + schema gate)
 - Adapter performance: observation and line fanout avoid per-client clones (Arc-based fanout)
+- Adapter runtime: avoids building/broadcasting observations when there are no streaming subscribers
 - Acceptance: automated protocol gates + closed-loop stability tests
 
 ## Next Priorities

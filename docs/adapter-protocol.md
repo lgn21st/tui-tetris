@@ -23,6 +23,7 @@ That means `definitions.command.required` may be empty at the top-level; require
     - `last_event.locked = true`
     - `paused` changes
     - `game_over` changes
+  - Implementation note: servers may skip building/broadcasting observations when there are no clients currently streaming observations.
 - Piece kinds: accept lowercase or uppercase in incoming payloads; emit consistent case in outgoing snapshots.
 - Action mode: implement `moveLeft`, `moveRight`, `softDrop`, `hardDrop`, `rotateCw`, `rotateCcw`, `hold`, `pause`, `restart`.
 - Place mode: validate `x`, `rotation`, `useHold`; apply before tick; reply `invalid_place` when the placement cannot be applied (rotation blocked, x out-of-bounds, x blocked, not playable, etc.).
