@@ -1852,4 +1852,48 @@ mod tests {
         assert_eq!(ev.line_clear_score, expected_line_clear_score);
         assert_eq!(state.score - score_before, expected_delta);
     }
+
+    #[test]
+    fn test_last_event_line_clear_score_excludes_drop_points() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        // Make a deterministic "Tetris" clear: 4 full rows with a 1-cell hole in the same column.
+        // Then hard drop a vertical I piece from y=0 to y=16 to fill the holes.
+        let hole_x = 2;
+        for y in 16..=19 {
+            for x in 0..10 {
+                if x != hole_x {
+                    state.board.set(x, y, Some(PieceKind::I));
+                }
+            }
+        }
+
+        state.level = 0;
+        state.lines = 0;
+        state.combo = -1;
+        state.back_to_back = false;
+
+        state.active = Some(Tetromino {
+            kind: PieceKind::I,
+            rotation: Rotation::East,
+            x: 0,
+            y: 0,
+        });
+
+        let score_before = state.score;
+        assert!(state.apply_action(GameAction::HardDrop));
+        let ev = state.take_last_event().expect("expected last_event");
+
+        // I(East) lands at y=16 in this setup => 16 rows hard-dropped => 32 drop points.
+        let expected_drop_points = 16 * 2;
+        let expected_line_clear_score = 1200 * (0 + 1);
+        let expected_delta = expected_line_clear_score + expected_drop_points;
+
+        assert_eq!(ev.lines_cleared, 4);
+        assert_eq!(ev.combo, 0);
+        assert_eq!(ev.back_to_back, true);
+        assert_eq!(ev.line_clear_score, expected_line_clear_score);
+        assert_eq!(state.score - score_before, expected_delta);
+    }
 }
