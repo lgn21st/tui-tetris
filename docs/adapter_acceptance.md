@@ -20,6 +20,10 @@ Target defaults:
 ### Must support
 - `hello → welcome` handshake with version checking (major version compatible with `2.x`).
 - Controller/observer rules + `control(claim|release)` semantics.
+  - Controller assignment MUST be well-defined:
+    - Servers MAY auto-assign controller on `hello` when no controller is assigned (this is the default behavior in `tui-tetris`).
+    - A connected client MUST be able to become controller via `control(action="claim")` when the controller slot is empty (for example, after a `release`).
+    - `controller_active` MUST only be returned when a controller is actually still connected/assigned.
 - `command`:
   - `mode=action` (at least: `restart`, `pause`, movement/rotation/drop, `hold` if supported)
   - `mode=place` (final placement interface)

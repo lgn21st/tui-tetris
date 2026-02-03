@@ -108,6 +108,9 @@ Example:
 ### control (client -> game)
 Fields: `type`, `seq`, `ts`, `action: "claim" | "release"`.
 Semantics:
+- Controller assignment:
+  - When no controller is currently assigned, servers may automatically assign controller on `hello` (this is the default behavior in `tui-tetris`: first `hello` while controller is `None` becomes controller).
+  - `claim` exists so an already-connected client can take controller when the slot is empty (for example, after a `release`), without needing to reconnect.
 - `claim`: request controller status.
   - If a controller is already assigned, server returns `error.code = "controller_active"`.
   - Otherwise server returns `ack(status="ok")` and assigns the sender as controller.
