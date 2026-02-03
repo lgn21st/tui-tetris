@@ -110,6 +110,7 @@ Semantics:
 - `release`: release controller status.
   - Only the current controller may release; otherwise server returns `error.code = "not_controller"`.
   - On success server returns `ack(status="ok")` and clears controller assignment.
+- If no controller is assigned, any `command` from any client returns `error.code = "not_controller"` until a client successfully claims controller.
 - If the current controller disconnects, servers may automatically promote another connected client to controller (implementation-defined, but typically the lowest connected client id).
 Examples:
 ```
