@@ -874,6 +874,75 @@ async fn adapter_backpressure_returns_error() {
 }
 
 #[tokio::test]
+async fn adapter_observation_timers_roundtrip_over_tcp() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .expect("server did not signal ready")
+        .expect("ready channel dropped");
+
+    let stream = TcpStream::connect(addr).await.expect("connect failed");
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    let hello = create_hello(1, "timers-roundtrip", "2.0.0");
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    // welcome
+    let welcome_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("expected welcome line");
+    let welcome_v: serde_json::Value = serde_json::from_str(&welcome_line).unwrap();
+    assert_eq!(welcome_v["type"], "welcome");
+
+    let mut snap = GameSnapshot::default();
+    snap.timers.drop_ms = 12;
+    snap.timers.lock_ms = 34;
+    snap.timers.line_clear_ms = 56;
+    let obs = build_observation(200, &snap, None);
+
+    out_tx
+        .send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) })
+        .unwrap();
+
+    let obs_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("expected observation line");
+    let obs_v: serde_json::Value = serde_json::from_str(&obs_line).unwrap();
+    assert_eq!(obs_v["type"], "observation");
+    assert_eq!(obs_v["seq"], 200);
+    assert_eq!(obs_v["timers"]["drop_ms"], 12);
+    assert_eq!(obs_v["timers"]["lock_ms"], 34);
+    assert_eq!(obs_v["timers"]["line_clear_ms"], 56);
+
+    server_handle.abort();
+}
+
+#[tokio::test]
 async fn adapter_requires_hello_before_command() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
