@@ -408,9 +408,10 @@ pub async fn run_server(
                     }
                     OutboundMessage::BroadcastObservation { obs } => {
                         let clients = state.clients.read().await;
+                        let obs = Arc::new(obs);
                         for c in clients.iter() {
                             if c.stream_observations {
-                                let _ = c.tx.send(ClientOutbound::Observation(obs.clone()));
+                                let _ = c.tx.send(ClientOutbound::ObservationArc(Arc::clone(&obs)));
                             }
                         }
                     }

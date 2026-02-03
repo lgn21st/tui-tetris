@@ -293,6 +293,30 @@ async fn adapter_broadcast_observation_arc_fanout() {
     let v_b: serde_json::Value = serde_json::from_str(&line_b).unwrap();
     assert_eq!(v_b["type"], "observation");
 
+    // Also ensure the non-Arc broadcast variant fans out correctly (backward compatible).
+    let obs2 = build_observation(124, &snap, None);
+    out_tx
+        .send(OutboundMessage::BroadcastObservation { obs: obs2 })
+        .unwrap();
+
+    let line_a2 = tokio::time::timeout(Duration::from_secs(2), lines_a.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("expected broadcast observation for a (non-Arc)");
+    let v_a2: serde_json::Value = serde_json::from_str(&line_a2).unwrap();
+    assert_eq!(v_a2["type"], "observation");
+    assert_eq!(v_a2["seq"], 124);
+
+    let line_b2 = tokio::time::timeout(Duration::from_secs(2), lines_b.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("expected broadcast observation for b (non-Arc)");
+    let v_b2: serde_json::Value = serde_json::from_str(&line_b2).unwrap();
+    assert_eq!(v_b2["type"], "observation");
+    assert_eq!(v_b2["seq"], 124);
+
     server_handle.abort();
 }
 
