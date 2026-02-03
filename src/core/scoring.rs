@@ -304,6 +304,15 @@ mod tests {
     }
 
     #[test]
+    fn test_combo_bonus_does_not_scale_with_level() {
+        // Combo bonus is independent of level.
+        let result = calculate_score(2, 5, TSpinKind::None, 3, false);
+        assert_eq!(result.line_clear_score, 100 * (5 + 1));
+        assert_eq!(result.combo_bonus, 50 * 3);
+        assert_eq!(result.total, 100 * (5 + 1) + 50 * 3);
+    }
+
+    #[test]
     fn test_drop_scores() {
         assert_eq!(calculate_drop_score(10, false), 10); // Soft drop 10 cells
         assert_eq!(calculate_drop_score(10, true), 20); // Hard drop 10 cells

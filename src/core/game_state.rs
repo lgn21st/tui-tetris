@@ -1958,4 +1958,27 @@ mod tests {
         assert_eq!(state.combo, 0);
         assert!(state.back_to_back); // full tspin single qualifies
     }
+
+    #[test]
+    fn test_tspin_scoring_uses_pre_clear_level() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        // Set up right before a level-up. Clearing 1 line will push lines 9 -> 10.
+        state.level = 0;
+        state.lines = 9;
+        state.combo = -1;
+        state.back_to_back = false;
+
+        let score_before = state.score;
+        let base = state.apply_line_clear(1, TSpinKind::Full);
+
+        // Must use pre-clear level 0 (not level 1).
+        assert_eq!(base, 800);
+        assert_eq!(state.score - score_before, 800);
+        assert_eq!(state.level, 1);
+        assert_eq!(state.lines, 10);
+        assert_eq!(state.combo, 0);
+        assert!(state.back_to_back);
+    }
 }
