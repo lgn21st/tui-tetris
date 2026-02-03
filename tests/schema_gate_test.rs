@@ -4,6 +4,7 @@ fn adapter_protocol_schema_is_valid_json() {
         .expect("read docs/adapter-protocol.schema.json");
     let v: serde_json::Value = serde_json::from_str(&s).expect("schema must be valid json");
     assert_eq!(v["title"], "Tetris AI Adapter Protocol");
+    assert_eq!(v["$schema"], "http://json-schema.org/draft-07/schema#");
     assert!(v.get("definitions").is_some());
 }
 
@@ -28,4 +29,67 @@ fn adapter_protocol_smoke_messages_parse() {
     assert_eq!(v["type"], "observation");
     assert!(v.get("board_id").is_some());
     assert!(v.get("ghost_y").is_some());
+}
+
+#[test]
+fn adapter_protocol_schema_has_expected_definitions() {
+    let s = std::fs::read_to_string("docs/adapter-protocol.schema.json")
+        .expect("read docs/adapter-protocol.schema.json");
+    let v: serde_json::Value = serde_json::from_str(&s).expect("schema must be valid json");
+
+    let defs = v
+        .get("definitions")
+        .and_then(|d| d.as_object())
+        .expect("schema must have definitions object");
+
+    for k in [
+        "hello",
+        "welcome",
+        "command",
+        "control",
+        "ack",
+        "error",
+        "observation",
+        "board",
+        "active_piece",
+        "place",
+        "timers",
+        "last_event",
+    ] {
+        assert!(defs.contains_key(k), "missing schema definition: {k}");
+    }
+}
+
+#[test]
+fn adapter_protocol_schema_encodes_board_shape_and_cell_range() {
+    let s = std::fs::read_to_string("docs/adapter-protocol.schema.json")
+        .expect("read docs/adapter-protocol.schema.json");
+    let v: serde_json::Value = serde_json::from_str(&s).expect("schema must be valid json");
+
+    let board = &v["definitions"]["board"]["properties"];
+    assert_eq!(board["cells"]["type"], "array");
+    assert_eq!(board["cells"]["minItems"], 20);
+    assert_eq!(board["cells"]["maxItems"], 20);
+
+    let row = &board["cells"]["items"];
+    assert_eq!(row["type"], "array");
+    assert_eq!(row["minItems"], 10);
+    assert_eq!(row["maxItems"], 10);
+
+    let cell = &row["items"];
+    assert_eq!(cell["type"], "integer");
+    assert_eq!(cell["minimum"], 0);
+    assert_eq!(cell["maximum"], 7);
+}
+
+#[test]
+fn adapter_protocol_schema_requires_next_queue_len_5() {
+    let s = std::fs::read_to_string("docs/adapter-protocol.schema.json")
+        .expect("read docs/adapter-protocol.schema.json");
+    let v: serde_json::Value = serde_json::from_str(&s).expect("schema must be valid json");
+
+    let next_queue = &v["definitions"]["observation"]["properties"]["next_queue"];
+    assert_eq!(next_queue["type"], "array");
+    assert_eq!(next_queue["minItems"], 5);
+    assert_eq!(next_queue["maxItems"], 5);
 }
