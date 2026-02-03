@@ -58,6 +58,11 @@ Notes:
 - Any `command`/`control` before `hello` MUST return:
   - `error.code = "handshake_required"`
 
+### 3.1.1 seq rules (MUST)
+- `hello.seq` MUST be `1`.
+- After `hello`, `seq` MUST be strictly increasing per sender for both `command` and `control` messages.
+  - Duplicate or decreasing `seq` MUST return `error.code = "invalid_command"` and MUST NOT enqueue/apply the message.
+
 ### 3.2 Version check
 - If client sends `hello.protocol_version` with an incompatible major (e.g. `3.0.0`), server MUST return:
   - `error.code = "protocol_mismatch"`
