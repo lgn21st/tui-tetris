@@ -739,6 +739,13 @@ impl GameState {
 
     /// Apply a game action
     pub fn apply_action(&mut self, action: GameAction) -> bool {
+        if self.game_over && action != GameAction::Restart {
+            return false;
+        }
+        if self.paused && action != GameAction::Pause && action != GameAction::Restart {
+            return false;
+        }
+
         match action {
             GameAction::MoveLeft => self.try_move(-1, 0),
             GameAction::MoveRight => self.try_move(1, 0),
@@ -1914,6 +1921,54 @@ mod tests {
         // Tick should not do anything
         let result = state.tick(16, false);
         assert!(!result);
+    }
+
+    #[test]
+    fn test_actions_ignored_while_paused_except_pause_and_restart() {
+        let mut state = GameState::new(12345);
+        state.start();
+        state.paused = true;
+
+        let x_before = state.active.unwrap().x;
+        let y_before = state.active.unwrap().y;
+        let rot_before = state.active.unwrap().rotation;
+        let piece_id_before = state.piece_id;
+
+        assert!(!state.apply_action(GameAction::MoveLeft));
+        assert!(!state.apply_action(GameAction::MoveRight));
+        assert!(!state.apply_action(GameAction::SoftDrop));
+        assert!(!state.apply_action(GameAction::HardDrop));
+        assert!(!state.apply_action(GameAction::RotateCw));
+        assert!(!state.apply_action(GameAction::RotateCcw));
+        assert!(!state.apply_action(GameAction::Hold));
+
+        assert_eq!(state.active.unwrap().x, x_before);
+        assert_eq!(state.active.unwrap().y, y_before);
+        assert_eq!(state.active.unwrap().rotation, rot_before);
+        assert_eq!(state.piece_id, piece_id_before);
+
+        // Pause toggles even while paused.
+        assert!(state.apply_action(GameAction::Pause));
+        assert!(!state.paused);
+
+        // Restart always works.
+        assert!(state.apply_action(GameAction::Restart));
+        assert!(state.started);
+    }
+
+    #[test]
+    fn test_actions_ignored_when_game_over_except_restart() {
+        let mut state = GameState::new(12345);
+        state.start();
+        state.game_over = true;
+
+        assert!(!state.apply_action(GameAction::MoveLeft));
+        assert!(!state.apply_action(GameAction::RotateCw));
+        assert!(!state.apply_action(GameAction::Pause));
+
+        assert!(state.apply_action(GameAction::Restart));
+        assert!(!state.game_over);
+        assert!(state.started);
     }
 
     #[test]

@@ -238,6 +238,10 @@ enum GameAction {
                       Back to Playing
 ```
 
+Notes:
+- While paused, gameplay actions (move/rotate/drop/hold) are ignored; only `Pause` (toggle) and `Restart` are accepted.
+- While game over, only `Restart` is accepted.
+
 ## References
 
 - [Tetris Wiki - SRS](https://tetris.wiki/SRS)
