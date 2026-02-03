@@ -23,6 +23,8 @@ Target defaults:
 - `command`:
   - `mode=action` (at least: `restart`, `pause`, movement/rotation/drop, `hold` if supported)
   - `mode=place` (final placement interface)
+    - Invalid placements MUST return `error.code = "invalid_place"`.
+    - If `useHold=true` is requested when hold is unavailable, MUST return `error.code = "hold_unavailable"`.
 - Streaming `observation` snapshots.
 - Deterministic rule application order: **apply commands → tick rules → emit snapshot**.
 

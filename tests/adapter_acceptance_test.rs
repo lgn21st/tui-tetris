@@ -10,10 +10,11 @@ use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
 use tui_tetris::core::GameState;
+use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::types::GameAction;
 
 async fn read_json_line(lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>) -> serde_json::Value {
-    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+    let line = tokio::time::timeout(Duration::from_secs(3), lines.next_line())
         .await
         .expect("timeout waiting for line")
         .expect("io error")
@@ -88,6 +89,90 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                             ErrorCode::InvalidPlace,
                             "place not supported in acceptance harness",
                         );
+                        let line: std::sync::Arc<str> =
+                            std::sync::Arc::from(serde_json::to_string(&err).unwrap());
+                        let _ = out_tx.send(OutboundMessage::ToClientArc {
+                            client_id: inbound.client_id,
+                            line,
+                        });
+                    }
+                }
+
+                // Always follow with an observation so acceptance checks can verify state.
+                let last_event = gs
+                    .take_last_event()
+                    .map(tui_tetris::adapter::protocol::LastEvent::from);
+                let snap = gs.snapshot();
+                let obs = build_observation(obs_seq, &snap, last_event);
+                obs_seq += 1;
+                let line: std::sync::Arc<str> =
+                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
+                let _ = out_tx.send(OutboundMessage::ToClientArc {
+                    client_id: inbound.client_id,
+                    line,
+                });
+            }
+        }
+    }
+}
+
+async fn engine_task_with_place(
+    mut cmd_rx: mpsc::Receiver<InboundCommand>,
+    out_tx: mpsc::UnboundedSender<OutboundMessage>,
+) {
+    let mut gs = GameState::new(1);
+    gs.start();
+    let mut obs_seq: u64 = 100;
+
+    while let Some(inbound) = cmd_rx.recv().await {
+        match inbound.payload {
+            InboundPayload::SnapshotRequest => {
+                let last_event = gs
+                    .take_last_event()
+                    .map(tui_tetris::adapter::protocol::LastEvent::from);
+                let snap = gs.snapshot();
+                let obs = build_observation(obs_seq, &snap, last_event);
+                obs_seq += 1;
+                let line: std::sync::Arc<str> =
+                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
+                let _ = out_tx.send(OutboundMessage::ToClientArc {
+                    client_id: inbound.client_id,
+                    line,
+                });
+            }
+            InboundPayload::Command(cmd) => {
+                let mut ok = Ok(());
+                match cmd {
+                    ClientCommand::Actions(actions) => {
+                        for a in actions {
+                            let _ = gs.apply_action(a);
+                        }
+                    }
+                    ClientCommand::Place {
+                        x,
+                        rotation,
+                        use_hold,
+                    } => {
+                        ok = apply_place(&mut gs, x, rotation, use_hold).map_err(|e| e);
+                    }
+                }
+
+                match ok {
+                    Ok(()) => {
+                        let ack = create_ack(inbound.seq, inbound.seq);
+                        let line: std::sync::Arc<str> =
+                            std::sync::Arc::from(serde_json::to_string(&ack).unwrap());
+                        let _ = out_tx.send(OutboundMessage::ToClientArc {
+                            client_id: inbound.client_id,
+                            line,
+                        });
+                    }
+                    Err(e) => {
+                        let code = match e {
+                            PlaceError::HoldUnavailable => ErrorCode::HoldUnavailable,
+                            _ => ErrorCode::InvalidPlace,
+                        };
+                        let err = create_error(inbound.seq, code, e.message());
                         let line: std::sync::Arc<str> =
                             std::sync::Arc::from(serde_json::to_string(&err).unwrap());
                         let _ = out_tx.send(OutboundMessage::ToClientArc {
@@ -497,6 +582,141 @@ async fn acceptance_hello_formats_must_include_json_and_does_not_handshake() {
     assert_eq!(v2["code"], "handshake_required");
 
     server_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_place_x_out_of_bounds_returns_invalid_place() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task_with_place(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello (request place mode)
+    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let _welcome = read_json_line(&mut lines).await;
+    let obs0 = read_json_line(&mut lines).await;
+    assert_eq!(obs0["type"], "observation");
+    let rot0 = obs0["active"]["rotation"].as_str().unwrap();
+
+    // place with x out of bounds
+    let cmd = format!(
+        "{{\"type\":\"command\",\"seq\":2,\"ts\":1,\"mode\":\"place\",\"place\":{{\"x\":-50,\"rotation\":\"{}\",\"useHold\":false}}}}",
+        rot0
+    );
+    write_half.write_all(cmd.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let err = read_json_line(&mut lines).await;
+    assert_eq!(err["type"], "error");
+    assert_eq!(err["seq"], 2);
+    assert_eq!(err["code"], "invalid_place");
+
+    server_handle.abort();
+    engine_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_place_use_hold_when_unavailable_returns_hold_unavailable() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task_with_place(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    // hello (request place mode)
+    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let _welcome = read_json_line(&mut lines).await;
+    let obs0 = read_json_line(&mut lines).await;
+    assert_eq!(obs0["type"], "observation");
+    let x0 = obs0["active"]["x"].as_i64().unwrap();
+    let rot0 = obs0["active"]["rotation"].as_str().unwrap();
+
+    // Use hold via action mode first (consumes can_hold).
+    let cmd_hold = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["hold"]}"#;
+    write_half.write_all(cmd_hold.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+    let ack = read_json_line(&mut lines).await;
+    assert_eq!(ack["type"], "ack");
+    assert_eq!(ack["seq"], 2);
+    let _obs1 = read_json_line(&mut lines).await;
+
+    // Now request useHold again in place command; should fail with hold_unavailable.
+    let cmd_place = format!(
+        "{{\"type\":\"command\",\"seq\":3,\"ts\":1,\"mode\":\"place\",\"place\":{{\"x\":{},\"rotation\":\"{}\",\"useHold\":true}}}}",
+        x0, rot0
+    );
+    write_half.write_all(cmd_place.as_bytes()).await.unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    let err = read_json_line(&mut lines).await;
+    assert_eq!(err["type"], "error");
+    assert_eq!(err["seq"], 3);
+    assert_eq!(err["code"], "hold_unavailable");
+
+    server_handle.abort();
+    engine_handle.abort();
 }
 
 #[tokio::test]

@@ -27,6 +27,7 @@ That means `definitions.command.required` may be empty at the top-level; require
 - Piece kinds: accept lowercase or uppercase in incoming payloads; emit consistent case in outgoing snapshots.
 - Action mode: implement `moveLeft`, `moveRight`, `softDrop`, `hardDrop`, `rotateCw`, `rotateCcw`, `hold`, `pause`, `restart`.
 - Place mode: validate `x`, `rotation`, `useHold`; apply before tick; reply `invalid_place` when the placement cannot be applied (rotation blocked, x out-of-bounds, x blocked, not playable, etc.).
+  - If `useHold=true` is requested when hold is unavailable, reply `hold_unavailable`.
 - Backpressure: if command queue is full, return `backpressure` and continue streaming observations.
 - Determinism: apply commands before `GameState.tick` on each fixed step; do not let rendering/UI mutate core.
 - Debugging: optionally enable wire logging via `TETRIS_AI_LOG_PATH` to capture raw adapter traffic.
