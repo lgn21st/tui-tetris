@@ -160,6 +160,8 @@ Where:
 - **Soft Drop**: +1 per cell
 - **Hard Drop**: +2 per cell
 
+Note: soft drop points are awarded for explicit soft-drop actions (moving down by one cell). Accelerated gravity during a soft-drop window does not add extra points.
+
 ## T-Spin Detection
 
 A T-Spin is detected when:

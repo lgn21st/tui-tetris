@@ -21,7 +21,7 @@
 //! | `TICK_MS` | 16 | Fixed timestep interval (~60 FPS) |
 //! | `BASE_DROP_MS` | 1000 | Gravity at level 0 |
 //! | `SOFT_DROP_MULTIPLIER` | 20 | Soft drop is 20x faster |
-//! | `SOFT_DROP_GRACE_MS` | 150 | Grace period before soft drop scoring |
+//! | `SOFT_DROP_GRACE_MS` | 150 | Soft drop state timeout |
 //! | `LOCK_DELAY_MS` | 500 | Time before piece locks when grounded |
 //! | `LOCK_RESET_LIMIT` | 15 | Max lock timer resets per piece |
 //! | `LINE_CLEAR_PAUSE_MS` | 180 | Pause duration after line clear |
@@ -92,7 +92,7 @@ pub const BASE_DROP_MS: u32 = 1000;
 /// Soft drop speed multiplier (20x normal speed)
 pub const SOFT_DROP_MULTIPLIER: u32 = 20;
 
-/// Grace period before soft drop scoring begins (150ms)
+/// Soft drop state timeout (swiftui-tetris parity).
 pub const SOFT_DROP_GRACE_MS: u32 = 150;
 
 /// Lock delay when piece is grounded (500ms)
