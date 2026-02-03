@@ -21,7 +21,7 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Key mapping ✅
 - DAS/ARR ✅
 - Terminals without key release events (timeout auto-release) ✅
-- Vim movement keys (`H/J/L`) supported ✅
+- Vim movement keys (`h/j/l`) supported ✅
 - Terminals with repeat-but-no-release events (adaptive repeat-driven auto-release) ✅
 
 ## Terminal Rendering

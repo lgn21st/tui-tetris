@@ -99,6 +99,10 @@ impl InputHandler {
             KeyCode::Left | KeyCode::Char('a') | KeyCode::Char('A') => {
                 self.last_key_time = std::time::Instant::now();
                 if self.horizontal == HorizontalDirection::Left {
+                    // Some terminals (including those without key release events) may report
+                    // key repeats as "press" events instead of "repeat" events. Treat this as
+                    // repeat activity to enable repeat-driven auto-release behavior.
+                    self.handle_key_repeat(code);
                     None
                 } else {
                     self.horizontal = HorizontalDirection::Left;
@@ -110,6 +114,7 @@ impl InputHandler {
             KeyCode::Char('h') | KeyCode::Char('H') => {
                 self.last_key_time = std::time::Instant::now();
                 if self.horizontal == HorizontalDirection::Left {
+                    self.handle_key_repeat(code);
                     None
                 } else {
                     self.horizontal = HorizontalDirection::Left;
@@ -121,6 +126,7 @@ impl InputHandler {
             KeyCode::Right | KeyCode::Char('d') | KeyCode::Char('D') => {
                 self.last_key_time = std::time::Instant::now();
                 if self.horizontal == HorizontalDirection::Right {
+                    self.handle_key_repeat(code);
                     None
                 } else {
                     self.horizontal = HorizontalDirection::Right;
@@ -132,6 +138,7 @@ impl InputHandler {
             KeyCode::Char('l') | KeyCode::Char('L') => {
                 self.last_key_time = std::time::Instant::now();
                 if self.horizontal == HorizontalDirection::Right {
+                    self.handle_key_repeat(code);
                     None
                 } else {
                     self.horizontal = HorizontalDirection::Right;
@@ -143,6 +150,7 @@ impl InputHandler {
             KeyCode::Down | KeyCode::Char('s') | KeyCode::Char('S') => {
                 self.last_key_time = std::time::Instant::now();
                 if self.down_held {
+                    self.handle_key_repeat(code);
                     None
                 } else {
                     self.down_held = true;
@@ -154,6 +162,7 @@ impl InputHandler {
             KeyCode::Char('j') | KeyCode::Char('J') => {
                 self.last_key_time = std::time::Instant::now();
                 if self.down_held {
+                    self.handle_key_repeat(code);
                     None
                 } else {
                     self.down_held = true;
@@ -435,6 +444,25 @@ mod tests {
 
         let actions = ih.update(0);
         assert!(actions.is_empty());
+        assert_eq!(ih.horizontal, HorizontalDirection::None);
+    }
+
+    #[test]
+    fn test_terminals_that_report_repeat_as_press_enable_repeat_driven_release() {
+        let mut ih = InputHandler::with_config(100, 25).with_key_release_timeout_ms(500);
+
+        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert!(!ih.saw_repeat_event);
+
+        // Simulate a terminal reporting repeats as press events while the key is already held.
+        assert_eq!(ih.handle_key_press(KeyCode::Left), None);
+        assert!(ih.saw_repeat_event);
+
+        // With repeat-driven mode on, the shorter timeout should apply.
+        ih.repeat_release_timeout_ms = 80;
+        ih.last_key_time = std::time::Instant::now() - std::time::Duration::from_millis(81);
+
+        let _ = ih.update(0);
         assert_eq!(ih.horizontal, HorizontalDirection::None);
     }
 
