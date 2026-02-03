@@ -308,4 +308,15 @@ mod tests {
             &[GameAction::SoftDrop, GameAction::SoftDrop]
         );
     }
+
+    #[test]
+    fn test_reset_clears_held_state_and_stops_repeats() {
+        let mut ih = InputHandler::with_config(100, 25).with_key_release_timeout_ms(10_000);
+
+        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert!(ih.update(200).len() > 0, "expected repeats before reset");
+
+        ih.reset();
+        assert!(ih.update(200).is_empty(), "reset should stop repeats");
+    }
 }

@@ -311,15 +311,23 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                             return Ok(());
                         }
 
-                        if let Some(action) = input_handler.handle_key_press(key.code) {
-                            match action {
-                                GameAction::SoftDrop => {
-                                    game_state.apply_action(action);
-                                }
-                                _ => {
-                                    game_state.apply_action(action);
+                        // swiftui-tetris parity: while paused/game over, input repeats are released and
+                        // only Pause/Restart are accepted.
+                        if game_state.paused() || game_state.game_over() {
+                            input_handler.reset();
+                            if let Some(action) = handle_key_event(key) {
+                                match action {
+                                    GameAction::Pause | GameAction::Restart => {
+                                        let _ = game_state.apply_action(action);
+                                    }
+                                    _ => {}
                                 }
                             }
+                            continue;
+                        }
+
+                        if let Some(action) = input_handler.handle_key_press(key.code) {
+                            game_state.apply_action(action);
                         }
 
                         if let Some(action) = handle_key_event(key) {
@@ -331,11 +339,18 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                                 }
                                 _ => {
                                     game_state.apply_action(action);
+                                    if matches!(action, GameAction::Pause | GameAction::Restart) {
+                                        input_handler.reset();
+                                    }
                                 }
                             }
                         }
                     }
                     KeyEventKind::Repeat => {
+                        if game_state.paused() || game_state.game_over() {
+                            continue;
+                        }
+
                         // Ignore terminal auto-repeat for actions, but treat movement repeats as
                         // key activity so the timeout-based auto-release doesn't fire while held.
                         match key.code {
@@ -354,6 +369,9 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         }
                     }
                     KeyEventKind::Release => {
+                        if game_state.paused() || game_state.game_over() {
+                            continue;
+                        }
                         input_handler.handle_key_release(key.code);
                     }
                 },
