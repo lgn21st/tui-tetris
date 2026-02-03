@@ -33,7 +33,6 @@ This file is the current, maintained roadmap for tui-tetris.
 ## Validation Checklist
 
 - `cargo test`
-- Schema gate: `cargo test --test schema_gate_test`
 - Adapter acceptance: `cargo test --test adapter_acceptance_test`
 - Adapter e2e: `cargo test --test adapter_e2e_test`
 - Closed-loop stability: `cargo test --test adapter_closed_loop_test`

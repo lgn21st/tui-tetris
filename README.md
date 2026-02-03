@@ -99,9 +99,7 @@ tui-tetris/
 ├── tests/                # integration tests
 ├── docs/                 # documentation
 │   ├── rules-spec.md
-│   ├── adapter-protocol.md
-│   ├── adapter_acceptance.md
-│   ├── adapter-protocol.schema.json
+│   ├── adapter.md
 │   ├── roadmap.md
 │   └── feature-matrix.md
 └── Cargo.toml
@@ -141,9 +139,7 @@ Benchmarks live under `benches/` and can be run via `cargo bench`.
 ## Documentation
 
 - Rules: `docs/rules-spec.md`
-- Adapter protocol: `docs/adapter-protocol.md`
-- Adapter schema: `docs/adapter-protocol.schema.json`
-- Adapter acceptance: `docs/adapter_acceptance.md`
+- Adapter spec / acceptance gate: `docs/adapter.md`
 - Roadmap: `docs/roadmap.md`
 - Feature matrix: `docs/feature-matrix.md`
 - Dev workflow: `AGENTS.md`

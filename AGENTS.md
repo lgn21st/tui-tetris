@@ -10,7 +10,7 @@
 - `docs/rules-spec.md`: authoritative rules/timing constants (mirrors swiftui-tetris)
 - `docs/feature-matrix.md`: feature checklist
 - `docs/roadmap.md`: goals and validation checklist
-- `docs/adapter-protocol.md`: AI communication protocol specification
+- `docs/adapter.md`: AI communication protocol specification (source-of-truth: tetris-ai)
 
 ## Architecture Expectations
 - `core` owns board, pieces, RNG, scoring, timing, and actions (NO external deps)
