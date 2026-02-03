@@ -814,3 +814,133 @@ async fn acceptance_actions_ignored_when_game_over() {
     server_handle.abort();
     engine_handle.abort();
 }
+
+#[tokio::test]
+async fn acceptance_control_claim_release_and_controller_enforcement() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Client A (controller by default).
+    let stream_a = TcpStream::connect(addr).await.unwrap();
+    let (read_a, mut write_a) = stream_a.into_split();
+    let mut lines_a = BufReader::new(read_a).lines();
+
+    let hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    write_a
+        .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+
+    let welcome_a = read_json_line(&mut lines_a).await;
+    assert_eq!(welcome_a["type"], "welcome");
+    let obs_a0 = read_json_line(&mut lines_a).await;
+    assert_eq!(obs_a0["type"], "observation");
+
+    // Client B (observer).
+    let stream_b = TcpStream::connect(addr).await.unwrap();
+    let (read_b, mut write_b) = stream_b.into_split();
+    let mut lines_b = BufReader::new(read_b).lines();
+
+    let hello_b = create_hello(1, "acceptance-b", "2.0.0");
+    write_b
+        .write_all(serde_json::to_string(&hello_b).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    let welcome_b = read_json_line(&mut lines_b).await;
+    assert_eq!(welcome_b["type"], "welcome");
+    let obs_b0 = read_json_line(&mut lines_b).await;
+    assert_eq!(obs_b0["type"], "observation");
+
+    // Observer cannot send commands.
+    let cmd_b = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_b.write_all(cmd_b.as_bytes()).await.unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    let err_b = read_json_line(&mut lines_b).await;
+    assert_eq!(err_b["type"], "error");
+    assert_eq!(err_b["seq"], 2);
+    assert_eq!(err_b["code"], "not_controller");
+
+    // Observer cannot claim while controller is active.
+    let claim_b = r#"{"type":"control","seq":3,"ts":1,"action":"claim"}"#;
+    write_b.write_all(claim_b.as_bytes()).await.unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    let err_claim = read_json_line(&mut lines_b).await;
+    assert_eq!(err_claim["type"], "error");
+    assert_eq!(err_claim["seq"], 3);
+    assert_eq!(err_claim["code"], "controller_active");
+
+    // Controller releases.
+    let release_a = r#"{"type":"control","seq":2,"ts":1,"action":"release"}"#;
+    write_a.write_all(release_a.as_bytes()).await.unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+
+    let ack_release = read_json_line(&mut lines_a).await;
+    assert_eq!(ack_release["type"], "ack");
+    assert_eq!(ack_release["seq"], 2);
+
+    // Observer can claim now.
+    let claim_b2 = r#"{"type":"control","seq":4,"ts":1,"action":"claim"}"#;
+    write_b.write_all(claim_b2.as_bytes()).await.unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    let ack_claim = read_json_line(&mut lines_b).await;
+    assert_eq!(ack_claim["type"], "ack");
+    assert_eq!(ack_claim["seq"], 4);
+
+    // New controller can send a command (ack comes from the engine task).
+    let cmd_b2 = r#"{"type":"command","seq":5,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_b.write_all(cmd_b2.as_bytes()).await.unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    let ack_cmd = read_json_line(&mut lines_b).await;
+    assert_eq!(ack_cmd["type"], "ack");
+    assert_eq!(ack_cmd["seq"], 5);
+    let obs_b1 = read_json_line(&mut lines_b).await;
+    assert_eq!(obs_b1["type"], "observation");
+
+    // Old controller cannot send commands anymore.
+    let cmd_a = r#"{"type":"command","seq":3,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_a.write_all(cmd_a.as_bytes()).await.unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+
+    let err_a = read_json_line(&mut lines_a).await;
+    assert_eq!(err_a["type"], "error");
+    assert_eq!(err_a["seq"], 3);
+    assert_eq!(err_a["code"], "not_controller");
+
+    server_handle.abort();
+    engine_handle.abort();
+}
