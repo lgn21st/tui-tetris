@@ -41,6 +41,7 @@ cargo test
 |------|------|
 | `← →` / `A D` / `H L` | Move left/right |
 | `↑` / `W` | Rotate clockwise |
+| `Z` / `Y` | Rotate counter-clockwise |
 | `↓` / `S` / `J` | Soft drop |
 | `Space` | Hard drop |
 | `C` | Hold |
