@@ -272,6 +272,18 @@ mod tests {
     }
 
     #[test]
+    fn test_non_qualifying_clear_breaks_b2b_multiplier_application() {
+        // Even if the previous clear qualified (previous_b2b=true), a normal single clear
+        // must not receive the B2B multiplier.
+        let result = calculate_score(1, 0, TSpinKind::None, 0, true);
+        assert_eq!(result.line_clear_score, 40);
+        assert_eq!(result.combo_bonus, 0);
+        assert_eq!(result.total, 40);
+        assert!(!result.qualifies_for_b2b);
+        assert!(!result.b2b_applied);
+    }
+
+    #[test]
     fn test_drop_scores() {
         assert_eq!(calculate_drop_score(10, false), 10); // Soft drop 10 cells
         assert_eq!(calculate_drop_score(10, true), 20); // Hard drop 10 cells

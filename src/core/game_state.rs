@@ -1917,4 +1917,26 @@ mod tests {
         assert!(!state.back_to_back);
         assert_eq!(state.score - score_before, 200);
     }
+
+    #[test]
+    fn test_back_to_back_breaks_on_non_qualifying_clear() {
+        let mut state = GameState::new(12345);
+        state.start();
+
+        state.level = 0;
+        state.lines = 0;
+        state.combo = -1;
+        state.back_to_back = true; // chain is active from a prior qualifying clear
+
+        let score_before = state.score;
+        let base = state.apply_line_clear(1, TSpinKind::None);
+
+        // Normal single clear does not qualify, so:
+        // - it should not get a B2B multiplier even though previous_b2b was true
+        // - it should break the chain
+        assert_eq!(base, 40);
+        assert_eq!(state.score - score_before, 40);
+        assert!(!state.back_to_back);
+        assert_eq!(state.combo, 0);
+    }
 }
