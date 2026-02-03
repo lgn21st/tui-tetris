@@ -103,6 +103,14 @@ Example:
 ## Control
 ### control (client -> game)
 Fields: `type`, `seq`, `ts`, `action: "claim" | "release"`.
+Semantics:
+- `claim`: request controller status.
+  - If a controller is already assigned, server returns `error.code = "controller_active"`.
+  - Otherwise server returns `ack(status="ok")` and assigns the sender as controller.
+- `release`: release controller status.
+  - Only the current controller may release; otherwise server returns `error.code = "not_controller"`.
+  - On success server returns `ack(status="ok")` and clears controller assignment.
+- If the current controller disconnects, servers may automatically promote another connected client to controller (implementation-defined, but typically the lowest connected client id).
 Examples:
 ```
 {"type":"control","seq":10,"ts":1738291200400,"action":"claim"}
