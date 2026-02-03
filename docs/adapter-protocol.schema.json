@@ -72,7 +72,7 @@
         "locked": { "type": "boolean", "description": "True when the active piece locked this step." },
         "lines_cleared": { "type": "integer", "minimum": 0, "maximum": 4, "description": "Number of lines cleared by the lock (0..4)." },
         "line_clear_score": { "type": "integer", "minimum": 0, "description": "Base clear points for the lock (includes B2B multiplier when applicable; excludes combo bonus and drop points)." },
-        "tspin": { "oneOf": [ { "$ref": "#/definitions/tspin" }, { "type": "null" } ], "description": "T-Spin kind for the lock when applicable." },
+        "tspin": { "oneOf": [ { "$ref": "#/definitions/tspin" }, { "type": "null" } ], "description": "T-Spin kind for the lock when applicable. Compatibility: swiftui-tetris reports tspin only when lines_cleared > 0; tspin no-line points may still increase score but are not represented here." },
         "combo": { "type": "integer", "description": "Combo index after applying the lock: -1 means no active chain; 0 is the first clear in a chain; 1+ are consecutive clears (combo bonus applies)." },
         "back_to_back": { "type": "boolean", "description": "True when the current clear qualifies to carry B2B to the next qualifying clear (Tetris or Full T-Spin with lines)." }
       },

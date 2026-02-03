@@ -71,6 +71,33 @@ fn adapter_observation_last_event_scoring_fields_match_core_semantics() {
     assert_eq!(v["last_event"]["back_to_back"], true);
 }
 
+#[test]
+fn adapter_observation_tspin_no_line_clear_updates_score_without_last_event_tspin() {
+    // swiftui-tetris awards T-Spin no-line points but does not report it as a `last_event` T-Spin.
+    let mut snap = GameSnapshot::default();
+    snap.score = 400 * (2 + 1);
+
+    let last_event = CoreLastEvent {
+        locked: true,
+        lines_cleared: 0,
+        line_clear_score: 0,
+        tspin: None,
+        combo: -1,
+        back_to_back: false,
+    };
+
+    let obs = build_observation(3, &snap, Some(LastEvent::from(last_event)));
+    let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
+    assert_eq!(v["type"], "observation");
+    assert_eq!(v["seq"], 3);
+    assert_eq!(v["score"], 400 * 3);
+    assert_eq!(v["last_event"]["lines_cleared"], 0);
+    assert_eq!(v["last_event"]["line_clear_score"], 0);
+    assert_eq!(v["last_event"]["combo"], -1);
+    assert_eq!(v["last_event"]["back_to_back"], false);
+    assert!(v["last_event"].get("tspin").is_none() || v["last_event"]["tspin"].is_null());
+}
+
 #[tokio::test]
 async fn adapter_wire_logging_writes_raw_frames() {
     let mut log_path = std::env::temp_dir();
