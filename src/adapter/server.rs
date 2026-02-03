@@ -185,8 +185,8 @@ async fn emit_status(state: &Arc<ServerState>) {
     let Some(tx) = state.status_tx.as_ref() else {
         return;
     };
-    let clients = state.clients.read().await;
     let controller = state.controller.read().await;
+    let clients = state.clients.read().await;
     let _ = tx.send(AdapterStatus {
         client_count: clients.len().min(u16::MAX as usize) as u16,
         controller_id: *controller,
@@ -651,7 +651,7 @@ async fn handle_client(
                     // that blocks future claims. Clear it when it no longer exists in the client list.
                     {
                         let clients = state.clients.read().await;
-                        clear_stale_controller_id(&mut *controller, |id| clients.iter().any(|c| c.id == id));
+                        clear_stale_controller_id(&mut *controller, |id| clients.iter().any(|c| c.id == id && !c.tx.is_closed()));
                     }
                     if controller.is_none() {
                         *controller = Some(client_id);
@@ -778,7 +778,7 @@ async fn handle_client(
                     // Clear stale controller_id (e.g. if the controller client crashed/disconnected).
                     {
                         let clients = state.clients.read().await;
-                        clear_stale_controller_id(&mut *controller, |id| clients.iter().any(|c| c.id == id));
+                        clear_stale_controller_id(&mut *controller, |id| clients.iter().any(|c| c.id == id && !c.tx.is_closed()));
                     }
                     if controller.is_none() {
                         *controller = Some(client_id);
@@ -879,7 +879,7 @@ async fn handle_client(
 
         if was_controller {
             // Promote the next available client (lowest id) to controller.
-            let next_id = clients.iter().map(|c| c.id).min();
+            let next_id = clients.iter().filter(|c| !c.tx.is_closed()).map(|c| c.id).min();
             *controller = next_id;
             if let Some(new_id) = next_id {
                 if let Some(c) = clients.iter_mut().find(|c| c.id == new_id) {
