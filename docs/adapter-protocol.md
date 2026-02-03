@@ -11,6 +11,7 @@ That means `definitions.command.required` may be empty at the top-level; require
 - Socket lifecycle: start listener on app launch; clean up on shutdown; support reconnect without restart.
 - Handshake: enforce `hello` first; validate `protocol_version` major; reply with `welcome` including `game_id` and `capabilities`.
 - Controller rules: first `hello` becomes controller; reject command/control from observers with `not_controller`; promote next observer on controller disconnect; support `claim`/`release`.
+  - Implementation note: treat abrupt disconnects / socket read errors as disconnects for lifecycle cleanup (stale controller must not “occupy” the controller slot).
 - Framing: newline-delimited JSON; reject empty/partial frames; reply with `invalid_command` on parse/shape errors.
 - Sequencing: `seq` MUST be strictly increasing per sender after `hello` (no duplicates, no decreases). On violation, reply `error.code = "invalid_command"` and do not enqueue/apply the message.
   - Retry semantics: if a `command` is rejected with `backpressure`, treat it as **not enqueued** and retry using a **new, larger `seq`**.
@@ -115,6 +116,7 @@ Semantics:
   - On success server returns `ack(status="ok")` and clears controller assignment.
 - If no controller is assigned, any `command` from any client returns `error.code = "not_controller"` until a client successfully claims controller.
 - If the current controller disconnects, servers may automatically promote another connected client to controller (implementation-defined, but typically the lowest connected client id).
+  - `controller_active` must only be returned when a controller is actually still connected; if the prior controller disconnected, the server must clear/promote so new `claim` can succeed.
 Examples:
 ```
 {"type":"control","seq":10,"ts":1738291200400,"action":"claim"}

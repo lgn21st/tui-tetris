@@ -172,6 +172,9 @@ When `game_over=true`:
 
 ### 5.5 Controller promotion on disconnect (RECOMMENDED)
 If the current controller disconnects, the server SHOULD automatically promote the next available client to controller (typically the lowest connected `client_id`) so runs can continue without restarting the process.
+Notes:
+- Treat abrupt disconnects / socket read errors as disconnects for the purpose of controller cleanup.
+- `controller_active` must only be returned when a controller is actually still connected; otherwise the server must clear/promote so a new `control(action="claim")` can succeed.
 
 ---
 
