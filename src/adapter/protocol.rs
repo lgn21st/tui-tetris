@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{PieceKind, Rotation};
+use crate::types::{CoreLastEvent, PieceKind, Rotation, TSpinKind};
 
 use arrayvec::ArrayVec;
 
@@ -648,6 +648,23 @@ pub struct LastEvent {
     pub back_to_back: bool,
 }
 
+impl From<CoreLastEvent> for LastEvent {
+    fn from(value: CoreLastEvent) -> Self {
+        Self {
+            locked: value.locked,
+            lines_cleared: value.lines_cleared,
+            line_clear_score: value.line_clear_score,
+            tspin: value.tspin.and_then(|t| match t {
+                TSpinKind::Mini => Some(TSpinLower::Mini),
+                TSpinKind::Full => Some(TSpinLower::Full),
+                TSpinKind::None => None,
+            }),
+            combo: value.combo,
+            back_to_back: value.back_to_back,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TSpinLower {
     #[serde(rename = "mini")]
@@ -818,6 +835,7 @@ fn current_timestamp_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::CoreLastEvent;
 
     #[test]
     fn test_parse_hello() {
@@ -893,5 +911,25 @@ mod tests {
         let parsed: AckMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.seq, ack.seq);
         assert_eq!(parsed.status, ack.status);
+    }
+
+    #[test]
+    fn test_last_event_from_core_event_maps_tspin_and_combo() {
+        let ev = CoreLastEvent {
+            locked: true,
+            lines_cleared: 2,
+            line_clear_score: 1200,
+            tspin: Some(crate::types::TSpinKind::Full),
+            combo: 1,
+            back_to_back: true,
+        };
+
+        let mapped = LastEvent::from(ev);
+        assert!(mapped.locked);
+        assert_eq!(mapped.lines_cleared, 2);
+        assert_eq!(mapped.line_clear_score, 1200);
+        assert_eq!(mapped.tspin, Some(TSpinLower::Full));
+        assert_eq!(mapped.combo, 1);
+        assert!(mapped.back_to_back);
     }
 }

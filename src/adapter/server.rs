@@ -399,9 +399,23 @@ pub async fn run_server(
                             let _ = c.tx.send(ClientOutbound::Line(line));
                         }
                     }
+                    OutboundMessage::ToClientArc { client_id, line } => {
+                        let clients = state.clients.read().await;
+                        if let Some(c) = clients.iter().find(|c| c.id == client_id) {
+                            let _ = c.tx.send(ClientOutbound::LineArc(line));
+                        }
+                    }
                     OutboundMessage::Broadcast { line } => {
                         let clients = state.clients.read().await;
                         let line: Arc<str> = Arc::from(line);
+                        for c in clients.iter() {
+                            if c.stream_observations {
+                                let _ = c.tx.send(ClientOutbound::LineArc(Arc::clone(&line)));
+                            }
+                        }
+                    }
+                    OutboundMessage::BroadcastArc { line } => {
+                        let clients = state.clients.read().await;
                         for c in clients.iter() {
                             if c.stream_observations {
                                 let _ = c.tx.send(ClientOutbound::LineArc(Arc::clone(&line)));

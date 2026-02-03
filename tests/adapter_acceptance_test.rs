@@ -5,7 +5,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello, ErrorCode, TSpinLower};
+use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello, ErrorCode};
 use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
@@ -55,18 +55,9 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
     while let Some(inbound) = cmd_rx.recv().await {
         match inbound.payload {
             InboundPayload::SnapshotRequest => {
-                let last_event = gs.take_last_event().map(|ev| tui_tetris::adapter::protocol::LastEvent {
-                    locked: ev.locked,
-                    lines_cleared: ev.lines_cleared,
-                    line_clear_score: ev.line_clear_score,
-                    tspin: ev.tspin.and_then(|t| match t {
-                        tui_tetris::types::TSpinKind::Mini => Some(TSpinLower::Mini),
-                        tui_tetris::types::TSpinKind::Full => Some(TSpinLower::Full),
-                        tui_tetris::types::TSpinKind::None => None,
-                    }),
-                    combo: ev.combo,
-                    back_to_back: ev.back_to_back,
-                });
+                let last_event = gs
+                    .take_last_event()
+                    .map(tui_tetris::adapter::protocol::LastEvent::from);
                 let snap = gs.snapshot();
                 let obs = build_observation(obs_seq, &snap, last_event);
                 obs_seq += 1;
@@ -101,18 +92,9 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
                 }
 
                 // Always follow with an observation so acceptance checks can verify state.
-                let last_event = gs.take_last_event().map(|ev| tui_tetris::adapter::protocol::LastEvent {
-                    locked: ev.locked,
-                    lines_cleared: ev.lines_cleared,
-                    line_clear_score: ev.line_clear_score,
-                    tspin: ev.tspin.and_then(|t| match t {
-                        tui_tetris::types::TSpinKind::Mini => Some(TSpinLower::Mini),
-                        tui_tetris::types::TSpinKind::Full => Some(TSpinLower::Full),
-                        tui_tetris::types::TSpinKind::None => None,
-                    }),
-                    combo: ev.combo,
-                    back_to_back: ev.back_to_back,
-                });
+                let last_event = gs
+                    .take_last_event()
+                    .map(tui_tetris::adapter::protocol::LastEvent::from);
                 let snap = gs.snapshot();
                 let obs = build_observation(obs_seq, &snap, last_event);
                 obs_seq += 1;
@@ -245,32 +227,10 @@ fn acceptance_determinism_fixed_seed_reproduces_state_hash_sequence() {
 
         let last_a = a
             .take_last_event()
-            .map(|ev| tui_tetris::adapter::protocol::LastEvent {
-                locked: ev.locked,
-                lines_cleared: ev.lines_cleared,
-                line_clear_score: ev.line_clear_score,
-                tspin: ev.tspin.and_then(|t| match t {
-                    tui_tetris::types::TSpinKind::Mini => Some(TSpinLower::Mini),
-                    tui_tetris::types::TSpinKind::Full => Some(TSpinLower::Full),
-                    tui_tetris::types::TSpinKind::None => None,
-                }),
-                combo: ev.combo,
-                back_to_back: ev.back_to_back,
-            });
+            .map(tui_tetris::adapter::protocol::LastEvent::from);
         let last_b = b
             .take_last_event()
-            .map(|ev| tui_tetris::adapter::protocol::LastEvent {
-                locked: ev.locked,
-                lines_cleared: ev.lines_cleared,
-                line_clear_score: ev.line_clear_score,
-                tspin: ev.tspin.and_then(|t| match t {
-                    tui_tetris::types::TSpinKind::Mini => Some(TSpinLower::Mini),
-                    tui_tetris::types::TSpinKind::Full => Some(TSpinLower::Full),
-                    tui_tetris::types::TSpinKind::None => None,
-                }),
-                combo: ev.combo,
-                back_to_back: ev.back_to_back,
-            });
+            .map(tui_tetris::adapter::protocol::LastEvent::from);
 
         let snap_a = a.snapshot();
         let snap_b = b.snapshot();

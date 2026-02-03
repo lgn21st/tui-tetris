@@ -317,6 +317,64 @@ async fn adapter_broadcast_observation_arc_fanout() {
     assert_eq!(v_b2["type"], "observation");
     assert_eq!(v_b2["seq"], 124);
 
+    // Also ensure string line Arc variants work (they are used by some harnesses/tools).
+    let ping: Arc<str> = Arc::from(r#"{"type":"ack","seq":999,"ts":1,"status":"ok"}"#);
+    out_tx
+        .send(OutboundMessage::BroadcastArc {
+            line: Arc::clone(&ping),
+        })
+        .unwrap();
+
+    let line_a3 = tokio::time::timeout(Duration::from_secs(2), lines_a.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("expected broadcast line for a (Arc)");
+    let v_a3: serde_json::Value = serde_json::from_str(&line_a3).unwrap();
+    assert_eq!(v_a3["type"], "ack");
+    assert_eq!(v_a3["seq"], 999);
+
+    let line_b3 = tokio::time::timeout(Duration::from_secs(2), lines_b.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("expected broadcast line for b (Arc)");
+    let v_b3: serde_json::Value = serde_json::from_str(&line_b3).unwrap();
+    assert_eq!(v_b3["type"], "ack");
+    assert_eq!(v_b3["seq"], 999);
+
+    out_tx
+        .send(OutboundMessage::ToClientArc {
+            client_id: 0,
+            line: Arc::from(r#"{"type":"ack","seq":1000,"ts":1,"status":"ok"}"#),
+        })
+        .unwrap();
+    out_tx
+        .send(OutboundMessage::ToClientArc {
+            client_id: 1,
+            line: Arc::from(r#"{"type":"ack","seq":1001,"ts":1,"status":"ok"}"#),
+        })
+        .unwrap();
+
+    let mut got = false;
+    if let Ok(Ok(Some(line))) =
+        tokio::time::timeout(Duration::from_millis(200), lines_a.next_line()).await
+    {
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if v["type"] == "ack" && (v["seq"] == 1000 || v["seq"] == 1001) {
+            got = true;
+        }
+    }
+    if let Ok(Ok(Some(line))) =
+        tokio::time::timeout(Duration::from_millis(200), lines_b.next_line()).await
+    {
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if v["type"] == "ack" && (v["seq"] == 1000 || v["seq"] == 1001) {
+            got = true;
+        }
+    }
+    assert!(got);
+
     server_handle.abort();
 }
 

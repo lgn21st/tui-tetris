@@ -120,22 +120,8 @@ fn run_headless() -> Result<()> {
 
                         // If applying a command caused a lock/clear event, mark it for immediate observation.
                         if let Some(ev) = game_state.take_last_event() {
-                            pending_last_event = Some(tui_tetris::adapter::protocol::LastEvent {
-                                locked: ev.locked,
-                                lines_cleared: ev.lines_cleared,
-                                line_clear_score: ev.line_clear_score,
-                                tspin: ev.tspin.and_then(|t| match t {
-                                    tui_tetris::types::TSpinKind::Mini => {
-                                        Some(tui_tetris::adapter::protocol::TSpinLower::Mini)
-                                    }
-                                    tui_tetris::types::TSpinKind::Full => {
-                                        Some(tui_tetris::adapter::protocol::TSpinLower::Full)
-                                    }
-                                    tui_tetris::types::TSpinKind::None => None,
-                                }),
-                                combo: ev.combo,
-                                back_to_back: ev.back_to_back,
-                            });
+                            pending_last_event =
+                                Some(tui_tetris::adapter::protocol::LastEvent::from(ev));
                         }
 
                         match ok {
@@ -209,22 +195,7 @@ fn run_headless() -> Result<()> {
         }
 
         if let Some(ev) = game_state.take_last_event() {
-            pending_last_event = Some(tui_tetris::adapter::protocol::LastEvent {
-                locked: ev.locked,
-                lines_cleared: ev.lines_cleared,
-                line_clear_score: ev.line_clear_score,
-                tspin: ev.tspin.and_then(|t| match t {
-                    tui_tetris::types::TSpinKind::Mini => {
-                        Some(tui_tetris::adapter::protocol::TSpinLower::Mini)
-                    }
-                    tui_tetris::types::TSpinKind::Full => {
-                        Some(tui_tetris::adapter::protocol::TSpinLower::Full)
-                    }
-                    tui_tetris::types::TSpinKind::None => None,
-                }),
-                combo: ev.combo,
-                back_to_back: ev.back_to_back,
-            });
+            pending_last_event = Some(tui_tetris::adapter::protocol::LastEvent::from(ev));
             critical = true;
         }
 
@@ -414,22 +385,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                             // If applying a command caused a lock/clear event, mark it for immediate observation.
                             if let Some(ev) = game_state.take_last_event() {
                                 pending_last_event =
-                                    Some(tui_tetris::adapter::protocol::LastEvent {
-                                        locked: ev.locked,
-                                        lines_cleared: ev.lines_cleared,
-                                        line_clear_score: ev.line_clear_score,
-                                        tspin: ev.tspin.and_then(|t| match t {
-                                            tui_tetris::types::TSpinKind::Mini => Some(
-                                                tui_tetris::adapter::protocol::TSpinLower::Mini,
-                                            ),
-                                            tui_tetris::types::TSpinKind::Full => Some(
-                                                tui_tetris::adapter::protocol::TSpinLower::Full,
-                                            ),
-                                            tui_tetris::types::TSpinKind::None => None,
-                                        }),
-                                        combo: ev.combo,
-                                        back_to_back: ev.back_to_back,
-                                    });
+                                    Some(tui_tetris::adapter::protocol::LastEvent::from(ev));
                             }
 
                             // Ack/error after apply.
@@ -521,22 +477,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
 
             // Pull core last-event (accurate lock/clear).
             if let Some(ev) = game_state.take_last_event() {
-                pending_last_event = Some(tui_tetris::adapter::protocol::LastEvent {
-                    locked: ev.locked,
-                    lines_cleared: ev.lines_cleared,
-                    line_clear_score: ev.line_clear_score,
-                    tspin: ev.tspin.and_then(|t| match t {
-                        tui_tetris::types::TSpinKind::Mini => {
-                            Some(tui_tetris::adapter::protocol::TSpinLower::Mini)
-                        }
-                        tui_tetris::types::TSpinKind::Full => {
-                            Some(tui_tetris::adapter::protocol::TSpinLower::Full)
-                        }
-                        tui_tetris::types::TSpinKind::None => None,
-                    }),
-                    combo: ev.combo,
-                    back_to_back: ev.back_to_back,
-                });
+                pending_last_event = Some(tui_tetris::adapter::protocol::LastEvent::from(ev));
                 critical = true;
             }
 

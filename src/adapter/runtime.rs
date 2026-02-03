@@ -51,7 +51,11 @@ pub enum ClientCommand {
 #[derive(Debug, Clone)]
 pub enum OutboundMessage {
     ToClient { client_id: usize, line: String },
+    /// Send a pre-built line without taking ownership of a `String`.
+    ToClientArc { client_id: usize, line: Arc<str> },
     Broadcast { line: String },
+    /// Broadcast a pre-built line without cloning a `String` per fan-out source.
+    BroadcastArc { line: Arc<str> },
     ToClientObservation { client_id: usize, obs: ObservationMessage },
     BroadcastObservation { obs: ObservationMessage },
     /// Same as `ToClientObservation` but avoids cloning large observations for fan-out paths.

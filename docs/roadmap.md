@@ -41,3 +41,4 @@ This file is the current, maintained roadmap for tui-tetris.
 - Term render allocation gate: `cargo test --test term_no_alloc_gate_test`
 - End-to-end allocation gate (no I/O): `cargo test --test e2e_no_alloc_gate_test`
 - Benchmarks: `cargo bench`
+- Benchmark regression gate: `python3 scripts/bench_gate.py`

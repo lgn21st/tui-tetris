@@ -4,9 +4,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use tui_tetris::adapter::protocol::{
-    create_ack, create_error, create_hello, ErrorCode, LastEvent, TSpinLower,
-};
+use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello, ErrorCode, LastEvent};
 use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
@@ -25,18 +23,7 @@ async fn read_line(
 }
 
 fn last_event_from_core(gs: &mut GameState) -> Option<LastEvent> {
-    gs.take_last_event().map(|ev| LastEvent {
-        locked: ev.locked,
-        lines_cleared: ev.lines_cleared,
-        line_clear_score: ev.line_clear_score,
-        tspin: ev.tspin.and_then(|t| match t {
-            tui_tetris::types::TSpinKind::Mini => Some(TSpinLower::Mini),
-            tui_tetris::types::TSpinKind::Full => Some(TSpinLower::Full),
-            tui_tetris::types::TSpinKind::None => None,
-        }),
-        combo: ev.combo,
-        back_to_back: ev.back_to_back,
-    })
+    gs.take_last_event().map(LastEvent::from)
 }
 
 async fn engine_loop(
