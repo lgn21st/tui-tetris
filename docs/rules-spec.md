@@ -28,7 +28,29 @@ Matches swiftui-tetris for AI compatibility.
 - South: [(0,1), (1,1), (2,1), (1,2)]
 - West:  [(1,0), (0,1), (1,1), (1,2)]
 
-*... (S, Z, J, L pieces similar)*
+**S Piece:**
+- North: [(1,0), (2,0), (0,1), (1,1)]
+- East:  [(1,0), (1,1), (2,1), (2,2)]
+- South: [(1,1), (2,1), (0,2), (1,2)]
+- West:  [(0,0), (0,1), (1,1), (1,2)]
+
+**Z Piece:**
+- North: [(0,0), (1,0), (1,1), (2,1)]
+- East:  [(2,0), (1,1), (2,1), (1,2)]
+- South: [(0,1), (1,1), (1,2), (2,2)]
+- West:  [(1,0), (0,1), (1,1), (0,2)]
+
+**J Piece:**
+- North: [(0,0), (0,1), (1,1), (2,1)]
+- East:  [(1,0), (2,0), (1,1), (1,2)]
+- South: [(0,1), (1,1), (2,1), (2,2)]
+- West:  [(1,0), (1,1), (0,2), (1,2)]
+
+**L Piece:**
+- North: [(2,0), (0,1), (1,1), (2,1)]
+- East:  [(1,0), (1,1), (1,2), (2,2)]
+- South: [(0,1), (1,1), (2,1), (0,2)]
+- West:  [(0,0), (1,0), (1,1), (1,2)]
 
 ## Rotation System (SRS)
 
@@ -48,9 +70,14 @@ Matches swiftui-tetris for AI compatibility.
 
 **I Piece:** (Different kicks)
 ```
-0→1: [(0,0), (-2,0), (1,0), (-2,-1), (1,2)]
-0→3: [(0,0), (-1,0), (2,0), (-1,2), (2,-1)]
-...
+0→1 (N→E): [(0,0), (-2,0), (1,0), (-2,-1), (1,2)]
+0→3 (N→W): [(0,0), (-1,0), (2,0), (-1,2), (2,-1)]
+1→0 (E→N): [(0,0), (2,0), (-1,0), (2,1), (-1,-2)]
+1→2 (E→S): [(0,0), (-1,0), (2,0), (-1,2), (2,-1)]
+2→1 (S→E): [(0,0), (1,0), (-2,0), (1,-2), (-2,1)]
+2→3 (S→W): [(0,0), (2,0), (-1,0), (2,1), (-1,-2)]
+3→2 (W→S): [(0,0), (-2,0), (1,0), (-2,-1), (1,2)]
+3→0 (W→N): [(0,0), (1,0), (-2,0), (1,-2), (-2,1)]
 ```
 
 **O Piece:** No kicks - [(0,0)]
@@ -92,7 +119,8 @@ Matches swiftui-tetris for AI compatibility.
 - Lock delay timing is grounded-only:
   - While the active piece can still move down, `lock_ms` and `lock_reset_count` stay at `0`.
   - When the active piece is grounded, `lock_ms` increases each step.
-  - Successful moves/rotations while grounded reset `lock_ms` and consume up to `LOCK_RESET_LIMIT` resets per piece.
+  - Successful moves/rotations that result in a grounded active piece reset `lock_ms` and consume up to `LOCK_RESET_LIMIT` resets per piece.
+    - This means the gravity step that moves a piece into its first grounded position may consume the first lock reset (swiftui-tetris parity).
 
 ### DAS/ARR
 
