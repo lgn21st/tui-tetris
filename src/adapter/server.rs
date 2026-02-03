@@ -239,6 +239,7 @@ pub struct ClientHandle {
 #[derive(Debug, Clone)]
 pub enum ClientOutbound {
     Line(String),
+    LineArc(Arc<str>),
     Ack(AckMessage),
     Error(ErrorMessage),
     Welcome(WelcomeMessage),
@@ -249,6 +250,7 @@ pub enum ClientOutbound {
 #[derive(Debug, Clone)]
 enum WireRecord {
     Bytes(Vec<u8>),
+    LineArc(Arc<str>),
     Welcome(WelcomeMessage),
     Ack(AckMessage),
     Error(ErrorMessage),
@@ -301,6 +303,11 @@ pub async fn run_server(
                 match rec {
                     WireRecord::Bytes(b) => {
                         if file.write_all(&b).await.is_err() {
+                            break;
+                        }
+                    }
+                    WireRecord::LineArc(s) => {
+                        if file.write_all(s.as_bytes()).await.is_err() {
                             break;
                         }
                     }
@@ -394,9 +401,10 @@ pub async fn run_server(
                     }
                     OutboundMessage::Broadcast { line } => {
                         let clients = state.clients.read().await;
+                        let line: Arc<str> = Arc::from(line);
                         for c in clients.iter() {
                             if c.stream_observations {
-                                let _ = c.tx.send(ClientOutbound::Line(line.clone()));
+                                let _ = c.tx.send(ClientOutbound::LineArc(Arc::clone(&line)));
                             }
                         }
                     }
@@ -517,6 +525,14 @@ async fn handle_client(
                     }
                     if let Some(tx) = wire_log_tx_out.as_ref() {
                         let _ = tx.send(WireRecord::Bytes(bytes));
+                    }
+                }
+                ClientOutbound::LineArc(line) => {
+                    if writer.write_all(line.as_bytes()).await.is_err() {
+                        break;
+                    }
+                    if let Some(tx) = wire_log_tx_out.as_ref() {
+                        let _ = tx.send(WireRecord::LineArc(line));
                     }
                 }
                 ClientOutbound::Ack(ack) => {
