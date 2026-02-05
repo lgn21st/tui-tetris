@@ -100,9 +100,12 @@ Example:
 ```
 
 ### 4.2 welcome (game → client)
-Required fields: `type, seq, ts, protocol_version, game_id, capabilities`
+Required fields: `type, seq, ts, protocol_version, game_id, capabilities, client_id, role, controller_id`
 
-Recommended fields (for determinism): `client_id, role, controller_id`
+Deterministic control fields (MUST):
+- `client_id` (stable per connection; unique among concurrently connected clients)
+- `role` (`"controller"` or `"observer"`) as assigned to this connection
+- `controller_id` (the currently active controller’s id; MAY equal `client_id`; MUST be `null` if no controller exists)
 
 Example:
 ```json
@@ -563,12 +566,12 @@ The schema below is included inline to avoid external file dependencies.
         "ts": { "type": "integer" },
         "protocol_version": { "type": "string" },
         "client_id": { "type": "integer" },
-        "role": { "$ref": "#/definitions/role" },
-        "controller_id": { "type": "integer" },
+        "role": { "type": "string", "enum": ["controller","observer"] },
+        "controller_id": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
         "game_id": { "type": "string" },
         "capabilities": { "$ref": "#/definitions/capabilities" }
       },
-      "required": ["type", "seq", "ts", "protocol_version", "game_id", "capabilities"]
+      "required": ["type", "seq", "ts", "protocol_version", "client_id", "role", "controller_id", "game_id", "capabilities"]
     },
     "command": {
       "oneOf": [

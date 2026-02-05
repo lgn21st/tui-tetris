@@ -416,11 +416,11 @@ pub struct WelcomeMessage {
     pub seq: u64,
     pub ts: u64,
     pub protocol_version: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_id: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<AssignedRole>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Stable per connection; unique among concurrently connected clients.
+    pub client_id: u64,
+    /// Assigned role for this connection.
+    pub role: AssignedRole,
+    /// Currently active controller id; MUST be `null` if no controller exists.
     pub controller_id: Option<u64>,
     pub game_id: String,
     pub capabilities: ServerCapabilities,
@@ -837,8 +837,8 @@ pub fn create_welcome(
         seq,
         ts: current_timestamp_ms(),
         protocol_version: protocol_version.to_string(),
-        client_id: Some(client_id),
-        role: Some(role),
+        client_id,
+        role,
         controller_id,
         game_id: "tui-tetris".to_string(),
         capabilities: ServerCapabilities {
@@ -963,8 +963,8 @@ mod tests {
         assert_eq!(welcome.msg_type, WelcomeType::Welcome);
         assert_eq!(welcome.seq, 1);
         assert_eq!(welcome.protocol_version, "2.0.0");
-        assert_eq!(welcome.client_id, Some(7));
-        assert_eq!(welcome.role, Some(AssignedRole::Controller));
+        assert_eq!(welcome.client_id, 7);
+        assert_eq!(welcome.role, AssignedRole::Controller);
         assert_eq!(welcome.controller_id, Some(7));
         assert_eq!(welcome.game_id, "tui-tetris");
     }

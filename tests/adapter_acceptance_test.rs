@@ -2190,6 +2190,8 @@ async fn acceptance_requested_role_observer_never_auto_becomes_controller() {
     let welcome_a = read_json_line(&mut lines_a).await;
     assert_eq!(welcome_a["type"], "welcome");
     assert_eq!(welcome_a["role"], "observer");
+    assert_ne!(welcome_a["client_id"], serde_json::Value::Null);
+    assert_eq!(welcome_a["controller_id"], serde_json::Value::Null);
 
     let _obs_a0 = read_json_line(&mut lines_a).await;
 
