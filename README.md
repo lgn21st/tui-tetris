@@ -4,7 +4,7 @@ A high-performance TUI Tetris game with external AI control support.
 
 ![Tetris](https://img.shields.io/badge/Rust-TUI-blue)
 ![Tests](https://img.shields.io/badge/Tests-passing-green)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Quick Start
 
@@ -200,7 +200,7 @@ Follow the TDD workflow:
 
 ## License
 
-MIT License. See `LICENSE`.
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
 
 ---
 
