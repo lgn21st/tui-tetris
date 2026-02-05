@@ -52,7 +52,7 @@ fn run_headless() -> Result<()> {
     let mut last_board_id = game_state.board_id();
     game_state.snapshot_board_into(&mut snap);
 
-    let mut adapter = Adapter::start_from_env();
+    let mut adapter = Adapter::start_from_env()?;
     let mut adapter_streaming_count: u16 = 0;
 
     let obs_interval_ms: u32 = std::env::var("TETRIS_AI_OBS_HZ")
@@ -256,7 +256,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let render_epoch = Instant::now();
     let mut render_throttle = RenderThrottle::new(250);
 
-    let mut adapter = Adapter::start_from_env();
+    let mut adapter = Adapter::start_from_env()?;
     let listen_addr = adapter
         .as_ref()
         .and_then(|a| a.listen_addr())

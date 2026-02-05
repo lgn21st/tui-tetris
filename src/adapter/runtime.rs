@@ -87,12 +87,20 @@ impl Adapter {
     /// Start the adapter from environment variables.
     ///
     /// Returns None if `TETRIS_AI_DISABLED` is set.
-    pub fn start_from_env() -> Option<Self> {
+    pub fn start_from_env() -> anyhow::Result<Option<Self>> {
         if ServerState::is_disabled() {
-            return None;
+            return Ok(None);
         }
 
         let config = ServerConfig::from_env();
+        if let Err(e) = crate::adapter::server::check_tcp_listen_available(&config.host, config.port) {
+            return Err(anyhow::anyhow!(
+                "AI adapter listen address is unavailable ({}:{}): {}. Set TETRIS_AI_PORT to a free port, or set TETRIS_AI_DISABLED=1 to disable the adapter.",
+                config.host,
+                config.port,
+                e
+            ));
+        }
         let max_pending = config.max_pending_commands.max(1);
         let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(max_pending);
         let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -111,13 +119,13 @@ impl Adapter {
                 .and_then(|r| r.ok())
         });
 
-        Some(Self {
+        Ok(Some(Self {
             _rt: rt,
             cmd_rx,
             out_tx,
             status_rx,
             listen_addr,
-        })
+        }))
     }
 
     pub fn try_recv(&mut self) -> Option<InboundCommand> {

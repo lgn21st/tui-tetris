@@ -18,6 +18,15 @@ use crate::types::{GameAction, Rotation};
 
 use arrayvec::ArrayVec;
 
+pub fn check_tcp_listen_available(host: &str, port: u16) -> std::io::Result<()> {
+    if port == 0 {
+        return Ok(());
+    }
+    let listener = std::net::TcpListener::bind((host, port))?;
+    drop(listener);
+    Ok(())
+}
+
 /// Stable 64-bit FNV-1a hasher for deterministic `state_hash`.
 ///
 /// We avoid `DefaultHasher` here since its output is not guaranteed stable across
