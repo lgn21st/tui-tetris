@@ -387,18 +387,39 @@ def collect_signature(seed: int, n: int = 8):
     sock = socket.create_connection((host, port), timeout=timeout_s)
     sock.settimeout(timeout_s)
     send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.0.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
+
+    # Establish baseline episode id from the first observation (pre-restart).
+    baseline_episode_id = None
+    while baseline_episode_id is None:
+        msg, _ = recv_json(sock)
+        if msg.get("type") == "observation":
+            baseline_episode_id = msg.get("episode_id")
+
     send(sock, {"type":"control","seq":2,"ts":int(time.time()*1000),"action":"claim"})
     send(sock, {"type":"command","seq":3,"ts":int(time.time()*1000),"mode":"action","actions":["restart"],"restart":{"seed":seed}})
+    # Depending on timing, the adapter may emit one or more observations that
+    # were "in flight" from the pre-restart episode. For determinism checks,
+    # wait for a new episode id and the first step of the new piece.
     sig = []
-    # Read until we have n observations in the new episode.
-    while len(sig) < n:
+    active_episode_id = None
+    while True:
         msg, _ = recv_json(sock)
         if msg.get("type") != "observation":
             continue
-        if msg.get("seed") != seed:
+
+        ep = msg.get("episode_id")
+        if active_episode_id is None:
+            if ep is not None and ep != baseline_episode_id and msg.get("step_in_piece") == 1 and msg.get("seed") == seed:
+                active_episode_id = ep
             continue
+
+        if ep != active_episode_id:
+            continue
+
         q = msg.get("next_queue") or []
         sig.append(tuple(q))
+        if len(sig) >= n:
+            break
     sock.close()
     return sig
 

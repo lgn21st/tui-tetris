@@ -144,6 +144,7 @@ async fn collect_next_queue_signature(addr: std::net::SocketAddr, seed: u32) -> 
     assert_eq!(welcome["type"], "welcome");
     let first_obs = read_next_json(&mut lines).await;
     assert_eq!(first_obs["type"], "observation");
+    let baseline_episode_id = first_obs["episode_id"].as_u64().unwrap_or(0);
 
     // claim controller (idempotent if already controller)
     seq += 1;
@@ -185,9 +186,21 @@ async fn collect_next_queue_signature(addr: std::net::SocketAddr, seed: u32) -> 
             panic!("restart error: {v}");
         }
     }
-    let obs = read_next_json(&mut lines).await;
-    assert_eq!(obs["type"], "observation");
-    assert_eq!(obs["seed"], seed);
+    // Depending on timing, the adapter may emit one or more observations that
+    // were in flight from the pre-restart episode. Wait for the first observation
+    // of the new episode (episode_id changed) and the first step of the new piece.
+    loop {
+        let obs = read_next_json(&mut lines).await;
+        if obs["type"] != "observation" {
+            continue;
+        }
+        let ep = obs["episode_id"].as_u64().unwrap_or(0);
+        let step = obs["step_in_piece"].as_u64().unwrap_or(0);
+        let got_seed = obs["seed"].as_u64().unwrap_or(0) as u32;
+        if ep != baseline_episode_id && step == 1 && got_seed == seed {
+            break;
+        }
+    }
 
     let mut sig: Vec<Vec<String>> = Vec::new();
 
