@@ -31,6 +31,8 @@ pub struct TimersSnapshot {
 pub struct GameSnapshot {
     pub board: [[u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize],
     pub board_id: u32,
+    /// Cached FNV-1a 64-bit hash of `board` (updated by `GameState::snapshot_board_into`).
+    pub board_hash: u64,
     pub active: Option<ActiveSnapshot>,
     pub ghost_y: Option<i8>,
     pub hold: Option<PieceKind>,
@@ -52,6 +54,7 @@ impl GameSnapshot {
     pub fn clear(&mut self) {
         self.board = [[0u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize];
         self.board_id = 0;
+        self.board_hash = 0;
         self.active = None;
         self.ghost_y = None;
         self.hold = None;
@@ -83,6 +86,7 @@ impl Default for GameSnapshot {
         let mut s = Self {
             board: [[0u8; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize],
             board_id: 0,
+            board_hash: 0,
             active: None,
             ghost_y: None,
             hold: None,

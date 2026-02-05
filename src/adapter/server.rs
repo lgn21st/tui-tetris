@@ -1121,7 +1121,7 @@ pub fn build_observation(
 
     // Build state hash
     let mut hasher = Fnv1aHasher::new();
-    snap.board.hash(&mut hasher);
+    snap.board_hash.hash(&mut hasher);
     snap.board_id.hash(&mut hasher);
     snap.active.hash(&mut hasher);
     snap.hold.hash(&mut hasher);

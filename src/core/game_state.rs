@@ -212,6 +212,18 @@ impl GameState {
     pub fn snapshot_board_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
         self.board.write_u8_grid(&mut out.board);
         out.board_id = self.board_id;
+        out.board_hash = {
+            // FNV-1a 64-bit over the 20x10 cell grid (200 bytes), stored in the snapshot so
+            // hot-path observation building can avoid re-hashing the board when it hasn't changed.
+            let mut h: u64 = 0xcbf29ce484222325;
+            for row in out.board.iter() {
+                for b in row.iter() {
+                    h ^= *b as u64;
+                    h = h.wrapping_mul(0x00000100000001B3);
+                }
+            }
+            h
+        };
     }
 
     pub fn snapshot_meta_into(&self, out: &mut crate::core::snapshot::GameSnapshot) {
