@@ -1,4 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use tui_tetris::adapter::protocol::parse_message;
 use tui_tetris::adapter::server::build_observation;
 use tui_tetris::core::{Board, GameSnapshot, GameState};
 use tui_tetris::term::{encode_diff_into, FrameBuffer, GameView, Viewport};
@@ -125,6 +126,19 @@ fn bench_encode_diff_into(c: &mut Criterion) {
     });
 }
 
+fn bench_parse_command_action(c: &mut Criterion) {
+    // Representative action-mode command from tetris-ai.
+    let json =
+        r#"{"type":"command","seq":7,"ts":1730000001300,"mode":"action","actions":["rotateCw","moveLeft","hardDrop"]}"#;
+
+    c.bench_function("parse_command_action", |b| {
+        b.iter(|| {
+            let msg = parse_message(black_box(json)).unwrap();
+            black_box(msg)
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_tick,
@@ -133,6 +147,7 @@ criterion_group!(
     bench_snapshot_board_into,
     bench_build_observation_and_serialize,
     bench_render_into,
-    bench_encode_diff_into
+    bench_encode_diff_into,
+    bench_parse_command_action
 );
 criterion_main!(benches);
