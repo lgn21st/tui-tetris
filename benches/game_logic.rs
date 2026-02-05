@@ -118,6 +118,29 @@ fn bench_serialize_observation_to_writer(c: &mut Criterion) {
     });
 }
 
+fn bench_serialize_observation_to_writer_dynamic(c: &mut Criterion) {
+    // Measure (snapshot_meta_into + build_observation + serde_json serialization) together,
+    // matching the typical adapter emission path when the board is unchanged.
+    let mut state = GameState::new(12345);
+    state.start();
+    let mut snap = GameSnapshot::default();
+    state.snapshot_board_into(&mut snap);
+    state.snapshot_meta_into(&mut snap);
+    let mut seq: u64 = 1;
+    let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
+
+    c.bench_function("serialize_observation_to_writer_dynamic", |b| {
+        b.iter(|| {
+            seq = seq.wrapping_add(1);
+            state.snapshot_meta_into(&mut snap);
+            let obs = build_observation(seq, &snap, None);
+            buf.clear();
+            serde_json::to_writer(&mut buf, black_box(&obs)).unwrap();
+            black_box(buf.len())
+        })
+    });
+}
+
 fn bench_render_into(c: &mut Criterion) {
     let mut state = GameState::new(12345);
     state.start();
@@ -186,6 +209,7 @@ criterion_group!(
     bench_build_observation_and_serialize,
     bench_build_observation_only,
     bench_serialize_observation_to_writer,
+    bench_serialize_observation_to_writer_dynamic,
     bench_render_into,
     bench_encode_diff_into,
     bench_parse_command_action
