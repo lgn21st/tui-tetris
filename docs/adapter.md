@@ -390,10 +390,12 @@ def collect_signature(seed: int, n: int = 8):
 
     # Establish baseline episode id from the first observation (pre-restart).
     baseline_episode_id = None
-    while baseline_episode_id is None:
+    baseline_seen = False
+    while not baseline_seen:
         msg, _ = recv_json(sock)
         if msg.get("type") == "observation":
             baseline_episode_id = msg.get("episode_id")
+            baseline_seen = True
 
     send(sock, {"type":"control","seq":2,"ts":int(time.time()*1000),"action":"claim"})
     send(sock, {"type":"command","seq":3,"ts":int(time.time()*1000),"mode":"action","actions":["restart"],"restart":{"seed":seed}})
