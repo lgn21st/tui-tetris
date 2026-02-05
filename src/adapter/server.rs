@@ -117,7 +117,7 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
-    /// Create from environment variables (matching swiftui-tetris)
+    /// Create from environment variables (matching `docs/adapter.md` defaults)
     pub fn from_env() -> Self {
         use std::env;
 

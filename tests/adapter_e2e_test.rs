@@ -27,7 +27,7 @@ async fn recv_next_command(rx: &mut mpsc::Receiver<InboundCommand>) -> InboundCo
 
 #[test]
 fn adapter_observation_last_event_scoring_fields_match_core_semantics() {
-    // Case 1: combo=-1 must roundtrip (swiftui-tetris uses -1 as "no active combo chain").
+    // Case 1: combo=-1 must roundtrip ("no active combo chain").
     let mut snap = GameSnapshot::default();
     snap.score = 0;
     let last_event = CoreLastEvent {
@@ -73,7 +73,7 @@ fn adapter_observation_last_event_scoring_fields_match_core_semantics() {
 
 #[test]
 fn adapter_observation_tspin_no_line_clear_updates_score_without_last_event_tspin() {
-    // swiftui-tetris awards T-Spin no-line points but does not report it as a `last_event` T-Spin.
+    // T-Spin no-line points are awarded but not reported as a `last_event` T-Spin.
     let mut snap = GameSnapshot::default();
     snap.score = 400 * (2 + 1);
 

@@ -2,12 +2,11 @@
 
 ## Project Intent
 - Build a high-performance TUI Tetris game in Rust with external AI control support
-- Match gameplay rules and timing with swiftui-tetris for AI compatibility
 - Keep Core deterministic and testable; rendering/adapter stay decoupled
 - Strict TDD: every feature/improvement/refactor must add/adjust tests first
 
 ## Key Docs
-- `docs/rules-spec.md`: authoritative rules/timing constants (mirrors swiftui-tetris)
+- `docs/rules-spec.md`: authoritative rules/timing constants
 - `docs/feature-matrix.md`: feature checklist
 - `docs/roadmap.md`: goals and validation checklist
 - `docs/adapter.md`: AI communication protocol specification (source-of-truth: tetris-ai)
@@ -38,6 +37,6 @@
 - Terminal: crossterm (I/O), custom framebuffer renderer (no ratatui)
 
 ## Protocol Compatibility
-- AI protocol 100% compatible with swiftui-tetris
+- AI protocol 100% compatible with `docs/adapter.md`
 - Same environment variables: `TETRIS_AI_HOST`, `TETRIS_AI_PORT`, `TETRIS_AI_DISABLED`
 - Same JSON message format and error codes

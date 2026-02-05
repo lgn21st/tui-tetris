@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
-- AI Adapter with TCP protocol (100% compatible with swiftui-tetris)
+- AI Adapter with TCP protocol (`docs/adapter.md`)
   - Controller/Observer pattern for multiplayer AI
   - Action and Place command modes
   - Observation streaming with full game state

@@ -1,6 +1,6 @@
 //! Protocol module - JSON message types for AI adapter
 //!
-//! Implements the line-delimited JSON protocol compatible with swiftui-tetris.
+//! Implements the line-delimited JSON protocol defined in `docs/adapter.md`.
 //! All messages have: type, seq (sequence number), ts (timestamp in ms)
 
 use serde::{Deserialize, Serialize};

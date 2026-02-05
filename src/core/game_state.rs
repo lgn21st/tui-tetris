@@ -375,7 +375,7 @@ impl GameState {
         false
     }
 
-    /// Reset lock timers/counts to match swiftui-tetris semantics:
+    /// Reset lock timers/counts semantics:
     /// - When not grounded, lock timer and reset count are cleared.
     /// - When grounded, successful moves/rotations may reset the lock timer up to `LOCK_RESET_LIMIT`.
     fn handle_lock_reset(&mut self) {
@@ -481,7 +481,7 @@ impl GameState {
             return;
         };
 
-        // Trigger landing flash on every lock (swiftui-tetris parity).
+        // Trigger landing flash on every lock.
         self.landing_flash_ms = LANDING_FLASH_MS;
 
         // Lock piece to board
@@ -518,8 +518,8 @@ impl GameState {
 
         // Emit last event (for adapter observation immediate flush).
         //
-        // swiftui-tetris reports the last T-Spin kind only for line clears (it resets it to `.none`
-        // when `lines_cleared == 0`), so we only include `tspin` when at least one line was cleared.
+        // Only report the last T-Spin kind for line clears (reset after a lock with no clear),
+        // so we only include `tspin` when at least one line was cleared.
         let tspin_opt = if lines_cleared > 0 {
             match tspin {
                 TSpinKind::None => None,
@@ -556,8 +556,8 @@ impl GameState {
             self.combo = -1;
             self.back_to_back = false;
 
-            // swiftui-tetris awards points for T-Spin "no lines", but it does not count as a
-            // line clear for combo/B2B/line_clear_score reporting.
+            // Award points for T-Spin "no lines", but it does not count as a line clear for
+            // combo/B2B/line_clear_score reporting.
             let tspin_points = match tspin {
                 TSpinKind::Full => {
                     crate::core::scoring::calculate_tspin_score(TSpinKind::Full, 0, self.level)
@@ -707,7 +707,7 @@ impl GameState {
             return false;
         };
 
-        // Soft drop activation + timeout (swiftui-tetris parity):
+        // Soft drop activation + timeout:
         // - A soft drop action activates a short timeout.
         // - If the timeout expires, soft drop speed disables automatically.
         // - The `soft_drop` tick argument may be used by callers as an alternate activation signal.
@@ -724,7 +724,7 @@ impl GameState {
 
         let mut changed = false;
 
-        // Gravity: accumulate and advance (swiftui-tetris uses a while loop here).
+        // Gravity: accumulate and advance.
         let drop_interval = self.drop_interval_ms();
         self.drop_timer_ms = self.drop_timer_ms.saturating_add(elapsed_ms);
         while self.drop_timer_ms >= drop_interval {
@@ -766,7 +766,7 @@ impl GameState {
             GameAction::MoveLeft => self.try_move(-1, 0),
             GameAction::MoveRight => self.try_move(1, 0),
             GameAction::SoftDrop => {
-                // swiftui-tetris: softDropStep() moves once (if possible), adds +1 score per cell,
+                // Soft drop step moves once (if possible), adds +1 score per cell,
                 // and activates soft drop speed for a short grace window.
                 let moved = self.try_move(0, 1);
                 if moved {
@@ -778,7 +778,7 @@ impl GameState {
                 moved
             }
             GameAction::HardDrop => {
-                // swiftui-tetris: hard drop is an action, so it clears the rotate flag before lock.
+                // Hard drop is an action, so it clears the rotate flag before lock.
                 self.last_action_was_rotate = false;
                 let drop_score = self.hard_drop();
                 self.score += drop_score;
@@ -1404,7 +1404,7 @@ mod tests {
         let interval = state.drop_interval_ms();
         assert!(interval > 0);
 
-        // swiftui-tetris: dropTimerMs is reduced in a while-loop even if the piece cannot move down.
+        // dropTimerMs is reduced in a while-loop even if the piece cannot move down.
         let y_before = state.active.unwrap().y;
         assert!(!state.tick(interval * 3, false));
         assert_eq!(state.active.unwrap().y, y_before);
@@ -1418,7 +1418,7 @@ mod tests {
         state.start();
 
         // While the piece can move down, any movement should keep lock timer and reset count cleared
-        // (swiftui-tetris parity: lock reset count is only consumed when grounded).
+        // Lock reset count is only consumed when grounded.
         state.lock_reset_count = 7;
         state.lock_timer_ms = 123;
 
@@ -1452,7 +1452,7 @@ mod tests {
         assert_eq!(state.active.unwrap().y, 18);
         assert!(state.is_grounded());
 
-        // swiftui-tetris: handleLockReset runs on the landing move (consuming one reset),
+        // handleLockReset runs on the landing move (consuming one reset),
         // then tick increments lockTimer in the same step once grounded.
         assert_eq!(state.lock_reset_count, 1);
         assert_eq!(state.lock_timer_ms, 16);
@@ -1844,8 +1844,8 @@ mod tests {
                 state.lock_timer_ms, 0,
                 "Timer should reset when moving horizontally while grounded"
             );
-            // swiftui-tetris resets lock timer/count when not grounded, and consumes a reset only
-            // when grounded after the move.
+            // Reset lock timer/count when not grounded, and consume a reset only when grounded
+            // after the move.
             if state.is_grounded() {
                 assert_eq!(state.lock_reset_count, 1);
             } else {
@@ -1896,8 +1896,8 @@ mod tests {
         // If we successfully rotated while grounded, timer should reset
         if rotated {
             assert_eq!(state.lock_timer_ms, 0);
-            // swiftui-tetris resets lock timer/count when not grounded, and consumes a reset only
-            // when grounded after the rotation.
+            // Reset lock timer/count when not grounded, and consume a reset only when grounded
+            // after the rotation.
             if state.is_grounded() {
                 assert_eq!(state.lock_reset_count, 1);
             } else {
@@ -2063,7 +2063,7 @@ mod tests {
         state.is_soft_dropping = true;
         state.soft_drop_timer_ms = SOFT_DROP_GRACE_MS;
 
-        // Pause should clear soft drop state like swiftui-tetris.
+        // Pause clears soft drop state.
         assert!(state.apply_action(GameAction::Pause));
         assert!(state.paused());
         assert!(!state.is_soft_dropping);
@@ -2379,7 +2379,7 @@ mod tests {
         let score_before = state.score;
         let base = state.apply_line_clear(0, TSpinKind::Full);
 
-        // swiftui-tetris awards T-Spin no-lines points but resets combo/B2B and does not report a line-clear score.
+        // T-Spin no-lines awards points but resets combo/B2B and does not report a line-clear score.
         assert_eq!(base, 0);
         assert_eq!(state.score - score_before, 400 * (2 + 1));
         assert_eq!(state.combo, -1);

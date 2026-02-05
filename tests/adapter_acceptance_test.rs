@@ -1642,7 +1642,7 @@ async fn acceptance_actions_ignored_while_paused() {
     let paused_active_x = obs_paused["active"]["x"].as_i64().unwrap();
     let paused_active_y = obs_paused["active"]["y"].as_i64().unwrap();
 
-    // moveLeft while paused should be ignored (swiftui-tetris parity).
+    // moveLeft while paused should be ignored.
     let cmd_move = r#"{"type":"command","seq":3,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
     write_half.write_all(cmd_move.as_bytes()).await.unwrap();
     write_half.write_all(b"\n").await.unwrap();
@@ -1715,7 +1715,7 @@ async fn acceptance_actions_ignored_when_game_over() {
     let game_over_board_id = obs0["board_id"].as_u64().unwrap();
     assert!(obs0["active"].is_null());
 
-    // moveLeft while game_over should be ignored (swiftui-tetris parity).
+    // moveLeft while game_over should be ignored.
     let cmd_move = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
     write_half.write_all(cmd_move.as_bytes()).await.unwrap();
     write_half.write_all(b"\n").await.unwrap();

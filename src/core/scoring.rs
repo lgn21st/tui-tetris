@@ -1,7 +1,7 @@
 //! Scoring module - Classic and Modern Tetris scoring rules
 //!
 //! Compatibility note:
-//! This scoring behavior is intended to match `swiftui-tetris` (and its rules-spec).
+//! Scoring behavior is defined by `docs/rules-spec.md`.
 //! In particular:
 //! - T-Spin scoring uses the T-Spin tables (it does not add classic line-clear points).
 //! - B2B applies a 3/2 multiplier to the base clear points (before combo bonus).
@@ -49,7 +49,7 @@ pub fn calculate_tspin_score(tspin: TSpinKind, lines: usize, level: u32) -> u32 
 
 /// Calculate combo bonus (modern rules).
 ///
-/// `combo_index` matches swiftui-tetris semantics:
+/// `combo_index` semantics:
 /// - `-1`: no combo chain
 /// - `0`: first clear in chain (no bonus)
 /// - `1+`: bonus applies as `combo_base * combo_index`

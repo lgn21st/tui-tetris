@@ -1,7 +1,7 @@
 # Tetris Rules Specification
 
 Comprehensive rules and timing constants for tui-tetris.
-Matches swiftui-tetris for AI compatibility.
+This document is the source of truth for gameplay rules/timing constants.
 
 ## Board
 
@@ -120,13 +120,13 @@ Matches swiftui-tetris for AI compatibility.
   - While the active piece can still move down, `lock_ms` and `lock_reset_count` stay at `0`.
   - When the active piece is grounded, `lock_ms` increases each step.
   - Successful moves/rotations that result in a grounded active piece reset `lock_ms` and consume up to `LOCK_RESET_LIMIT` resets per piece.
-    - This means the gravity step that moves a piece into its first grounded position may consume the first lock reset (swiftui-tetris parity).
+    - This means the gravity step that moves a piece into its first grounded position may consume the first lock reset.
 
 ### DAS/ARR
 
 - **DAS (Delayed Auto Shift)**: 150ms
 - **ARR (Auto Repeat Rate)**: 50ms
-- Soft drop repeat: DAS=0ms, ARR=50ms (swiftui-tetris parity).
+- Soft drop repeat: DAS=0ms, ARR=50ms.
 - Note: terminals without key-release events use a timeout-based auto-release in the input handler.
   - Config: `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (default: 150ms)
   - If the terminal emits key repeat events (but no key release events), the input handler switches to a repeat-driven auto-release timeout derived from the observed repeat cadence, so movement stops quickly after repeats stop without breaking slower repeat rates.
@@ -137,7 +137,7 @@ Matches swiftui-tetris for AI compatibility.
 
 ## Scoring
 
-This project follows the same scoring semantics as `swiftui-tetris`: a classic base line-clear table (40/100/300/1200 * (level+1)) plus modern extensions (T-Spin tables, back-to-back, combo, and drop scoring).
+This project uses a classic base line-clear table (40/100/300/1200 * (level+1)) plus modern extensions (T-Spin tables, back-to-back, combo, and drop scoring).
 This is closer to modern guideline-style scoring than legacy variants like NES.
 
 ### Classic Line Clear

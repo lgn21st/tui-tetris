@@ -89,13 +89,13 @@ pub const TICK_MS: u32 = 16;
 /// Base gravity interval at level 0 (1000ms = 1 second per row)
 pub const BASE_DROP_MS: u32 = 1000;
 
-/// Soft drop speed multiplier (10x normal speed) (swiftui-tetris parity).
+/// Soft drop speed multiplier (10x normal speed).
 pub const SOFT_DROP_MULTIPLIER: u32 = 10;
 
-/// Soft drop state timeout (swiftui-tetris parity).
+/// Soft drop state timeout.
 pub const SOFT_DROP_GRACE_MS: u32 = 150;
 
-/// Lock delay when piece is grounded (450ms) (swiftui-tetris parity).
+/// Lock delay when piece is grounded (450ms).
 pub const LOCK_DELAY_MS: u32 = 450;
 
 /// Maximum number of lock timer resets per piece (15)
@@ -107,16 +107,16 @@ pub const LINE_CLEAR_PAUSE_MS: u32 = 180;
 /// Flash duration when piece lands (120ms)
 pub const LANDING_FLASH_MS: u32 = 120;
 
-/// DAS (Delayed Auto Shift) delay in milliseconds (swiftui-tetris parity).
+/// DAS (Delayed Auto Shift) delay in milliseconds.
 pub const DEFAULT_DAS_MS: u32 = 150;
 
-/// ARR (Auto Repeat Rate) in milliseconds (swiftui-tetris parity).
+/// ARR (Auto Repeat Rate) in milliseconds.
 pub const DEFAULT_ARR_MS: u32 = 50;
 
-/// Soft drop DAS in milliseconds (swiftui-tetris parity).
+/// Soft drop DAS in milliseconds.
 pub const SOFT_DROP_DAS_MS: u32 = 0;
 
-/// Soft drop ARR in milliseconds (swiftui-tetris parity).
+/// Soft drop ARR in milliseconds.
 pub const SOFT_DROP_ARR_MS: u32 = 50;
 
 /// Drop intervals by level (milliseconds per row)
@@ -135,8 +135,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn swiftui_tetris_parity_timing_defaults() {
-        // Source-of-truth: swiftui-tetris/docs/rules-spec.md
+    fn timing_defaults_match_rules_spec() {
+        // Source-of-truth: docs/rules-spec.md
         assert_eq!(SOFT_DROP_MULTIPLIER, 10);
         assert_eq!(SOFT_DROP_GRACE_MS, 150);
         assert_eq!(LOCK_DELAY_MS, 450);

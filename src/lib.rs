@@ -14,7 +14,7 @@
 //!   - Deterministic and testable
 //!
 //! - [`adapter`]: AI protocol handling via TCP socket
-//!   - JSON line protocol compatible with swiftui-tetris
+//!   - JSON line protocol per `docs/adapter.md`
 //!   - Supports both "action" and "place" command modes
 //!   - Allows external AI agents to control the game
 //!

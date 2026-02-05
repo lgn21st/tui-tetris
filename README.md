@@ -27,11 +27,11 @@ cargo test
 
 - ✅ Full Tetris rules: SRS rotation, T-Spin detection, B2B, combos
 - ✅ 7-bag RNG: deterministic (seeded)
-- ✅ Scoring aligned with swiftui-tetris: classic line clears, T-Spin tables, B2B, combos, soft/hard drop
+- ✅ Scoring: classic line clears, T-Spin tables, B2B, combos, soft/hard drop
 - ✅ Full lifecycle: start, pause, game over, restart
 - ✅ Ghost piece
 - ✅ Hold
-- ✅ AI control: TCP protocol compatible with swiftui-tetris
+- ✅ AI control: TCP protocol per `docs/adapter.md`
 - ✅ DAS/ARR input (150ms / 50ms)
 - ✅ Custom terminal renderer: framebuffer + diff flush (no ratatui widgets)
 
@@ -146,7 +146,7 @@ Benchmarks live under `benches/` and can be run via `cargo bench`.
 
 ## Compatibility
 
-AI protocol: compatible with swiftui-tetris.
+AI protocol: see `docs/adapter.md`.
 
 Environment variables:
 - `TETRIS_AI_HOST` (default: `127.0.0.1`)

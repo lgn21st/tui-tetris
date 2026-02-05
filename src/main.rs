@@ -408,8 +408,8 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                             return Ok(());
                         }
 
-                        // swiftui-tetris parity: while paused/game over, input repeats are released and
-                        // only Pause/Restart are accepted.
+                        // While paused/game over, input repeats are released and only Pause/Restart
+                        // are accepted.
                         if game_state.paused() || game_state.game_over() {
                             input_handler.reset();
                             if let Some(action) = handle_key_event(key) {
@@ -573,7 +573,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 game_state.apply_action(action);
             }
 
-            // Soft drop state is managed by core via the soft drop timeout (swiftui-tetris parity).
+            // Soft drop state is managed by core via the soft drop timeout.
             game_state.tick(TICK_MS, false);
 
             // Observation scheduling (20Hz + immediate on critical events).

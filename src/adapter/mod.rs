@@ -1,8 +1,7 @@
 //! Adapter module - AI control via TCP socket with JSON protocol
 //!
 //! This module enables external AI agents to control the game through a
-//! TCP socket connection. The protocol is compatible with swiftui-tetris,
-//! allowing the same AI clients to work with both implementations.
+//! TCP socket connection. The protocol is defined in `docs/adapter.md`.
 //!
 //! # Protocol Overview
 //!
