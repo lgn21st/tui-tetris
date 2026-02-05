@@ -31,6 +31,7 @@ THRESHOLDS_SECONDS: dict[str, float] = {
     # "micro" benchmarks: these are the ones most likely to regress materially.
     "build_observation+to_writer": 5e-6,  # 5us
     "build_observation_only": 3e-6,  # 3us
+    "serialize_observation_to_writer": 5e-6,  # 5us
     "render_into": 10e-6,  # 10us
     "encode_diff_into": 20e-6,  # 20us
     # JSON parsing can vary a lot by CPU and serde_json version; keep generous.

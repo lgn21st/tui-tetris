@@ -99,6 +99,25 @@ fn bench_build_observation_only(c: &mut Criterion) {
     });
 }
 
+fn bench_serialize_observation_to_writer(c: &mut Criterion) {
+    // Measure serde_json serialization cost in isolation (single streaming client).
+    let mut state = GameState::new(12345);
+    state.start();
+    let mut snap = GameSnapshot::default();
+    state.snapshot_into(&mut snap);
+
+    let obs = build_observation(1, &snap, None);
+    let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
+
+    c.bench_function("serialize_observation_to_writer", |b| {
+        b.iter(|| {
+            buf.clear();
+            serde_json::to_writer(&mut buf, black_box(&obs)).unwrap();
+            black_box(buf.len())
+        })
+    });
+}
+
 fn bench_render_into(c: &mut Criterion) {
     let mut state = GameState::new(12345);
     state.start();
@@ -166,6 +185,7 @@ criterion_group!(
     bench_snapshot_board_into,
     bench_build_observation_and_serialize,
     bench_build_observation_only,
+    bench_serialize_observation_to_writer,
     bench_render_into,
     bench_encode_diff_into,
     bench_parse_command_action
