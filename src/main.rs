@@ -16,7 +16,7 @@ use tui_tetris::core::{GameSnapshot, GameState};
 use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
 use tui_tetris::term::AdapterStatusView;
-use tui_tetris::term::{AnchorY, GameView, TerminalRenderer, Viewport};
+use tui_tetris::term::{AnchorY, GameView, RenderThrottle, TerminalRenderer, Viewport};
 use tui_tetris::types::{GameAction, TICK_MS};
 
 fn main() -> Result<()> {
@@ -252,6 +252,9 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut snap = GameSnapshot::default();
     let mut last_board_id = game_state.board_id();
     game_state.snapshot_board_into(&mut snap);
+    let mut last_term_size: (u16, u16) = (0, 0);
+    let render_epoch = Instant::now();
+    let mut render_throttle = RenderThrottle::new(250);
 
     let mut adapter = Adapter::start_from_env();
     let listen_addr = adapter
@@ -308,20 +311,85 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             }
         }
 
-        // Render.
+        // Render (throttled while paused/game-over and unchanged).
         let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
-        if game_state.board_id() != last_board_id {
-            last_board_id = game_state.board_id();
-            game_state.snapshot_board_into(&mut snap);
+        if (w, h) != last_term_size {
+            last_term_size = (w, h);
+            term.invalidate();
         }
-        game_state.snapshot_meta_into(&mut snap);
-        let adapter_info = if adapter_view.enabled {
-            Some(&adapter_view)
-        } else {
-            None
+
+        let now_ms = render_epoch.elapsed().as_millis() as u64;
+        let is_static = game_state.paused() || game_state.game_over();
+        let fingerprint = {
+            // FNV-1a 64-bit over a small set of render-relevant fields.
+            let mut h64: u64 = 0xcbf29ce484222325;
+            let mut push_u64 = |v: u64| {
+                for b in v.to_le_bytes() {
+                    h64 ^= b as u64;
+                    h64 = h64.wrapping_mul(0x00000100000001B3);
+                }
+            };
+
+            push_u64(w as u64);
+            push_u64(h as u64);
+            push_u64(game_state.board_id() as u64);
+            push_u64(game_state.episode_id() as u64);
+            push_u64(game_state.piece_id() as u64);
+            push_u64(game_state.active_id() as u64);
+            push_u64(game_state.step_in_piece() as u64);
+            push_u64(game_state.score() as u64);
+            push_u64(game_state.level() as u64);
+            push_u64(game_state.lines() as u64);
+            push_u64(game_state.can_hold() as u64);
+            push_u64(game_state.paused() as u64);
+            push_u64(game_state.game_over() as u64);
+            push_u64(game_state.hold_piece().map(|p| p as u64).unwrap_or(u64::MAX));
+            for p in game_state.next_queue().iter().copied() {
+                push_u64(p as u64);
+            }
+
+            // Adapter HUD fields that can change while paused.
+            push_u64(adapter_view.enabled as u64);
+            push_u64(adapter_view.client_count as u64);
+            push_u64(adapter_view.streaming_count as u64);
+            push_u64(adapter_view.controller_id.unwrap_or(usize::MAX) as u64);
+            push_u64(adapter_view.pid as u64);
+            if let Some(addr) = adapter_view.listen_addr {
+                push_u64(addr.ip().is_ipv4() as u64);
+                match addr.ip() {
+                    std::net::IpAddr::V4(v4) => {
+                        for b in v4.octets() {
+                            push_u64(b as u64);
+                        }
+                    }
+                    std::net::IpAddr::V6(v6) => {
+                        for seg in v6.segments() {
+                            push_u64(seg as u64);
+                        }
+                    }
+                }
+                push_u64(addr.port() as u64);
+            } else {
+                push_u64(u64::MAX);
+            }
+
+            h64
         };
-        view.render_into_with_adapter(&snap, adapter_info, Viewport::new(w, h), &mut fb);
-        term.draw_swap(&mut fb)?;
+
+        if render_throttle.should_render(now_ms, fingerprint, is_static) {
+            if game_state.board_id() != last_board_id {
+                last_board_id = game_state.board_id();
+                game_state.snapshot_board_into(&mut snap);
+            }
+            game_state.snapshot_meta_into(&mut snap);
+            let adapter_info = if adapter_view.enabled {
+                Some(&adapter_view)
+            } else {
+                None
+            };
+            view.render_into_with_adapter(&snap, adapter_info, Viewport::new(w, h), &mut fb);
+            term.draw_swap(&mut fb)?;
+        }
 
         // Input with timeout until next tick.
         let timeout = tick_duration
