@@ -35,6 +35,7 @@ THRESHOLDS_SECONDS: dict[str, float] = {
     "serialize_observation_to_writer_dynamic": 8e-6,  # 8us
     "render_into": 10e-6,  # 10us
     "encode_diff_into": 20e-6,  # 20us
+    "encode_diff_into_noop": 5e-6,  # 5us
     # JSON parsing can vary a lot by CPU and serde_json version; keep generous.
     "parse_command_action": 50e-6,  # 50us
 }

@@ -187,6 +187,21 @@ fn bench_encode_diff_into(c: &mut Criterion) {
     });
 }
 
+fn bench_encode_diff_into_noop(c: &mut Criterion) {
+    let viewport = Viewport::new(80, 24);
+    let prev = FrameBuffer::new(viewport.width, viewport.height);
+    let next = prev.clone();
+    let mut out: Vec<u8> = Vec::with_capacity(64 * 1024);
+
+    c.bench_function("encode_diff_into_noop", |b| {
+        b.iter(|| {
+            out.clear();
+            encode_diff_into(&prev, &next, &mut out).unwrap();
+            black_box(out.len())
+        })
+    });
+}
+
 fn bench_parse_command_action(c: &mut Criterion) {
     // Representative action-mode command from tetris-ai.
     let json =
@@ -212,6 +227,7 @@ criterion_group!(
     bench_serialize_observation_to_writer_dynamic,
     bench_render_into,
     bench_encode_diff_into,
+    bench_encode_diff_into_noop,
     bench_parse_command_action
 );
 criterion_main!(benches);
