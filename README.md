@@ -16,6 +16,9 @@ cd tui-tetris
 # Run the game
 cargo run
 
+# Run in headless mode (no terminal UI; adapter-only loop)
+TUI_TETRIS_HEADLESS=1 cargo run
+
 # Run without the TCP AI adapter (no listener)
 TETRIS_AI_DISABLED=1 cargo run
 
@@ -144,6 +147,30 @@ Benchmarks live under `benches/` and can be run via `cargo bench`.
 - Feature matrix: `docs/feature-matrix.md`
 - Dev workflow: `AGENTS.md`
 
+## Headless Mode
+
+Headless mode runs the same deterministic game loop but **without** terminal setup, rendering, or keyboard input.
+It is intended for automated integration and AI runs where the TCP adapter is the primary interface.
+
+**Differences vs regular mode**
+- No TUI rendering / no HUD.
+- No local keyboard input (control happens via the adapter TCP protocol).
+- Still runs fixed-timestep logic (`TICK_MS`) and applies adapter commands before ticking (determinism).
+
+**How to start**
+```bash
+TUI_TETRIS_HEADLESS=1 cargo run
+```
+
+Optional knobs:
+```bash
+# Change observation frequency (Hz). Default: 20. Range: 1..60
+TETRIS_AI_OBS_HZ=30 TUI_TETRIS_HEADLESS=1 cargo run
+
+# Disable the adapter entirely (headless loop will run but will not listen)
+TETRIS_AI_DISABLED=1 TUI_TETRIS_HEADLESS=1 cargo run
+```
+
 ## Compatibility
 
 AI protocol: see `docs/adapter.md`.
@@ -152,6 +179,8 @@ Environment variables:
 - `TETRIS_AI_HOST` (default: `127.0.0.1`)
 - `TETRIS_AI_PORT` (default: `7777`)
 - `TETRIS_AI_DISABLED` (set to `1`/`true` to disable)
+- `TETRIS_AI_OBS_HZ` (headless only; observation frequency in Hz; default: `20`; range: `1..60`)
+- `TUI_TETRIS_HEADLESS` (set to `1`/`true`/`yes` to run without the terminal UI)
 - `TUI_TETRIS_ANCHOR_Y` (optional; board vertical anchor: `top` or `center`; default: `center`)
 - `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (input auto-release timeout for terminals without key release events; default: `150`)
   - Set `<150` for “tap moves once”; set `>150` to allow “hold repeats” on terminals without key-repeat events.
