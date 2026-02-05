@@ -152,6 +152,11 @@ Action mode:
 {"type":"command","seq":7,"ts":1730000001300,"mode":"action","actions":["rotateCw","moveLeft","hardDrop"]}
 ```
 
+Restart with fixed seed (for deterministic evaluation/training):
+```json
+{"type":"command","seq":7,"ts":1730000001300,"mode":"action","actions":["restart"],"restart":{"seed":123}}
+```
+
 Place mode:
 ```json
 {"type":"command","seq":8,"ts":1730000001300,"mode":"place","place":{"x":3,"rotation":"east","useHold":false}}
@@ -186,6 +191,24 @@ When the controller sends `restart`:
 - within a short window (recommended ≤ 2s), observations MUST reflect a fresh episode:
   - `game_over=false`, `paused=false`, `playable=true`
   - board reset (or equivalent “new episode” state)
+
+#### 5.2.1 restart seed (MUST for training determinism)
+For training/evaluation, the controller MAY request a deterministic restart seed:
+```json
+{"type":"command","seq":123,"ts":1730000001300,"mode":"action","actions":["restart"],"restart":{"seed":123}}
+```
+
+Semantics (MUST):
+- If `restart.seed` is present:
+  - the adapter MUST start a fresh episode whose **entire RNG stream** is derived from that seed (at minimum: the piece sequence / bag shuffle).
+  - the first observation of the new episode MUST report `seed` equal to the requested seed.
+  - for a given adapter implementation + ruleset, the piece sequence MUST be **bit-for-bit identical** for the same seed.
+- If `restart.seed` is omitted:
+  - the adapter MAY pick any seed; the chosen seed MUST be reported in observations (`observation.seed`) for reproducibility.
+
+Notes:
+- This seed mechanism exists for ML determinism and is not required for normal gameplay UX.
+- If the adapter has any other randomness (visual effects, jitter, etc.), it SHOULD also be derived from the same seed so replay/eval is stable.
 
 ### 5.3 pause
 If `pause` exists:
@@ -339,6 +362,54 @@ print("sent restart")
 PY
 ```
 
+### 9.4 Restart With Seed (determinism)
+The adapter MUST produce the exact same piece sequence for the same `restart.seed`.
+
+This check is intentionally lightweight: it compares the first few `next_queue` snapshots after restart.
+```bash
+python3 - <<'PY'
+import json, socket, time
+
+host, port = "127.0.0.1", 7777
+timeout_s = 2.0
+
+def send(sock, obj):
+    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
+
+def recv_json(sock):
+    buf = b""
+    while b"\n" not in buf:
+        buf += sock.recv(65536)
+    line, rest = buf.split(b"\n", 1)
+    return json.loads(line.decode("utf-8")), rest
+
+def collect_signature(seed: int, n: int = 8):
+    sock = socket.create_connection((host, port), timeout=timeout_s)
+    sock.settimeout(timeout_s)
+    send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.0.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
+    send(sock, {"type":"control","seq":2,"ts":int(time.time()*1000),"action":"claim"})
+    send(sock, {"type":"command","seq":3,"ts":int(time.time()*1000),"mode":"action","actions":["restart"],"restart":{"seed":seed}})
+    sig = []
+    # Read until we have n observations in the new episode.
+    while len(sig) < n:
+        msg, _ = recv_json(sock)
+        if msg.get("type") != "observation":
+            continue
+        if msg.get("seed") != seed:
+            continue
+        q = msg.get("next_queue") or []
+        sig.append(tuple(q))
+    sock.close()
+    return sig
+
+seed = 123
+a = collect_signature(seed)
+b = collect_signature(seed)
+assert a == b, {"seed": seed, "a": a, "b": b}
+print("ok: deterministic restart.seed")
+PY
+```
+
 ## 10) JSON Schema (Appendix)
 
 The schema below is included inline to avoid external file dependencies.
@@ -485,9 +556,18 @@ The schema below is included inline to avoid external file dependencies.
             "seq": { "type": "integer" },
             "ts": { "type": "integer" },
             "mode": { "const": "action" },
-            "actions": { "type": "array", "items": { "$ref": "#/definitions/action_name" } }
+            "actions": { "type": "array", "items": { "$ref": "#/definitions/action_name" } },
+            "restart": {
+              "type": "object",
+              "properties": {
+                "seed": { "type": "integer", "minimum": 0 }
+              },
+              "required": ["seed"],
+              "additionalProperties": false
+            }
           },
-          "required": ["type", "seq", "ts", "mode", "actions"]
+          "required": ["type", "seq", "ts", "mode", "actions"],
+          "additionalProperties": false
         },
         {
           "type": "object",
@@ -498,7 +578,8 @@ The schema below is included inline to avoid external file dependencies.
             "mode": { "const": "place" },
             "place": { "$ref": "#/definitions/place" }
           },
-          "required": ["type", "seq", "ts", "mode", "place"]
+          "required": ["type", "seq", "ts", "mode", "place"],
+          "additionalProperties": false
         }
       ]
     },

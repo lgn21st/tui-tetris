@@ -18,9 +18,7 @@ pub struct SimpleRng {
 impl SimpleRng {
     /// Create a new RNG with the given seed
     pub fn new(seed: u32) -> Self {
-        // Avoid 0 seed which would produce all zeros
-        let state = if seed == 0 { 1 } else { seed };
-        Self { state }
+        Self { state: seed }
     }
 
     /// Generate next random u32
@@ -48,6 +46,8 @@ impl SimpleRng {
 /// 7-bag piece generator
 #[derive(Debug, Clone)]
 pub struct PieceQueue {
+    /// Episode seed used to initialize this queue.
+    episode_seed: u32,
     /// Current bag of pieces
     bag: [PieceKind; 7],
     /// Index into current bag
@@ -60,6 +60,7 @@ impl PieceQueue {
     /// Create a new piece queue with the given seed
     pub fn new(seed: u32) -> Self {
         let mut queue = Self {
+            episode_seed: seed,
             bag: [
                 PieceKind::I,
                 PieceKind::O,
@@ -179,8 +180,13 @@ impl PieceQueue {
         &self.bag[self.bag_index..]
     }
 
-    /// Get the current RNG state (for restarting game with same sequence)
+    /// Get the episode seed used to initialize this queue.
     pub fn seed(&self) -> u32 {
+        self.episode_seed
+    }
+
+    /// Get the current RNG state (useful for deriving a new deterministic seed).
+    pub fn rng_state(&self) -> u32 {
         self.rng.state
     }
 }

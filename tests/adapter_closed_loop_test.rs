@@ -22,6 +22,12 @@ async fn read_line(
         .expect("expected line")
 }
 
+async fn read_next_json(
+    lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>,
+) -> serde_json::Value {
+    serde_json::from_str(&read_line(lines).await).expect("valid json line")
+}
+
 fn last_event_from_core(gs: &mut GameState) -> Option<LastEvent> {
     gs.take_last_event().map(LastEvent::from)
 }
@@ -46,8 +52,17 @@ async fn engine_loop(
             }
             InboundPayload::Command(cmd) => {
                 let result = match cmd {
-                    ClientCommand::Actions(actions) => {
+                    ClientCommand::Actions {
+                        actions,
+                        mut restart_seed,
+                    } => {
                         for a in actions {
+                            if a == tui_tetris::types::GameAction::Restart {
+                                if let Some(seed) = restart_seed.take() {
+                                    let _ = gs.restart_with_seed(seed);
+                                    continue;
+                                }
+                            }
                             let _ = gs.apply_action(a);
                         }
                         Ok(())
@@ -105,6 +120,119 @@ fn compute_leftmost_x(kind: PieceKind, rot: Rotation) -> i8 {
         min_dx = min_dx.min(dx);
     }
     -min_dx
+}
+
+async fn collect_next_queue_signature(addr: std::net::SocketAddr, seed: u32) -> Vec<Vec<String>> {
+    let stream = TcpStream::connect(addr).await.unwrap();
+    let (read_half, mut write_half) = stream.into_split();
+    let mut lines = BufReader::new(read_half).lines();
+
+    let mut seq: u64 = 1;
+    let mut hello = create_hello(seq, "restart-seed", "2.0.0");
+    hello.requested.stream_observations = true;
+    hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Action;
+    hello.requested.role = Some(tui_tetris::adapter::protocol::RequestedRole::Controller);
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    // welcome + first observation (snapshot request)
+    let welcome = read_next_json(&mut lines).await;
+    assert_eq!(welcome["type"], "welcome");
+    let first_obs = read_next_json(&mut lines).await;
+    assert_eq!(first_obs["type"], "observation");
+
+    // claim controller (idempotent if already controller)
+    seq += 1;
+    let claim = serde_json::json!({"type":"control","seq":seq,"ts":1,"action":"claim"});
+    write_half
+        .write_all(serde_json::to_string(&claim).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+    let claim_resp = read_next_json(&mut lines).await;
+    assert!(claim_resp["type"] == "ack" || claim_resp["type"] == "error");
+
+    // restart with seed
+    seq += 1;
+    let restart = serde_json::json!({
+        "type":"command",
+        "seq":seq,
+        "ts":1,
+        "mode":"action",
+        "actions":["restart"],
+        "restart":{"seed":seed}
+    });
+    write_half
+        .write_all(serde_json::to_string(&restart).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_half.write_all(b"\n").await.unwrap();
+    write_half.flush().await.unwrap();
+
+    // ack + observation after restart
+    loop {
+        let v = read_next_json(&mut lines).await;
+        if v["type"] == "ack" {
+            assert_eq!(v["seq"], seq);
+            break;
+        }
+        if v["type"] == "error" {
+            panic!("restart error: {v}");
+        }
+    }
+    let obs = read_next_json(&mut lines).await;
+    assert_eq!(obs["type"], "observation");
+    assert_eq!(obs["seed"], seed);
+
+    let mut sig: Vec<Vec<String>> = Vec::new();
+
+    // Capture a lightweight signature: the next_queue after each hard drop.
+    for _ in 0..8 {
+        seq += 1;
+        let cmd = serde_json::json!({
+            "type":"command",
+            "seq":seq,
+            "ts":1,
+            "mode":"action",
+            "actions":["hardDrop"]
+        });
+        write_half
+            .write_all(serde_json::to_string(&cmd).unwrap().as_bytes())
+            .await
+            .unwrap();
+        write_half.write_all(b"\n").await.unwrap();
+        write_half.flush().await.unwrap();
+
+        // ack (or error if game isn't playable)
+        loop {
+            let v = read_next_json(&mut lines).await;
+            if v["type"] == "ack" || v["type"] == "error" {
+                assert_eq!(v["seq"], seq);
+                if v["type"] == "error" {
+                    panic!("hardDrop error: {v}");
+                }
+                break;
+            }
+        }
+
+        let obs = read_next_json(&mut lines).await;
+        assert_eq!(obs["type"], "observation");
+        assert_eq!(obs["seed"], seed);
+        let q = obs["next_queue"]
+            .as_array()
+            .expect("next_queue array")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        sig.push(q);
+    }
+
+    sig
 }
 
 #[tokio::test]
@@ -206,6 +334,40 @@ async fn closed_loop_stability_3x50_reconnects() {
             drop(write_half);
         }
     }
+
+    server_handle.abort();
+    engine_handle.abort();
+}
+
+#[tokio::test]
+async fn restart_with_seed_is_deterministic_for_next_queue() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 64,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(128);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_loop(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let seed = 123u32;
+    let a = collect_next_queue_signature(addr, seed).await;
+    let b = collect_next_queue_signature(addr, seed).await;
+    assert_eq!(a, b);
 
     server_handle.abort();
     engine_handle.abort();

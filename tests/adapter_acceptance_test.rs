@@ -71,8 +71,17 @@ async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::U
             }
             InboundPayload::Command(cmd) => {
                 match cmd {
-                    ClientCommand::Actions(actions) => {
+                    ClientCommand::Actions {
+                        actions,
+                        mut restart_seed,
+                    } => {
                         for a in actions {
+                            if a == GameAction::Restart {
+                                if let Some(seed) = restart_seed.take() {
+                                    let _ = gs.restart_with_seed(seed);
+                                    continue;
+                                }
+                            }
                             let _ = gs.apply_action(a);
                         }
                         let ack = create_ack(inbound.seq, inbound.seq);
@@ -143,8 +152,17 @@ async fn engine_task_with_place(
             InboundPayload::Command(cmd) => {
                 let mut ok = Ok(());
                 match cmd {
-                    ClientCommand::Actions(actions) => {
+                    ClientCommand::Actions {
+                        actions,
+                        mut restart_seed,
+                    } => {
                         for a in actions {
+                            if a == GameAction::Restart {
+                                if let Some(seed) = restart_seed.take() {
+                                    let _ = gs.restart_with_seed(seed);
+                                    continue;
+                                }
+                            }
                             let _ = gs.apply_action(a);
                         }
                     }
@@ -239,17 +257,27 @@ async fn engine_task_game_over(
             }
             InboundPayload::Command(cmd) => {
                 match cmd {
-                    ClientCommand::Actions(actions) => {
+                    ClientCommand::Actions {
+                        actions,
+                        mut restart_seed,
+                    } => {
                         for a in actions {
                             match &mut mode {
                                 Mode::GameOver => {
                                     if a == GameAction::Restart {
-                                        let mut gs = GameState::new(1);
+                                        let seed = restart_seed.take().unwrap_or(1);
+                                        let mut gs = GameState::new(seed);
                                         gs.start();
                                         mode = Mode::Playing(gs);
                                     }
                                 }
                                 Mode::Playing(gs) => {
+                                    if a == GameAction::Restart {
+                                        if let Some(seed) = restart_seed.take() {
+                                            let _ = gs.restart_with_seed(seed);
+                                            continue;
+                                        }
+                                    }
                                     let _ = gs.apply_action(a);
                                 }
                             }
@@ -339,17 +367,27 @@ async fn engine_task_game_over_with_place(
             }
             InboundPayload::Command(cmd) => {
                 match cmd {
-                    ClientCommand::Actions(actions) => {
+                    ClientCommand::Actions {
+                        actions,
+                        mut restart_seed,
+                    } => {
                         for a in actions {
                             match &mut mode {
                                 Mode::GameOver => {
                                     if a == GameAction::Restart {
-                                        let mut gs = GameState::new(1);
+                                        let seed = restart_seed.take().unwrap_or(1);
+                                        let mut gs = GameState::new(seed);
                                         gs.start();
                                         mode = Mode::Playing(gs);
                                     }
                                 }
                                 Mode::Playing(gs) => {
+                                    if a == GameAction::Restart {
+                                        if let Some(seed) = restart_seed.take() {
+                                            let _ = gs.restart_with_seed(seed);
+                                            continue;
+                                        }
+                                    }
                                     let _ = gs.apply_action(a);
                                 }
                             }

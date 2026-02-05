@@ -1070,6 +1070,7 @@ fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (ErrorCode, String
             let Some(ActionList(ref list)) = cmd.actions else {
                 return Err((ErrorCode::InvalidCommand, "Missing actions".to_string()));
             };
+            let mut saw_restart = false;
             let mut actions = ArrayVec::<GameAction, 32>::new();
             for a in list.iter().copied() {
                 let ga = match a {
@@ -1081,15 +1082,47 @@ fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (ErrorCode, String
                     ActionName::RotateCcw => GameAction::RotateCcw,
                     ActionName::Hold => GameAction::Hold,
                     ActionName::Pause => GameAction::Pause,
-                    ActionName::Restart => GameAction::Restart,
+                    ActionName::Restart => {
+                        saw_restart = true;
+                        GameAction::Restart
+                    }
                 };
                 actions
                     .try_push(ga)
                     .map_err(|_| (ErrorCode::InvalidCommand, "Too many actions".to_string()))?;
             }
-            Ok(ClientCommand::Actions(actions))
+
+            let restart_seed = match cmd.restart.as_ref() {
+                None => None,
+                Some(r) => {
+                    if !saw_restart {
+                        return Err((
+                            ErrorCode::InvalidCommand,
+                            "restart field requires actions to include restart".to_string(),
+                        ));
+                    }
+                    if r.seed > u32::MAX as u64 {
+                        return Err((
+                            ErrorCode::InvalidCommand,
+                            "restart.seed out of range".to_string(),
+                        ));
+                    }
+                    Some(r.seed as u32)
+                }
+            };
+
+            Ok(ClientCommand::Actions {
+                actions,
+                restart_seed,
+            })
         }
         CommandMode::Place => {
+            if cmd.restart.is_some() {
+                return Err((
+                    ErrorCode::InvalidCommand,
+                    "restart is only valid in action mode".to_string(),
+                ));
+            }
             let Some(ref place) = cmd.place else {
                 return Err((ErrorCode::InvalidPlace, "Missing place".to_string()));
             };
@@ -1235,8 +1268,9 @@ mod tests {
         };
         let mapped = map_command(&cmd).unwrap();
         match mapped {
-            ClientCommand::Actions(actions) => {
+            ClientCommand::Actions { actions, restart_seed } => {
                 assert_eq!(actions.as_slice(), [GameAction::MoveLeft, GameAction::RotateCw, GameAction::HardDrop]);
+                assert_eq!(restart_seed, None);
             }
             _ => panic!("expected action mapping"),
         }

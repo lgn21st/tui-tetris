@@ -44,7 +44,10 @@ pub enum InboundPayload {
 /// Command payload.
 #[derive(Debug, Clone)]
 pub enum ClientCommand {
-    Actions(ArrayVec<GameAction, 32>),
+    Actions {
+        actions: ArrayVec<GameAction, 32>,
+        restart_seed: Option<u32>,
+    },
     Place {
         x: i8,
         rotation: Rotation,

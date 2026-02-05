@@ -108,8 +108,17 @@ fn run_headless() -> Result<()> {
                     }
                     tui_tetris::adapter::runtime::InboundPayload::Command(cmd2) => {
                         let ok: Result<(), PlaceError> = match cmd2 {
-                            tui_tetris::adapter::runtime::ClientCommand::Actions(actions) => {
+                            tui_tetris::adapter::runtime::ClientCommand::Actions {
+                                actions,
+                                mut restart_seed,
+                            } => {
                                 for a in actions {
+                                    if a == GameAction::Restart {
+                                        if let Some(seed) = restart_seed.take() {
+                                            let _ = game_state.restart_with_seed(seed);
+                                            continue;
+                                        }
+                                    }
                                     let _ = game_state.apply_action(a);
                                 }
                                 Ok(())
@@ -511,17 +520,26 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                                 obs: Arc::new(obs),
                             });
                             continue;
-                        }
-                        tui_tetris::adapter::runtime::InboundPayload::Command(cmd2) => {
-                            let ok: Result<(), PlaceError> = match cmd2 {
-                                tui_tetris::adapter::runtime::ClientCommand::Actions(actions) => {
-                                    for a in actions {
-                                        let _ = game_state.apply_action(a);
+                    }
+                    tui_tetris::adapter::runtime::InboundPayload::Command(cmd2) => {
+                        let ok: Result<(), PlaceError> = match cmd2 {
+                            tui_tetris::adapter::runtime::ClientCommand::Actions {
+                                actions,
+                                mut restart_seed,
+                            } => {
+                                for a in actions {
+                                    if a == GameAction::Restart {
+                                        if let Some(seed) = restart_seed.take() {
+                                            let _ = game_state.restart_with_seed(seed);
+                                            continue;
+                                        }
                                     }
-                                    Ok(())
+                                    let _ = game_state.apply_action(a);
                                 }
-                                tui_tetris::adapter::runtime::ClientCommand::Place {
-                                    x,
+                                Ok(())
+                            }
+                            tui_tetris::adapter::runtime::ClientCommand::Place {
+                                x,
                                     rotation,
                                     use_hold,
                                 } => apply_place(&mut game_state, x, rotation, use_hold),

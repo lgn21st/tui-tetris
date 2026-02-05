@@ -244,8 +244,9 @@ async fn adapter_hello_command_ack_and_observation() {
         .unwrap();
     assert_eq!(inbound.seq, 2);
     match inbound.payload {
-        InboundPayload::Command(ClientCommand::Actions(a)) => {
-            assert_eq!(a.as_slice(), [GameAction::MoveLeft]);
+        InboundPayload::Command(ClientCommand::Actions { actions, restart_seed }) => {
+            assert_eq!(actions.as_slice(), [GameAction::MoveLeft]);
+            assert_eq!(restart_seed, None);
         }
         _ => panic!("unexpected inbound payload"),
     }

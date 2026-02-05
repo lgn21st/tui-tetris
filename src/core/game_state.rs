@@ -796,14 +796,22 @@ impl GameState {
                 true
             }
             GameAction::Restart => {
-                let seed = self.piece_queue.seed();
-                let next_episode = self.episode_id.wrapping_add(1);
-                *self = Self::new(seed);
-                self.episode_id = next_episode;
-                self.start();
-                true
+                let seed = self.piece_queue.rng_state();
+                self.restart_with_seed(seed)
             }
         }
+    }
+
+    /// Restart the game with an explicit episode seed.
+    ///
+    /// This is used by the adapter protocol (`command(action restart)` with `restart.seed`)
+    /// to guarantee determinism for training/evaluation.
+    pub fn restart_with_seed(&mut self, seed: u32) -> bool {
+        let next_episode = self.episode_id.wrapping_add(1);
+        *self = Self::new(seed);
+        self.episode_id = next_episode;
+        self.start();
+        true
     }
 
     /// Get the shape of the active piece (for rendering)

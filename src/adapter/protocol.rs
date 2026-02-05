@@ -188,6 +188,13 @@ pub struct CommandMessage {
     pub actions: Option<ActionList>, // For action mode
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place: Option<PlaceCommand>, // For place mode
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart: Option<RestartCommand>, // Optional restart parameters (action mode)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RestartCommand {
+    pub seed: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
