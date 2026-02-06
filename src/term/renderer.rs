@@ -67,13 +67,14 @@ impl TerminalRenderer {
     /// The renderer will diff against the previous frame and then swap buffers
     /// so the caller can reuse the old one without cloning.
     pub fn draw_swap(&mut self, fb: &mut FrameBuffer) -> Result<()> {
+        let invalidated = self.last.is_none();
         if self.last.is_none() {
             self.last = Some(FrameBuffer::new(fb.width(), fb.height()));
         }
 
         // Take previous out to avoid borrow conflicts (no cloning).
         let mut prev = self.last.take().unwrap();
-        let needs_full = prev.width() != fb.width() || prev.height() != fb.height();
+        let needs_full = invalidated || prev.width() != fb.width() || prev.height() != fb.height();
 
         if needs_full {
             self.buf.clear();
@@ -261,5 +262,18 @@ mod tests {
         })
         .unwrap();
         assert_eq!(runs, vec![(1, 0, 3)]);
+    }
+
+    #[test]
+    fn changed_run_iterator_marks_full_frame_when_prev_size_differs() {
+        let prev = FrameBuffer::new(2, 2);
+        let next = FrameBuffer::new(3, 2);
+        let mut runs = Vec::new();
+        for_each_changed_run(&prev, &next, |x, y, len| {
+            runs.push((x, y, len));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(runs, vec![(0, 0, 3), (0, 1, 3)]);
     }
 }
