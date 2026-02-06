@@ -266,22 +266,28 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut render_throttle = RenderThrottle::new(250);
 
     let mut adapter = Adapter::start_from_env()?;
-    let listen_addr = adapter
-        .as_ref()
-        .and_then(|a| a.listen_addr())
-        .or_else(|| {
-            // Fallback to configured env, mirroring adapter defaults.
-            let host_s = std::env::var("TETRIS_AI_HOST").ok().unwrap_or_else(|| "127.0.0.1".to_string());
-            let port = std::env::var("TETRIS_AI_PORT")
-                .ok()
-                .and_then(|s| s.parse::<u16>().ok())
-                .unwrap_or(7777);
-            host_s
-                .trim()
-                .parse::<std::net::IpAddr>()
-                .ok()
-                .map(|ip| std::net::SocketAddr::new(ip, port))
-        });
+    let listen_addr = if adapter.is_some() {
+        adapter
+            .as_ref()
+            .and_then(|a| a.listen_addr())
+            .or_else(|| {
+                // Fallback to configured env, mirroring adapter defaults.
+                let host_s = std::env::var("TETRIS_AI_HOST")
+                    .ok()
+                    .unwrap_or_else(|| "127.0.0.1".to_string());
+                let port = std::env::var("TETRIS_AI_PORT")
+                    .ok()
+                    .and_then(|s| s.parse::<u16>().ok())
+                    .unwrap_or(7777);
+                host_s
+                    .trim()
+                    .parse::<std::net::IpAddr>()
+                    .ok()
+                    .map(|ip| std::net::SocketAddr::new(ip, port))
+            })
+    } else {
+        None
+    };
     let mut adapter_view = AdapterStatusView {
         enabled: adapter.is_some(),
         client_count: 0,
@@ -391,12 +397,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 game_state.snapshot_board_into(&mut snap);
             }
             game_state.snapshot_meta_into(&mut snap);
-            let adapter_info = if adapter_view.enabled {
-                Some(&adapter_view)
-            } else {
-                None
-            };
-            view.render_into_with_adapter(&snap, adapter_info, Viewport::new(w, h), &mut fb);
+            view.render_into_with_adapter(&snap, Some(&adapter_view), Viewport::new(w, h), &mut fb);
             term.draw_swap(&mut fb)?;
         }
 

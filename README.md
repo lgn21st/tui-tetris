@@ -171,6 +171,22 @@ TETRIS_AI_OBS_HZ=30 TUI_TETRIS_HEADLESS=1 cargo run
 TETRIS_AI_DISABLED=1 TUI_TETRIS_HEADLESS=1 cargo run
 ```
 
+## HUD AI Metrics
+
+AI panel metrics (runtime HUD):
+- `CONN <n>`: current connected AI clients.
+- `ST <code>`: adapter lifecycle status code.
+- `CTRL <id|->`: active controller client id, or `-` when none.
+- `PORT <p|->`: adapter listen port, or `-` when not listening.
+- `PID <pid>`: current game process id.
+
+`ST` code mapping:
+- `0`: adapter off/disabled
+- `1`: adapter listening, no clients
+- `2`: clients connected, no controller
+- `3`: controller assigned, no streaming observers
+- `4`: streaming active
+
 ## Compatibility
 
 AI protocol: see `docs/adapter.md`.

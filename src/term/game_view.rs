@@ -23,6 +23,27 @@ pub struct AdapterStatusView {
     pub listen_addr: Option<std::net::SocketAddr>,
 }
 
+impl AdapterStatusView {
+    /// HUD status code:
+    /// 0=adapter off, 1=listening(no clients), 2=clients(no controller),
+    /// 3=controller active(no streaming), 4=streaming active.
+    pub fn status_code(&self) -> u32 {
+        if !self.enabled {
+            return 0;
+        }
+        if self.client_count == 0 {
+            return 1;
+        }
+        if self.controller_id.is_none() {
+            return 2;
+        }
+        if self.streaming_count == 0 {
+            return 3;
+        }
+        4
+    }
+}
+
 impl Viewport {
     pub fn new(width: u16, height: u16) -> Self {
         Self { width, height }
@@ -332,9 +353,8 @@ impl GameView {
         // Layout below:
         // - 1 blank line
         // - "AI" label
-        // - 1 status line ("ON"/"OFF")
-        // - When enabled: C, S, CTRL, PORT, PID (5 lines)
-        let reserve_ai_lines: u16 = if adapter.is_some() { 8 } else { 3 };
+        // - When enabled: CONN, ST, CTRL, PORT, PID (5 lines)
+        let reserve_ai_lines: u16 = if adapter.is_some() { 7 } else { 2 };
 
         fb.put_str(panel_x, y, "NEXT", label);
         y = y.saturating_add(1);
@@ -358,98 +378,34 @@ impl GameView {
         fb.put_str(panel_x, y, "AI", label);
         y = y.saturating_add(1);
         if let Some(st) = adapter {
-            fb.put_str(panel_x, y, "ON", value);
-            if panel_w >= 16 {
-                let dim = CellStyle { dim: true, ..value };
-                fb.put_str(panel_x + 3, y, "clients", dim);
-            }
+            let value_x = panel_x + 5;
+
+            fb.put_str(panel_x, y, "CONN", value);
+            fb.put_u32(value_x, y, st.client_count as u32, value);
+
             y = y.saturating_add(1);
-            fb.put_str(panel_x, y, "C", value);
-            fb.put_u32(panel_x + 2, y, st.client_count as u32, value);
-            y = y.saturating_add(1);
-            fb.put_str(panel_x, y, "S", value);
-            fb.put_u32(panel_x + 2, y, st.streaming_count as u32, value);
+            fb.put_str(panel_x, y, "ST", value);
+            fb.put_u32(value_x, y, st.status_code(), value);
+
             y = y.saturating_add(1);
             fb.put_str(panel_x, y, "CTRL", value);
             if let Some(id) = st.controller_id {
-                fb.put_u32(panel_x + 5, y, id as u32, value);
+                fb.put_u32(value_x, y, id as u32, value);
             } else {
-                fb.put_str(panel_x + 5, y, "-", value);
+                fb.put_str(value_x, y, "-", value);
             }
 
             y = y.saturating_add(1);
-            fb.put_str(panel_x, y, "TCP", value);
+            fb.put_str(panel_x, y, "PORT", value);
             if let Some(addr) = st.listen_addr {
-                let max_cols = viewport.width.saturating_sub(panel_x + 4);
-                self.draw_socket_addr(fb, panel_x + 4, y, addr, max_cols, value);
+                fb.put_u32(value_x, y, addr.port() as u32, value);
             } else {
-                fb.put_str(panel_x + 4, y, "-", value);
+                fb.put_str(value_x, y, "-", value);
             }
 
             y = y.saturating_add(1);
             fb.put_str(panel_x, y, "PID", value);
-            fb.put_u32(panel_x + 4, y, st.pid, value);
-        } else {
-            fb.put_str(panel_x, y, "OFF", value);
-        }
-    }
-
-    fn draw_socket_addr(
-        &self,
-        fb: &mut FrameBuffer,
-        x: u16,
-        y: u16,
-        addr: std::net::SocketAddr,
-        max_cols: u16,
-        style: CellStyle,
-    ) {
-        use std::net::SocketAddr;
-        match addr {
-            SocketAddr::V4(v4) => {
-                let ip = v4.ip().octets();
-                let mut cx = x;
-
-                // Compute how many columns "a.b.c.d:port" needs.
-                let ip_cols: u16 = ip
-                    .iter()
-                    .map(|b| if *b >= 100 { 3 } else if *b >= 10 { 2 } else { 1 })
-                    .sum::<u16>()
-                    + 3; // dots
-                let port = v4.port();
-                let port_cols: u16 = if port >= 10000 {
-                    5
-                } else if port >= 1000 {
-                    4
-                } else if port >= 100 {
-                    3
-                } else if port >= 10 {
-                    2
-                } else {
-                    1
-                };
-                let want_with_port = ip_cols.saturating_add(1).saturating_add(port_cols); // ':' + port
-                let show_port = max_cols >= want_with_port;
-
-                for (i, b) in ip.iter().enumerate() {
-                    fb.put_u32(cx, y, *b as u32, style);
-                    // Advance by 1-3 cols depending on digits.
-                    cx += if *b >= 100 { 3 } else if *b >= 10 { 2 } else { 1 };
-                    if i + 1 < ip.len() {
-                        fb.put_char(cx, y, '.', style);
-                        cx += 1;
-                    }
-                }
-                if show_port {
-                    fb.put_char(cx, y, ':', style);
-                    cx += 1;
-                    fb.put_u32(cx, y, port as u32, style);
-                }
-            }
-            SocketAddr::V6(v6) => {
-                // Keep this allocation-free and compact. Most deployments bind IPv4.
-                fb.put_str(x, y, "[ipv6]:", style);
-                fb.put_u32(x + 7, y, v6.port() as u32, style);
-            }
+            fb.put_u32(value_x, y, st.pid, value);
         }
     }
 

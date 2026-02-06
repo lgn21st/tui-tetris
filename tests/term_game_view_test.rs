@@ -91,7 +91,7 @@ fn term_view_can_anchor_board_to_top() {
 }
 
 #[test]
-fn term_view_renders_adapter_pid_and_ip_when_enabled() {
+fn term_view_renders_adapter_pid_and_port_when_enabled() {
     let mut gs = GameState::new(1);
     gs.start();
     let snap = gs.snapshot();
@@ -118,8 +118,11 @@ fn term_view_renders_adapter_pid_and_ip_when_enabled() {
 
     assert!(all.contains("PID"));
     assert!(all.contains("4242"));
-    assert!(all.contains("TCP"));
-    assert!(all.contains("127.0.0.1"));
+    assert!(all.contains("PORT"));
+    assert!(all.contains("7777"));
+    assert!(all.contains("CONN"));
+    assert!(all.contains("ST"));
+    assert!(all.contains("CTRL"));
 }
 
 #[test]
@@ -148,7 +151,32 @@ fn term_view_renders_adapter_port_when_space_allows() {
         all.push('\n');
     }
 
-    assert!(all.contains("TCP"));
-    assert!(all.contains("127.0.0.1"));
+    assert!(all.contains("PORT"));
     assert!(all.contains("7777"));
+}
+
+#[test]
+fn adapter_status_code_mapping_is_stable() {
+    let base = AdapterStatusView {
+        enabled: false,
+        client_count: 0,
+        controller_id: None,
+        streaming_count: 0,
+        pid: 1,
+        listen_addr: None,
+    };
+    assert_eq!(base.status_code(), 0);
+
+    let mut st = base;
+    st.enabled = true;
+    assert_eq!(st.status_code(), 1);
+
+    st.client_count = 1;
+    assert_eq!(st.status_code(), 2);
+
+    st.controller_id = Some(7);
+    assert_eq!(st.status_code(), 3);
+
+    st.streaming_count = 1;
+    assert_eq!(st.status_code(), 4);
 }
