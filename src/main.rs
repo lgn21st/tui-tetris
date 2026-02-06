@@ -15,11 +15,20 @@ use tui_tetris::adapter::{Adapter, OutboundMessage};
 use tui_tetris::core::{GameSnapshot, GameState};
 use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
+use tui_tetris::observe::{
+    connect_observer, observe_status_lines, parse_observe_args, snapshot_from_observation,
+    wait_for_welcome, ObserveEvent,
+};
 use tui_tetris::term::AdapterStatusView;
-use tui_tetris::term::{AnchorY, GameView, RenderThrottle, TerminalRenderer, Viewport};
+use tui_tetris::term::{AnchorY, CellStyle, GameView, RenderThrottle, Rgb, TerminalRenderer, Viewport};
 use tui_tetris::types::{GameAction, TICK_MS};
 
 fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(config) = parse_observe_args(&args)? {
+        return run_observe(config);
+    }
+
     if headless_enabled() {
         return run_headless();
     }
@@ -30,6 +39,92 @@ fn main() -> Result<()> {
     let result = run(&mut term);
 
     // Always try to restore terminal state.
+    let _ = term.exit();
+    result
+}
+
+fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
+    let rx = connect_observer(&config)?;
+    let first_obs = wait_for_welcome(&rx, Duration::from_secs(3))?;
+
+    let mut term = TerminalRenderer::new();
+    term.enter()?;
+
+    let result = (|| -> Result<()> {
+        let view = game_view_from_env();
+        let mut fb = tui_tetris::term::FrameBuffer::new(80, 24);
+        let mut latest_obs = first_obs;
+        let mut snap = latest_obs
+            .as_ref()
+            .map(snapshot_from_observation)
+            .unwrap_or_else(GameSnapshot::default);
+        let mut last_term_size: (u16, u16) = (0, 0);
+        let mut dirty = true;
+
+        loop {
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    ObserveEvent::Observation(obs) => {
+                        latest_obs = Some(obs.clone());
+                        snap = snapshot_from_observation(&obs);
+                        dirty = true;
+                    }
+                    ObserveEvent::Error(msg) => {
+                        return Err(anyhow::anyhow!(msg));
+                    }
+                    ObserveEvent::Closed => {
+                        return Err(anyhow::anyhow!("observe: connection closed"));
+                    }
+                    ObserveEvent::Welcome => {}
+                }
+            }
+
+            let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
+            if (w, h) != last_term_size {
+                last_term_size = (w, h);
+                term.invalidate();
+                dirty = true;
+            }
+
+            if dirty {
+                view.render_into(&snap, Viewport::new(w, h), &mut fb);
+                let observe_label = CellStyle {
+                    fg: Rgb::new(220, 220, 220),
+                    bg: Rgb::new(0, 0, 0),
+                    bold: true,
+                    dim: false,
+                };
+                for (i, line) in observe_status_lines(&config, latest_obs.as_ref())
+                    .iter()
+                    .enumerate()
+                {
+                    let y = i as u16;
+                    if y >= h {
+                        break;
+                    }
+                    fb.put_str(0, y, line, observe_label);
+                }
+                term.draw_swap(&mut fb)?;
+                dirty = false;
+            }
+
+            if event::poll(Duration::from_millis(16))? {
+                match event::read()? {
+                    Event::Resize(_, _) => {
+                        term.invalidate();
+                        dirty = true;
+                    }
+                    Event::Key(key) => {
+                        if key.kind == KeyEventKind::Press && should_quit(key) {
+                            return Ok(());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    })();
+
     let _ = term.exit();
     result
 }

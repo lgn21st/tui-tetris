@@ -347,14 +347,9 @@ impl GameView {
         );
         y = y.saturating_add(2);
 
-        // Reserve space for the AI status block so critical lifecycle info stays visible even on
-        // tight terminals (e.g. 22 rows).
-        //
-        // Layout below:
-        // - 1 blank line
-        // - "AI" label
-        // - When enabled: CONN, ST, CTRL, PORT, PID (5 lines)
-        let reserve_ai_lines: u16 = if adapter.is_some() { 7 } else { 2 };
+        // Reserve space for the AI status block only when adapter status is available.
+        // In observe mode there is no local adapter status source, so hide the whole block.
+        let reserve_ai_lines: u16 = if adapter.is_some() { 7 } else { 0 };
 
         fb.put_str(panel_x, y, "NEXT", label);
         y = y.saturating_add(1);
@@ -374,10 +369,10 @@ impl GameView {
             y = y.saturating_add(1);
         }
 
-        y = y.saturating_add(1);
-        fb.put_str(panel_x, y, "AI", label);
-        y = y.saturating_add(1);
         if let Some(st) = adapter {
+            y = y.saturating_add(1);
+            fb.put_str(panel_x, y, "AI", label);
+            y = y.saturating_add(1);
             let value_x = panel_x + 5;
 
             fb.put_str(panel_x, y, "CONN", value);

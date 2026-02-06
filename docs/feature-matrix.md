@@ -31,6 +31,7 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Resizing invalidation ✅
 - Snapshot-style renderer tests ✅
 - GameView allocation-free gate ✅
+- Remote observer renderer mode (`cargo run -- observe ...`) ✅
 
 ## Adapter
 

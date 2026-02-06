@@ -65,6 +65,30 @@ fn term_view_draws_side_panel_when_wide_enough() {
 }
 
 #[test]
+fn term_view_hides_ai_panel_without_adapter_status() {
+    let mut gs = GameState::new(1);
+    gs.start();
+    let snap = gs.snapshot();
+    let view = GameView::default();
+    let fb = view.render(&snap, Viewport::new(60, 22));
+
+    let mut all = String::new();
+    for y in 0..fb.height() {
+        for x in 0..fb.width() {
+            all.push(fb.get(x, y).unwrap().ch);
+        }
+        all.push('\n');
+    }
+
+    assert!(!all.contains("AI"));
+    assert!(!all.contains("CONN"));
+    assert!(!all.contains("ST"));
+    assert!(!all.contains("CTRL"));
+    assert!(!all.contains("PORT"));
+    assert!(!all.contains("PID"));
+}
+
+#[test]
 fn term_view_centers_board_by_default_on_tall_viewports() {
     let state = GameState::new(1);
     let snap = state.snapshot();

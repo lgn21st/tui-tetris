@@ -19,6 +19,9 @@ cargo run
 # Run in headless mode (no terminal UI; adapter-only loop)
 TUI_TETRIS_HEADLESS=1 cargo run
 
+# Observe a remote headless game over adapter TCP
+cargo run -- observe --host 127.0.0.1 --port 7777
+
 # Run without the TCP AI adapter (no listener)
 TETRIS_AI_DISABLED=1 cargo run
 
@@ -170,6 +173,27 @@ TETRIS_AI_OBS_HZ=30 TUI_TETRIS_HEADLESS=1 cargo run
 # Disable the adapter entirely (headless loop will run but will not listen)
 TETRIS_AI_DISABLED=1 TUI_TETRIS_HEADLESS=1 cargo run
 ```
+
+## Observe Mode
+
+Observe mode connects as an adapter observer client and renders remote observations locally.
+This is useful for watching a headless game process.
+
+Run:
+```bash
+cargo run -- observe --host 127.0.0.1 --port 7777
+```
+
+Notes:
+- It requests `role=observer` and does not send game commands.
+- It uses remote observations as source-of-truth (no local game tick simulation).
+- It overlays observe metadata in the top-left corner:
+  - `MODE OBSERVE`
+  - `TARGET <host:port>`
+  - `STATE <WAITING|IDLE|PLAY|PAUSED|GAME_OVER>`
+  - `EP <episode_id> PIECE <piece_id> STEP <step_in_piece>`
+  - `SEED <seed>`
+- Quit with `q` or `Ctrl+C`.
 
 ## HUD AI Metrics
 
