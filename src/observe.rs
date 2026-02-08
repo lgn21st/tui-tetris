@@ -26,6 +26,23 @@ pub enum ObserveEvent {
     Closed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObserveReconnectPolicy {
+    pub max_attempts: u32,
+    pub retry_delay: Duration,
+    pub welcome_timeout: Duration,
+}
+
+impl Default for ObserveReconnectPolicy {
+    fn default() -> Self {
+        Self {
+            max_attempts: 20,
+            retry_delay: Duration::from_millis(300),
+            welcome_timeout: Duration::from_secs(3),
+        }
+    }
+}
+
 pub fn parse_observe_args(args: &[String]) -> Result<Option<ObserveConfig>> {
     if args.is_empty() || args[0] != "observe" {
         return Ok(None);
@@ -101,6 +118,38 @@ pub fn connect_observer(config: &ObserveConfig) -> Result<mpsc::Receiver<Observe
     });
 
     Ok(rx)
+}
+
+pub fn connect_observer_with_retry(
+    config: &ObserveConfig,
+    policy: ObserveReconnectPolicy,
+) -> Result<(mpsc::Receiver<ObserveEvent>, Option<ObservationMessage>)> {
+    let max_attempts = policy.max_attempts.max(1);
+    let mut last_error = anyhow!("observe: reconnect attempts exhausted");
+
+    for attempt in 1..=max_attempts {
+        match connect_observer(config) {
+            Ok(rx) => match wait_for_welcome(&rx, policy.welcome_timeout) {
+                Ok(first_obs) => return Ok((rx, first_obs)),
+                Err(e) => {
+                    last_error = e;
+                }
+            },
+            Err(e) => {
+                last_error = e;
+            }
+        }
+
+        if attempt < max_attempts {
+            thread::sleep(policy.retry_delay);
+        }
+    }
+
+    Err(anyhow!(
+        "observe: reconnect failed after {} attempts: {}",
+        max_attempts,
+        last_error
+    ))
 }
 
 pub fn observe_status_lines(
@@ -443,5 +492,20 @@ mod tests {
         assert_eq!(lines[2], "STATE PLAY");
         assert_eq!(lines[3], "EP 7 PIECE 9 STEP 1");
         assert_eq!(lines[4], "SEED 123");
+    }
+
+    #[test]
+    fn connect_observer_with_retry_stops_after_max_attempts() {
+        let cfg = ObserveConfig {
+            host: "127.0.0.1".to_string(),
+            port: 1,
+        };
+        let policy = ObserveReconnectPolicy {
+            max_attempts: 2,
+            retry_delay: Duration::from_millis(1),
+            welcome_timeout: Duration::from_millis(50),
+        };
+        let err = connect_observer_with_retry(&cfg, policy).unwrap_err();
+        assert!(err.to_string().contains("after 2 attempts"));
     }
 }

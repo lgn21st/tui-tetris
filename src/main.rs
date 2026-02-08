@@ -16,8 +16,8 @@ use tui_tetris::core::{GameSnapshot, GameState};
 use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
 use tui_tetris::observe::{
-    connect_observer, observe_status_lines, parse_observe_args, snapshot_from_observation,
-    wait_for_welcome, ObserveEvent,
+    connect_observer_with_retry, observe_status_lines, parse_observe_args, snapshot_from_observation,
+    ObserveEvent, ObserveReconnectPolicy,
 };
 use tui_tetris::term::AdapterStatusView;
 use tui_tetris::term::{AnchorY, CellStyle, GameView, RenderThrottle, Rgb, TerminalRenderer, Viewport};
@@ -44,8 +44,8 @@ fn main() -> Result<()> {
 }
 
 fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
-    let rx = connect_observer(&config)?;
-    let first_obs = wait_for_welcome(&rx, Duration::from_secs(3))?;
+    let reconnect_policy = ObserveReconnectPolicy::default();
+    let (mut rx, first_obs) = connect_observer_with_retry(&config, reconnect_policy)?;
 
     let mut term = TerminalRenderer::new();
     term.enter()?;
@@ -69,11 +69,21 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
                         snap = snapshot_from_observation(&obs);
                         dirty = true;
                     }
-                    ObserveEvent::Error(msg) => {
-                        return Err(anyhow::anyhow!(msg));
-                    }
-                    ObserveEvent::Closed => {
-                        return Err(anyhow::anyhow!("observe: connection closed"));
+                    ObserveEvent::Error(_) | ObserveEvent::Closed => {
+                        match connect_observer_with_retry(&config, reconnect_policy) {
+                            Ok((new_rx, first_obs_after_reconnect)) => {
+                                rx = new_rx;
+                                latest_obs = first_obs_after_reconnect;
+                                if let Some(obs) = latest_obs.as_ref() {
+                                    snap = snapshot_from_observation(obs);
+                                }
+                                dirty = true;
+                            }
+                            Err(e) => {
+                                eprintln!("{e}");
+                                return Ok(());
+                            }
+                        }
                     }
                     ObserveEvent::Welcome => {}
                 }

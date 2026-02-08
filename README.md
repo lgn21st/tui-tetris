@@ -187,6 +187,8 @@ cargo run -- observe --host 127.0.0.1 --port 7777
 Notes:
 - It requests `role=observer` and does not send game commands.
 - It uses remote observations as source-of-truth (no local game tick simulation).
+- If the target game restarts and the TCP connection drops, observe mode automatically retries reconnecting.
+- If reconnect attempts are exhausted, observe mode exits gracefully.
 - It overlays observe metadata in the top-left corner:
   - `MODE OBSERVE`
   - `TARGET <host:port>`
