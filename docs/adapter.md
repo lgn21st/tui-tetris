@@ -266,6 +266,26 @@ An adapter is **ACCEPTED** only if it passes all items below.
 - the adapter can run repeated rounds and the runner can exit cleanly (no hang)
 - reconnect works without restarting the game process
 
+## 8.5) Client Consumption Best Practices (Non-Normative)
+
+The following guidance is for robust client implementations. It does not change
+wire compatibility requirements.
+
+- Process one TCP stream in-order per connection. Avoid parallel reordering in the consumer.
+- Track `max_episode_id_seen`; discard observations whose `episode_id` is lower than that value.
+- Treat a new episode as active only after observing both:
+  - `episode_id` changed, and
+  - `step_in_piece == 1`
+- Gate action commands behind lifecycle flags:
+  - send move/rotate/drop/hold only when `playable=true && paused=false && game_over=false`.
+- On `error.code in {"invalid_place","not_controller"}`:
+  - stop sending additional action commands immediately,
+  - wait for the next streamed `observation` as the new source-of-truth,
+  - recompute policy on that snapshot before sending further actions.
+
+This pattern prevents stale in-flight observations around restart boundaries from
+causing false commands, while keeping protocol semantics unchanged.
+
 ## 9) Self-contained Verification (python3 stdlib only)
 
 All examples assume `127.0.0.1:7777`.
