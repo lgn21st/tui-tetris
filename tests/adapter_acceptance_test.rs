@@ -1180,6 +1180,14 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
     assert_eq!(welcome["type"], "welcome");
     assert_eq!(welcome["seq"], 1);
     assert!(welcome.get("capabilities").is_some());
+    assert_eq!(
+        welcome["capabilities"]["control_policy"]["auto_promote_on_disconnect"],
+        true
+    );
+    assert_eq!(
+        welcome["capabilities"]["control_policy"]["promotion_order"],
+        "lowest_client_id"
+    );
 
     let obs = read_json_line(&mut lines).await;
     assert_eq!(obs["type"], "observation");

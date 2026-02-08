@@ -18,6 +18,8 @@ use crate::types::{GameAction, Rotation};
 
 use arrayvec::ArrayVec;
 
+const BACKPRESSURE_RETRY_AFTER_MS: u64 = 50;
+
 pub fn check_tcp_listen_available(host: &str, port: u16) -> std::io::Result<()> {
     if port == 0 {
         return Ok(());
@@ -879,10 +881,10 @@ async fn handle_client(
                         // Ack will be sent by the game loop after the command is applied.
                     }
                     Err(_) => {
-                        let error = create_error(
+                        let error = create_backpressure_error(
                             cmd.seq,
-                            ErrorCode::Backpressure,
                             "Command queue is full",
+                            BACKPRESSURE_RETRY_AFTER_MS,
                         );
                         let _ = tx.send(ClientOutbound::Error(error));
                     }

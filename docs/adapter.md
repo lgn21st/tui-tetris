@@ -71,6 +71,12 @@ Lifecycle correctness (MUST):
 - Treat abrupt disconnects / socket read errors as disconnects for controller cleanup.
 - `controller_active` MUST only be returned when a controller is actually still connected/assigned.
 
+Policy visibility (MUST):
+- The adapter MUST expose controller policy in `welcome.capabilities.control_policy`.
+- `control_policy` fields:
+  - `auto_promote_on_disconnect` (boolean)
+  - `promotion_order` (string; e.g. `"lowest_client_id"`)
+
 ## 3) Sequencing & Framing (MUST)
 
 ### 3.1 Framing
@@ -83,6 +89,7 @@ Lifecycle correctness (MUST):
 - Duplicate or decreasing `seq` MUST return `error.code="invalid_command"` and MUST NOT enqueue/apply the message.
 - Backpressure retry rule:
   - If a `command` is rejected with `error.code="backpressure"`, treat it as **not enqueued** and retry using a **new, larger `seq`**.
+  - Server SHOULD include `error.retry_after_ms` to guide client retry pacing.
 
 ## 4) Message Types (Wire Format)
 
@@ -109,7 +116,7 @@ Deterministic control fields (MUST):
 
 Example:
 ```json
-{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.0.0","client_id":1,"role":"controller","controller_id":1,"game_id":"your-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"],"features_always":["next","next_queue","can_hold","board_id","state_hash","score","timers"],"features_optional":["hold","ghost_y","last_event"]}}
+{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.0.0","client_id":1,"role":"controller","controller_id":1,"game_id":"your-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"],"features_always":["next","next_queue","can_hold","board_id","state_hash","score","timers"],"features_optional":["hold","ghost_y","last_event"],"control_policy":{"auto_promote_on_disconnect":true,"promotion_order":"lowest_client_id"}}}
 ```
 
 ### 4.3 observation (game → client)
@@ -180,6 +187,11 @@ Place mode:
 {"type":"error","seq":7,"ts":1730000001310,"code":"invalid_command","message":"Unknown action: spin"}
 ```
 
+Backpressure hint (optional):
+```json
+{"type":"error","seq":8,"ts":1730000001311,"code":"backpressure","message":"Command queue full","retry_after_ms":50}
+```
+
 ## 5) Lifecycle & Playability (MUST)
 
 ### 5.1 `playable`
@@ -231,6 +243,7 @@ If `pause` exists:
 - `hold_unavailable`: hold requested when unavailable
 - `snapshot_required`: snapshot required for mapping/applying
 - `backpressure`: command queue full
+  - Optional field: `retry_after_ms` (integer, `>=1`) for client retry pacing.
 
 ## 7) Observation Frequency (SHOULD)
 - Adapters may emit observations every fixed step or at a throttled interval (e.g. 20Hz).
@@ -482,9 +495,17 @@ The schema below is included inline to avoid external file dependencies.
         "command_modes": { "type": "array", "items": { "type": "string" } },
         "features": { "type": "array", "items": { "type": "string" } },
         "features_always": { "type": "array", "items": { "type": "string" } },
-        "features_optional": { "type": "array", "items": { "type": "string" } }
+        "features_optional": { "type": "array", "items": { "type": "string" } },
+        "control_policy": {
+          "type": "object",
+          "properties": {
+            "auto_promote_on_disconnect": { "type": "boolean" },
+            "promotion_order": { "type": "string", "enum": ["lowest_client_id"] }
+          },
+          "required": ["auto_promote_on_disconnect", "promotion_order"]
+        }
       },
-      "required": ["formats", "command_modes", "features"]
+      "required": ["formats", "command_modes", "features", "control_policy"]
     },
     "piece_kind": { "type": "string", "enum": ["i","o","t","s","z","j","l"] },
     "rotation": { "type": "string", "enum": ["north","east","south","west"] },
@@ -698,6 +719,8 @@ The schema below is included inline to avoid external file dependencies.
           ]
         },
         "message": { "type": "string" }
+        ,
+        "retry_after_ms": { "type": "integer", "minimum": 1 }
       },
       "required": ["type", "seq", "ts", "code", "message"]
     }

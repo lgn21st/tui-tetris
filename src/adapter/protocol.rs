@@ -442,6 +442,21 @@ pub struct ServerCapabilities {
     /// Features that may be omitted when unknown/not-applicable.
     #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "features_optional")]
     pub features_optional: Vec<CapabilityFeature>,
+
+    /// Deterministic controller lifecycle policy.
+    pub control_policy: ControlPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ControlPolicy {
+    pub auto_promote_on_disconnect: bool,
+    pub promotion_order: ControlPromotionOrder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ControlPromotionOrder {
+    #[serde(rename = "lowest_client_id")]
+    LowestClientId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -501,6 +516,8 @@ pub struct ErrorMessage {
     pub ts: u64,
     pub code: ErrorCode,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -871,6 +888,10 @@ pub fn create_welcome(
                 CapabilityFeature::GhostY,
                 CapabilityFeature::LastEvent,
             ],
+            control_policy: ControlPolicy {
+                auto_promote_on_disconnect: true,
+                promotion_order: ControlPromotionOrder::LowestClientId,
+            },
         },
     }
 }
@@ -893,6 +914,18 @@ pub fn create_error(seq: u64, code: ErrorCode, message: &str) -> ErrorMessage {
         ts: current_timestamp_ms(),
         code,
         message: message.to_string(),
+        retry_after_ms: None,
+    }
+}
+
+pub fn create_backpressure_error(seq: u64, message: &str, retry_after_ms: u64) -> ErrorMessage {
+    ErrorMessage {
+        msg_type: ErrorType::Error,
+        seq,
+        ts: current_timestamp_ms(),
+        code: ErrorCode::Backpressure,
+        message: message.to_string(),
+        retry_after_ms: Some(retry_after_ms.max(1)),
     }
 }
 
@@ -967,6 +1000,17 @@ mod tests {
         assert_eq!(welcome.role, AssignedRole::Controller);
         assert_eq!(welcome.controller_id, Some(7));
         assert_eq!(welcome.game_id, "tui-tetris");
+        assert_eq!(
+            welcome
+                .capabilities
+                .control_policy
+                .promotion_order,
+            ControlPromotionOrder::LowestClientId
+        );
+        assert!(welcome
+            .capabilities
+            .control_policy
+            .auto_promote_on_disconnect);
     }
 
     #[test]
@@ -978,6 +1022,7 @@ mod tests {
         );
         assert_eq!(error.msg_type, ErrorType::Error);
         assert_eq!(error.code, ErrorCode::NotController);
+        assert_eq!(error.retry_after_ms, None);
     }
 
     #[test]

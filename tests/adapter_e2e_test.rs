@@ -840,6 +840,7 @@ async fn adapter_backpressure_returns_error() {
 
     // Expect an error for seq=3.
     let mut got_backpressure = false;
+    let mut got_retry_after = false;
     for _ in 0..10 {
         let next = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
             .await
@@ -848,10 +849,15 @@ async fn adapter_backpressure_returns_error() {
         let v: serde_json::Value = serde_json::from_str(&line).unwrap();
         if v["type"] == "error" && v["seq"] == 3 && v["code"] == "backpressure" {
             got_backpressure = true;
+            got_retry_after = v
+                .get("retry_after_ms")
+                .and_then(|x| x.as_u64())
+                .is_some_and(|n| n >= 1);
             break;
         }
     }
     assert!(got_backpressure);
+    assert!(got_retry_after);
 
     // First should be queued.
     let first = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
