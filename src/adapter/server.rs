@@ -262,6 +262,7 @@ pub struct ClientHandle {
     pub id: usize,
     pub addr: SocketAddr,
     pub is_controller: bool,
+    pub requested_role: RequestedRole,
     pub command_mode: CommandMode,
     pub stream_observations: bool,
     pub handshaken: bool,
@@ -539,6 +540,7 @@ async fn handle_client(
         id: client_id,
         addr,
         is_controller: false,
+        requested_role: RequestedRole::Auto,
         command_mode: CommandMode::Action,
         stream_observations: false,
         handshaken: false,
@@ -752,6 +754,7 @@ async fn handle_client(
                     if let Some(client) = clients.iter_mut().find(|c| c.id == client_id) {
                         client.handshaken = true;
                         client.last_seq = Some(hello.seq);
+                        client.requested_role = hello.requested.role.unwrap_or(RequestedRole::Auto);
                         client.command_mode = hello.requested.command_mode;
                         client.stream_observations = hello.requested.stream_observations;
                     }
@@ -1046,12 +1049,14 @@ async fn handle_client(
 
         if was_controller {
             // Promote the next available client (lowest id) to controller.
-            let next_id = clients.iter().filter(|c| !c.tx.is_closed()).map(|c| c.id).min();
+            let next_id = clients
+                .iter()
+                .filter(|c| !c.tx.is_closed() && c.requested_role != RequestedRole::Observer)
+                .map(|c| c.id)
+                .min();
             *controller = next_id;
-            if let Some(new_id) = next_id {
-                if let Some(c) = clients.iter_mut().find(|c| c.id == new_id) {
-                    c.is_controller = true;
-                }
+            for c in clients.iter_mut() {
+                c.is_controller = next_id.is_some_and(|id| c.id == id);
             }
         }
     }

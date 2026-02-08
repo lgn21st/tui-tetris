@@ -65,7 +65,7 @@ The adapter MUST implement:
   - whichever policy is chosen MUST be stable and documented (capability flag recommended)
 
 ### 2.4 Controller promotion on disconnect (RECOMMENDED)
-If the current controller disconnects, the adapter SHOULD promote the next available connected client to controller.
+If the current controller disconnects, the adapter SHOULD promote the next eligible connected client to controller.
 
 Lifecycle correctness (MUST):
 - Treat abrupt disconnects / socket read errors as disconnects for controller cleanup.
@@ -76,6 +76,10 @@ Policy visibility (MUST):
 - `control_policy` fields:
   - `auto_promote_on_disconnect` (boolean)
   - `promotion_order` (string; e.g. `"lowest_client_id"`)
+
+Eligibility rule (MUST):
+- Clients that connected with `requested.role="observer"` MUST NOT be auto-promoted to controller on disconnect.
+- Such clients may still become controller via explicit `control(action="claim")`.
 
 ## 3) Sequencing & Framing (MUST)
 
@@ -262,6 +266,7 @@ An adapter is **ACCEPTED** only if it passes all items below.
 - protocol major mismatch enforcement (`protocol_mismatch`)
 - deterministic control semantics:
   - observer never becomes controller when `requested.role="observer"`
+  - observer is not auto-promoted on controller disconnect
   - `claim` idempotence (self-claim returns `ack`)
   - commands from observers return `not_controller`
 - sequencing rules and backpressure retry semantics

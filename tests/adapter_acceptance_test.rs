@@ -987,19 +987,8 @@ async fn acceptance_command_enforces_monotonic_seq_after_hello() {
         ..ServerConfig::default()
     };
 
-    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
-    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
-    let (ready_tx, ready_rx) = oneshot::channel();
-
-    let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
-    });
+    let (server_handle, addr, cmd_rx, out_tx) = spawn_server(config, 16).await;
     let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
-
-    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
-        .await
-        .unwrap()
-        .unwrap();
 
     let stream = TcpStream::connect(addr).await.unwrap();
     let (read_half, mut write_half) = stream.into_split();
@@ -2297,6 +2286,123 @@ async fn acceptance_controller_disconnect_promotes_next_client() {
         }
     }
     assert!(saw_ack, "expected ack after controller disconnect promotion");
+
+    server_handle.abort();
+    engine_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_controller_disconnect_does_not_auto_promote_observer_role() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.1.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(16);
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Client A (controller by default).
+    let stream_a = TcpStream::connect(addr).await.unwrap();
+    let (read_a, mut write_a) = stream_a.into_split();
+    let mut lines_a = BufReader::new(read_a).lines();
+
+    let hello_a = create_hello(1, "acceptance-a", "2.1.0");
+    write_a
+        .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_a.write_all(b"\n").await.unwrap();
+    write_a.flush().await.unwrap();
+    let _welcome_a = read_json_line(&mut lines_a).await;
+    let _obs_a0 = read_json_line(&mut lines_a).await;
+
+    // Client B requests observer role.
+    let stream_b = TcpStream::connect(addr).await.unwrap();
+    let (read_b, mut write_b) = stream_b.into_split();
+    let mut lines_b = BufReader::new(read_b).lines();
+
+    let hello_b = serde_json::json!({
+        "type": "hello",
+        "seq": 1,
+        "ts": 1,
+        "client": {"name": "acceptance-b", "version": "0.1.0"},
+        "protocol_version": "2.1.0",
+        "formats": ["json"],
+        "requested": {
+            "stream_observations": true,
+            "command_mode": "action",
+            "role": "observer"
+        }
+    });
+    write_b
+        .write_all(serde_json::to_string(&hello_b).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+    let welcome_b = read_json_line(&mut lines_b).await;
+    assert_eq!(welcome_b["role"], "observer");
+    let _obs_b0 = read_json_line(&mut lines_b).await;
+
+    // Disconnect controller A.
+    drop(write_a);
+    drop(lines_a);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Observer B must remain non-controller after auto-promotion attempt.
+    let cmd_b = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_b.write_all(cmd_b.as_bytes()).await.unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    let mut saw_not_controller = false;
+    for _ in 0..10 {
+        let v = read_json_line(&mut lines_b).await;
+        if v["type"] == "error" && v["seq"] == 2 && v["code"] == "not_controller" {
+            saw_not_controller = true;
+            break;
+        }
+    }
+    assert!(saw_not_controller, "observer must not be auto-promoted on disconnect");
+
+    // Observer can still explicitly claim and then command.
+    let claim_b = r#"{"type":"control","seq":3,"ts":1,"action":"claim"}"#;
+    write_b.write_all(claim_b.as_bytes()).await.unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+    let ack_claim = read_json_line(&mut lines_b).await;
+    assert_eq!(ack_claim["type"], "ack");
+    assert_eq!(ack_claim["seq"], 3);
+
+    let cmd_b2 = r#"{"type":"command","seq":4,"ts":1,"mode":"action","actions":["moveRight"]}"#;
+    write_b.write_all(cmd_b2.as_bytes()).await.unwrap();
+    write_b.write_all(b"\n").await.unwrap();
+    write_b.flush().await.unwrap();
+
+    let mut saw_ack = false;
+    for _ in 0..10 {
+        let v = read_json_line(&mut lines_b).await;
+        if v["type"] == "ack" && v["seq"] == 4 {
+            saw_ack = true;
+            break;
+        }
+    }
+    assert!(saw_ack, "expected ack after explicit claim");
 
     server_handle.abort();
     engine_handle.abort();
