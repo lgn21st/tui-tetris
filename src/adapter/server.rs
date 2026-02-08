@@ -109,7 +109,7 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: 7777,
-            protocol_version: "2.0.0".to_string(),
+            protocol_version: "2.1.0".to_string(),
             max_pending_commands: 10,
             log_path: None,
             log_every_n: 1,
@@ -153,7 +153,7 @@ impl ServerConfig {
         Self {
             host,
             port,
-            protocol_version: "2.0.0".to_string(),
+            protocol_version: "2.1.0".to_string(),
             max_pending_commands,
             log_path,
             log_every_n,

@@ -992,10 +992,10 @@ mod tests {
 
     #[test]
     fn test_create_welcome() {
-        let welcome = create_welcome(1, "2.0.0", 7, AssignedRole::Controller, Some(7));
+        let welcome = create_welcome(1, "2.1.0", 7, AssignedRole::Controller, Some(7));
         assert_eq!(welcome.msg_type, WelcomeType::Welcome);
         assert_eq!(welcome.seq, 1);
-        assert_eq!(welcome.protocol_version, "2.0.0");
+        assert_eq!(welcome.protocol_version, "2.1.0");
         assert_eq!(welcome.client_id, 7);
         assert_eq!(welcome.role, AssignedRole::Controller);
         assert_eq!(welcome.controller_id, Some(7));

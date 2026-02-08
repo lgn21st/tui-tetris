@@ -1,4 +1,4 @@
-# Tetris AI Adapter Standard (v2.0.0)
+# Tetris AI Adapter Standard (v2.1.0)
 
 This is the **single source of truth** for:
 - the wire protocol between a Tetris game adapter (server) and `tetris-ai` (client)
@@ -10,7 +10,7 @@ Transport is intentionally thin: the protocol is defined in terms of **JSON mess
 ## 0) Defaults (MUST)
 - Address: `127.0.0.1:7777`
 - Framing: **line-delimited JSON** (exactly one JSON object per line)
-- Protocol version: `2.0.0` (semver)
+- Protocol version: `2.1.0` (semver)
 
 ## 1) Compatibility Scope
 
@@ -103,7 +103,7 @@ Required fields: `type, seq, ts, client, protocol_version, formats, requested`
 
 Example:
 ```json
-{"type":"hello","seq":1,"ts":1738291200000,"client":{"name":"tetris-ai","version":"0.1.0"},"protocol_version":"2.0.0","formats":["json"],"requested":{"stream_observations":true,"command_mode":"place","role":"auto"}}
+{"type":"hello","seq":1,"ts":1738291200000,"client":{"name":"tetris-ai","version":"0.1.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":true,"command_mode":"place","role":"auto"}}
 ```
 
 ### 4.2 welcome (game → client)
@@ -116,7 +116,7 @@ Deterministic control fields (MUST):
 
 Example:
 ```json
-{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.0.0","client_id":1,"role":"controller","controller_id":1,"game_id":"your-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"],"features_always":["next","next_queue","can_hold","board_id","state_hash","score","timers"],"features_optional":["hold","ghost_y","last_event"],"control_policy":{"auto_promote_on_disconnect":true,"promotion_order":"lowest_client_id"}}}
+{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.1.0","client_id":1,"role":"controller","controller_id":1,"game_id":"your-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"],"features_always":["next","next_queue","can_hold","board_id","state_hash","score","timers"],"features_optional":["hold","ghost_y","last_event"],"control_policy":{"auto_promote_on_disconnect":true,"promotion_order":"lowest_client_id"}}}
 ```
 
 ### 4.3 observation (game → client)
@@ -326,7 +326,7 @@ sock = socket.create_connection((host, port), timeout=timeout_s)
 hello = {
   "type":"hello","seq":1,"ts":int(time.time()*1000),
   "client":{"name":"acceptance","version":"0.1.0"},
-  "protocol_version":"2.0.0","formats":["json"],
+  "protocol_version":"2.1.0","formats":["json"],
   "requested":{"stream_observations":True,"command_mode":"place","role":"observer"},
 }
 sock.sendall((json.dumps(hello)+"\n").encode())
@@ -365,7 +365,7 @@ def recv(sock):
             return json.loads(line.decode("utf-8", errors="replace"))
 
 sock = socket.create_connection((host, port), timeout=timeout_s)
-send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.0.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
+send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
 _ = recv(sock)  # welcome
 send(sock, {"type":"control","seq":2,"ts":int(time.time()*1000),"action":"claim"})
 resp = recv(sock)
@@ -391,7 +391,7 @@ def send(sock, obj):
     sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
 sock = socket.create_connection((host, port), timeout=timeout_s)
-send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.0.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
+send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
 send(sock, {"type":"control","seq":2,"ts":int(time.time()*1000),"action":"claim"})
 send(sock, {"type":"command","seq":3,"ts":int(time.time()*1000),"mode":"action","actions":["restart"]})
 print("sent restart")
@@ -422,7 +422,7 @@ def recv_json(sock):
 def collect_signature(seed: int, n: int = 8):
     sock = socket.create_connection((host, port), timeout=timeout_s)
     sock.settimeout(timeout_s)
-    send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.0.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
+    send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
 
     # Establish baseline episode id from the first observation (pre-restart).
     baseline_episode_id = None
