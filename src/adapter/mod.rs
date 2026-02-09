@@ -70,6 +70,7 @@
 //! {"type":"hello","seq":1,"ts":1234567890,"client":{"name":"test","version":"1.0.0"},"protocol_version":"2.0.0","formats":["json"],"requested":{"stream_observations":true,"command_mode":"action"}}
 //! ```
 
+pub mod command_apply;
 pub mod protocol;
 pub mod runtime;
 pub mod server;

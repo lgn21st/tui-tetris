@@ -5,7 +5,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::io::BufWriter;
@@ -66,6 +66,89 @@ where
             *controller = None;
         }
     }
+}
+
+async fn clear_stale_controller(state: &Arc<ServerState>, controller: &mut Option<usize>) {
+    let clients = state.clients.read().await;
+    clear_stale_controller_id(controller, |id| clients.iter().any(|c| c.id == id && !c.tx.is_closed()));
+}
+
+fn sync_controller_flags(clients: &mut [ClientHandle], controller_id: Option<usize>) {
+    for client in clients.iter_mut() {
+        client.is_controller = controller_id.is_some_and(|id| client.id == id);
+    }
+}
+
+fn send_client_error(
+    tx: &mpsc::UnboundedSender<ClientOutbound>,
+    seq: u64,
+    code: ErrorCode,
+    message: impl AsRef<str>,
+) {
+    let _ = tx.send(ClientOutbound::Error(create_error(seq, code, message.as_ref())));
+}
+
+fn encode_json_into_buf<T: serde::Serialize>(buf: &mut Vec<u8>, value: &T) -> bool {
+    buf.clear();
+    serde_json::to_writer(&mut *buf, value).is_ok()
+}
+
+fn log_wire_record(log_tx: Option<&mpsc::UnboundedSender<WireRecord>>, record: WireRecord) {
+    if let Some(tx) = log_tx {
+        let _ = tx.send(record);
+    }
+}
+
+async fn write_json_and_log<W, T, F>(
+    writer: &mut BufWriter<W>,
+    buf: &mut Vec<u8>,
+    value: T,
+    log_tx: Option<&mpsc::UnboundedSender<WireRecord>>,
+    wrap: F,
+) -> std::io::Result<()>
+where
+    W: AsyncWrite + Unpin,
+    T: serde::Serialize,
+    F: FnOnce(T) -> WireRecord,
+{
+    if !encode_json_into_buf(buf, &value) {
+        return Ok(());
+    }
+    writer.write_all(buf).await?;
+    log_wire_record(log_tx, wrap(value));
+    Ok(())
+}
+
+async fn enforce_strict_seq(
+    state: &Arc<ServerState>,
+    tx: &mpsc::UnboundedSender<ClientOutbound>,
+    client_id: usize,
+    seq: u64,
+) -> bool {
+    if !check_and_update_seq(state, client_id, seq).await {
+        send_client_error(tx, seq, ErrorCode::InvalidCommand, "seq must be strictly increasing");
+        return false;
+    }
+    true
+}
+
+async fn enforce_handshake_and_seq(
+    state: &Arc<ServerState>,
+    tx: &mpsc::UnboundedSender<ClientOutbound>,
+    client_id: usize,
+    seq: u64,
+    noun: &str,
+) -> bool {
+    if !is_handshaken(state, client_id).await {
+        send_client_error(
+            tx,
+            seq,
+            ErrorCode::HandshakeRequired,
+            format!("Send hello before {}", noun),
+        );
+        return false;
+    }
+    enforce_strict_seq(state, tx, client_id, seq).await
 }
 
 impl Fnv1aHasher {
@@ -553,7 +636,7 @@ async fn handle_client(
         clients.push(client_handle);
     }
 
-    emit_status(&state).await;
+        emit_status(&state).await;
 
     let wire_log_tx_out = wire_log_tx.clone();
 
@@ -590,69 +673,72 @@ async fn handle_client(
                     if writer.write_all(line.as_bytes()).await.is_err() {
                         break;
                     }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(WireRecord::LineArc(line));
-                    }
+                    log_wire_record(wire_log_tx_out.as_ref(), WireRecord::LineArc(line));
                 }
                 ClientOutbound::Ack(ack) => {
-                    buf.clear();
-                    if serde_json::to_writer(&mut buf, &ack).is_err() {
-                        continue;
-                    }
-                    if writer.write_all(&buf).await.is_err() {
+                    if write_json_and_log(
+                        &mut writer,
+                        &mut buf,
+                        ack,
+                        wire_log_tx_out.as_ref(),
+                        WireRecord::Ack,
+                    )
+                    .await
+                    .is_err()
+                    {
                         break;
-                    }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(WireRecord::Ack(ack));
                     }
                 }
                 ClientOutbound::Error(err) => {
-                    buf.clear();
-                    if serde_json::to_writer(&mut buf, &err).is_err() {
-                        continue;
-                    }
-                    if writer.write_all(&buf).await.is_err() {
+                    if write_json_and_log(
+                        &mut writer,
+                        &mut buf,
+                        err,
+                        wire_log_tx_out.as_ref(),
+                        WireRecord::Error,
+                    )
+                    .await
+                    .is_err()
+                    {
                         break;
-                    }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(WireRecord::Error(err));
                     }
                 }
                 ClientOutbound::Welcome(welcome) => {
-                    buf.clear();
-                    if serde_json::to_writer(&mut buf, &welcome).is_err() {
-                        continue;
-                    }
-                    if writer.write_all(&buf).await.is_err() {
+                    if write_json_and_log(
+                        &mut writer,
+                        &mut buf,
+                        welcome,
+                        wire_log_tx_out.as_ref(),
+                        WireRecord::Welcome,
+                    )
+                    .await
+                    .is_err()
+                    {
                         break;
-                    }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(WireRecord::Welcome(welcome));
                     }
                 }
                 ClientOutbound::Observation(obs) => {
-                    buf.clear();
-                    if serde_json::to_writer(&mut buf, &obs).is_err() {
-                        continue;
-                    }
-                    if writer.write_all(&buf).await.is_err() {
+                    if write_json_and_log(
+                        &mut writer,
+                        &mut buf,
+                        obs,
+                        wire_log_tx_out.as_ref(),
+                        WireRecord::Observation,
+                    )
+                    .await
+                    .is_err()
+                    {
                         break;
-                    }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(WireRecord::Observation(obs));
                     }
                 }
                 ClientOutbound::ObservationArc(obs) => {
-                    buf.clear();
-                    if serde_json::to_writer(&mut buf, obs.as_ref()).is_err() {
+                    if !encode_json_into_buf(&mut buf, obs.as_ref()) {
                         continue;
                     }
                     if writer.write_all(&buf).await.is_err() {
                         break;
                     }
-                    if let Some(tx) = wire_log_tx_out.as_ref() {
-                        let _ = tx.send(WireRecord::ObservationArc(obs));
-                    }
+                    log_wire_record(wire_log_tx_out.as_ref(), WireRecord::ObservationArc(obs));
                 }
             }
 
@@ -705,25 +791,14 @@ async fn handle_client(
             Ok(ParsedMessage::Hello(hello)) => {
                 // Require hello to start the per-sender sequence at 1.
                 if hello.seq != 1 {
-                    let error = create_error(
-                        hello.seq,
-                        ErrorCode::InvalidCommand,
-                        "hello seq must be 1",
-                    );
-                    let _ = tx.send(ClientOutbound::Error(error));
+                    send_client_error(&tx, hello.seq, ErrorCode::InvalidCommand, "hello seq must be 1");
                     continue;
                 }
 
                 // Sequencing: enforce monotonic seq per sender.
                 if is_handshaken(&state, client_id).await
-                    && !check_and_update_seq(&state, client_id, hello.seq).await
+                    && !enforce_strict_seq(&state, &tx, client_id, hello.seq).await
                 {
-                    let error = create_error(
-                        hello.seq,
-                        ErrorCode::InvalidCommand,
-                        "seq must be strictly increasing",
-                    );
-                    let _ = tx.send(ClientOutbound::Error(error));
                     continue;
                 }
 
@@ -769,12 +844,7 @@ async fn handle_client(
 
                     // If a prior controller disconnected unexpectedly, we may have a stale controller_id
                     // that blocks future claims. Clear it when it no longer exists in the client list.
-                    {
-                        let clients = state.clients.read().await;
-                        clear_stale_controller_id(&mut *controller, |id| {
-                            clients.iter().any(|c| c.id == id && !c.tx.is_closed())
-                        });
-                    }
+                    clear_stale_controller(&state, &mut *controller).await;
 
                     let requested_role = hello.requested.role.unwrap_or(RequestedRole::Auto);
                     let allow_auto_controller = requested_role != RequestedRole::Observer;
@@ -792,9 +862,7 @@ async fn handle_client(
                 // Keep per-client role flags consistent with the global controller id.
                 {
                     let mut clients = state.clients.write().await;
-                    for c in clients.iter_mut() {
-                        c.is_controller = controller_id.is_some_and(|id| c.id == id);
-                    }
+                    sync_controller_flags(&mut clients, controller_id);
                 }
 
                 // Send welcome (with deterministic role/controller fields).
@@ -821,26 +889,7 @@ async fn handle_client(
 
             Ok(ParsedMessage::Command(cmd)) => {
                 // Handshake required.
-                let handshaken = is_handshaken(&state, client_id).await;
-                if !handshaken {
-                    let error =
-                        create_error(
-                            cmd.seq,
-                            ErrorCode::HandshakeRequired,
-                            "Send hello before command",
-                        );
-                    let _ = tx.send(ClientOutbound::Error(error));
-                    continue;
-                }
-
-                // Sequencing: enforce monotonic seq per sender.
-                if !check_and_update_seq(&state, client_id, cmd.seq).await {
-                    let error = create_error(
-                        cmd.seq,
-                        ErrorCode::InvalidCommand,
-                        "seq must be strictly increasing",
-                    );
-                    let _ = tx.send(ClientOutbound::Error(error));
+                if !enforce_handshake_and_seq(&state, &tx, client_id, cmd.seq, "command").await {
                     continue;
                 }
 
@@ -855,12 +904,12 @@ async fn handle_client(
                 };
 
                 if !is_controller {
-                    let error = create_error(
+                    send_client_error(
+                        &tx,
                         cmd.seq,
                         ErrorCode::NotController,
                         "Only controller may send commands",
                     );
-                    let _ = tx.send(ClientOutbound::Error(error));
                     continue;
                 }
 
@@ -868,8 +917,7 @@ async fn handle_client(
                 let mapped = match map_command(&cmd) {
                     Ok(c) => c,
                     Err((code, message)) => {
-                        let error = create_error(cmd.seq, code, &message);
-                        let _ = tx.send(ClientOutbound::Error(error));
+                        send_client_error(&tx, cmd.seq, code, message);
                         continue;
                     }
                 };
@@ -884,38 +932,18 @@ async fn handle_client(
                         // Ack will be sent by the game loop after the command is applied.
                     }
                     Err(_) => {
-                        let error = create_backpressure_error(
+                        let _ = tx.send(ClientOutbound::Error(create_backpressure_error(
                             cmd.seq,
                             "Command queue is full",
                             BACKPRESSURE_RETRY_AFTER_MS,
-                        );
-                        let _ = tx.send(ClientOutbound::Error(error));
+                        )));
                     }
                 }
             }
 
             Ok(ParsedMessage::Control(ctrl)) => match ctrl.action {
                 ControlAction::Claim => {
-                    // Handshake required.
-                    let handshaken = is_handshaken(&state, client_id).await;
-                    if !handshaken {
-                        let error = create_error(
-                            ctrl.seq,
-                            ErrorCode::HandshakeRequired,
-                            "Send hello before control",
-                        );
-                        let _ = tx.send(ClientOutbound::Error(error));
-                        continue;
-                    }
-
-                    // Sequencing: enforce monotonic seq per sender.
-                    if !check_and_update_seq(&state, client_id, ctrl.seq).await {
-                        let error = create_error(
-                            ctrl.seq,
-                            ErrorCode::InvalidCommand,
-                            "seq must be strictly increasing",
-                        );
-                        let _ = tx.send(ClientOutbound::Error(error));
+                    if !enforce_handshake_and_seq(&state, &tx, client_id, ctrl.seq, "control").await {
                         continue;
                     }
 
@@ -923,37 +951,28 @@ async fn handle_client(
                     {
                         let mut controller = state.controller.write().await;
                         // Clear stale controller_id (e.g. if the controller client crashed/disconnected).
-                        {
-                            let clients = state.clients.read().await;
-                            clear_stale_controller_id(&mut *controller, |id| {
-                                clients.iter().any(|c| c.id == id && !c.tx.is_closed())
-                            });
-                        }
+                        clear_stale_controller(&state, &mut *controller).await;
                         if *controller == Some(client_id) {
                             // Idempotent self-claim: already controller.
                             let mut clients = state.clients.write().await;
-                            for c in clients.iter_mut() {
-                                c.is_controller = c.id == client_id;
-                            }
+                            sync_controller_flags(&mut clients, Some(client_id));
                             let ack = create_ack(ctrl.seq, ctrl.seq);
                             let _ = tx.send(ClientOutbound::Ack(ack));
                             should_emit_status = true;
                         } else if controller.is_none() {
                             *controller = Some(client_id);
                             let mut clients = state.clients.write().await;
-                            for c in clients.iter_mut() {
-                                c.is_controller = c.id == client_id;
-                            }
+                            sync_controller_flags(&mut clients, Some(client_id));
                             let ack = create_ack(ctrl.seq, ctrl.seq);
                             let _ = tx.send(ClientOutbound::Ack(ack));
                             should_emit_status = true;
                         } else {
-                            let error = create_error(
+                            send_client_error(
+                                &tx,
                                 ctrl.seq,
                                 ErrorCode::ControllerActive,
                                 "Controller already assigned",
                             );
-                            let _ = tx.send(ClientOutbound::Error(error));
                         }
                     }
                     if should_emit_status {
@@ -961,26 +980,7 @@ async fn handle_client(
                     }
                 }
                 ControlAction::Release => {
-                    // Handshake required.
-                    let handshaken = is_handshaken(&state, client_id).await;
-                    if !handshaken {
-                        let error = create_error(
-                            ctrl.seq,
-                            ErrorCode::HandshakeRequired,
-                            "Send hello before control",
-                        );
-                        let _ = tx.send(ClientOutbound::Error(error));
-                        continue;
-                    }
-
-                    // Sequencing: enforce monotonic seq per sender.
-                    if !check_and_update_seq(&state, client_id, ctrl.seq).await {
-                        let error = create_error(
-                            ctrl.seq,
-                            ErrorCode::InvalidCommand,
-                            "seq must be strictly increasing",
-                        );
-                        let _ = tx.send(ClientOutbound::Error(error));
+                    if !enforce_handshake_and_seq(&state, &tx, client_id, ctrl.seq, "control").await {
                         continue;
                     }
 
@@ -997,13 +997,12 @@ async fn handle_client(
                             let _ = tx.send(ClientOutbound::Ack(ack));
                             should_emit_status = true;
                         } else {
-                            let error =
-                                create_error(
-                                    ctrl.seq,
-                                    ErrorCode::NotController,
-                                    "Only controller may release",
-                                );
-                            let _ = tx.send(ClientOutbound::Error(error));
+                            send_client_error(
+                                &tx,
+                                ctrl.seq,
+                                ErrorCode::NotController,
+                                "Only controller may release",
+                            );
                         }
                     }
                     if should_emit_status {
@@ -1024,17 +1023,12 @@ async fn handle_client(
 
             Ok(ParsedMessage::Unknown(unknown)) => {
                 let seq = unknown.seq;
-                if is_handshaken(&state, client_id).await && !check_and_update_seq(&state, client_id, seq).await {
-                    let error = create_error(
-                        seq,
-                        ErrorCode::InvalidCommand,
-                        "seq must be strictly increasing",
-                    );
-                    let _ = tx.send(ClientOutbound::Error(error));
+                if is_handshaken(&state, client_id).await
+                    && !enforce_strict_seq(&state, &tx, client_id, seq).await
+                {
                     continue;
                 }
-                let error = create_error(seq, ErrorCode::InvalidCommand, "Unknown message type");
-                let _ = tx.send(ClientOutbound::Error(error));
+                send_client_error(&tx, seq, ErrorCode::InvalidCommand, "Unknown message type");
             }
         }
     }
@@ -1055,9 +1049,7 @@ async fn handle_client(
                 .map(|c| c.id)
                 .min();
             *controller = next_id;
-            for c in clients.iter_mut() {
-                c.is_controller = next_id.is_some_and(|id| c.id == id);
-            }
+            sync_controller_flags(&mut clients, next_id);
         }
     }
 
@@ -1314,6 +1306,51 @@ mod tests {
         let mut controller = Some(42usize);
         clear_stale_controller_id(&mut controller, |id| id == 42);
         assert_eq!(controller, Some(42));
+    }
+
+    #[test]
+    fn test_encode_json_into_buf_ack() {
+        let ack = create_ack(10, 10);
+        let mut buf = Vec::new();
+        assert!(encode_json_into_buf(&mut buf, &ack));
+        let text = std::str::from_utf8(&buf).unwrap();
+        assert!(text.contains("\"type\":\"ack\""));
+        assert!(text.contains("\"seq\":10"));
+    }
+
+    #[test]
+    fn test_sync_controller_flags_sets_single_controller() {
+        let addr = "127.0.0.1:9999".parse().unwrap();
+        let (tx1, _) = mpsc::unbounded_channel();
+        let (tx2, _) = mpsc::unbounded_channel();
+        let mut clients = vec![
+            ClientHandle {
+                id: 1,
+                addr,
+                is_controller: false,
+                requested_role: RequestedRole::Auto,
+                command_mode: CommandMode::Action,
+                stream_observations: false,
+                handshaken: true,
+                last_seq: Some(1),
+                tx: tx1,
+            },
+            ClientHandle {
+                id: 2,
+                addr,
+                is_controller: false,
+                requested_role: RequestedRole::Auto,
+                command_mode: CommandMode::Action,
+                stream_observations: false,
+                handshaken: true,
+                last_seq: Some(1),
+                tx: tx2,
+            },
+        ];
+
+        sync_controller_flags(&mut clients, Some(2));
+        assert!(!clients[0].is_controller);
+        assert!(clients[1].is_controller);
     }
 
     #[test]

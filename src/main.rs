@@ -5,22 +5,24 @@
 //! (no ratatui widgets/layout).
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyEventKind};
 
+use tui_tetris::adapter::command_apply::{apply_client_command, map_place_error_code};
 use tui_tetris::adapter::{Adapter, OutboundMessage};
 use tui_tetris::core::{GameSnapshot, GameState};
-use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
 use tui_tetris::observe::{
-    connect_observer_with_retry, observe_status_lines, parse_observe_args, snapshot_from_observation,
-    ObserveEvent, ObserveReconnectPolicy,
+    connect_observer_with_retry, observe_status_lines, parse_observe_args,
+    snapshot_from_observation, ObserveEvent, ObserveReconnectPolicy,
 };
 use tui_tetris::term::AdapterStatusView;
-use tui_tetris::term::{AnchorY, CellStyle, GameView, RenderThrottle, Rgb, TerminalRenderer, Viewport};
+use tui_tetris::term::{
+    AnchorY, CellStyle, GameView, RenderThrottle, Rgb, TerminalRenderer, Viewport,
+};
 use tui_tetris::types::{GameAction, TICK_MS};
 
 fn main() -> Result<()> {
@@ -212,28 +214,7 @@ fn run_headless() -> Result<()> {
                         continue;
                     }
                     tui_tetris::adapter::runtime::InboundPayload::Command(cmd2) => {
-                        let ok: Result<(), PlaceError> = match cmd2 {
-                            tui_tetris::adapter::runtime::ClientCommand::Actions {
-                                actions,
-                                mut restart_seed,
-                            } => {
-                                for a in actions {
-                                    if a == GameAction::Restart {
-                                        if let Some(seed) = restart_seed.take() {
-                                            let _ = game_state.restart_with_seed(seed);
-                                            continue;
-                                        }
-                                    }
-                                    let _ = game_state.apply_action(a);
-                                }
-                                Ok(())
-                            }
-                            tui_tetris::adapter::runtime::ClientCommand::Place {
-                                x,
-                                rotation,
-                                use_hold,
-                            } => apply_place(&mut game_state, x, rotation, use_hold),
-                        };
+                        let ok = apply_client_command(&mut game_state, cmd2);
 
                         // If applying a command caused a lock/clear event, mark it for immediate observation.
                         if let Some(ev) = game_state.take_last_event() {
@@ -251,15 +232,7 @@ fn run_headless() -> Result<()> {
                                 });
                             }
                             Err(e) => {
-                                let code = match e.code() {
-                                    "hold_unavailable" => {
-                                        tui_tetris::adapter::protocol::ErrorCode::HoldUnavailable
-                                    }
-                                    "invalid_place" => {
-                                        tui_tetris::adapter::protocol::ErrorCode::InvalidPlace
-                                    }
-                                    _ => tui_tetris::adapter::protocol::ErrorCode::InvalidCommand,
-                                };
+                                let code = map_place_error_code(e);
                                 let err = tui_tetris::adapter::protocol::create_error(
                                     cmd.seq,
                                     code,
@@ -332,13 +305,13 @@ fn run_headless() -> Result<()> {
                     game_state.snapshot_board_into(&mut snap);
                 }
                 game_state.snapshot_meta_into(&mut snap);
-                let obs = tui_tetris::adapter::server::build_observation(obs_seq, &snap, last_event);
+                let obs =
+                    tui_tetris::adapter::server::build_observation(obs_seq, &snap, last_event);
                 ad.send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) });
             }
         }
     }
 }
-
 
 fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut game_state = GameState::new(1);
@@ -372,24 +345,21 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
 
     let mut adapter = Adapter::start_from_env()?;
     let listen_addr = if adapter.is_some() {
-        adapter
-            .as_ref()
-            .and_then(|a| a.listen_addr())
-            .or_else(|| {
-                // Fallback to configured env, mirroring adapter defaults.
-                let host_s = std::env::var("TETRIS_AI_HOST")
-                    .ok()
-                    .unwrap_or_else(|| "127.0.0.1".to_string());
-                let port = std::env::var("TETRIS_AI_PORT")
-                    .ok()
-                    .and_then(|s| s.parse::<u16>().ok())
-                    .unwrap_or(7777);
-                host_s
-                    .trim()
-                    .parse::<std::net::IpAddr>()
-                    .ok()
-                    .map(|ip| std::net::SocketAddr::new(ip, port))
-            })
+        adapter.as_ref().and_then(|a| a.listen_addr()).or_else(|| {
+            // Fallback to configured env, mirroring adapter defaults.
+            let host_s = std::env::var("TETRIS_AI_HOST")
+                .ok()
+                .unwrap_or_else(|| "127.0.0.1".to_string());
+            let port = std::env::var("TETRIS_AI_PORT")
+                .ok()
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(7777);
+            host_s
+                .trim()
+                .parse::<std::net::IpAddr>()
+                .ok()
+                .map(|ip| std::net::SocketAddr::new(ip, port))
+        })
     } else {
         None
     };
@@ -463,7 +433,12 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             push_u64(game_state.can_hold() as u64);
             push_u64(game_state.paused() as u64);
             push_u64(game_state.game_over() as u64);
-            push_u64(game_state.hold_piece().map(|p| p as u64).unwrap_or(u64::MAX));
+            push_u64(
+                game_state
+                    .hold_piece()
+                    .map(|p| p as u64)
+                    .unwrap_or(u64::MAX),
+            );
             for p in game_state.next_queue().iter().copied() {
                 push_u64(p as u64);
             }
@@ -626,30 +601,9 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                                 obs: Arc::new(obs),
                             });
                             continue;
-                    }
-                    tui_tetris::adapter::runtime::InboundPayload::Command(cmd2) => {
-                        let ok: Result<(), PlaceError> = match cmd2 {
-                            tui_tetris::adapter::runtime::ClientCommand::Actions {
-                                actions,
-                                mut restart_seed,
-                            } => {
-                                for a in actions {
-                                    if a == GameAction::Restart {
-                                        if let Some(seed) = restart_seed.take() {
-                                            let _ = game_state.restart_with_seed(seed);
-                                            continue;
-                                        }
-                                    }
-                                    let _ = game_state.apply_action(a);
-                                }
-                                Ok(())
-                            }
-                            tui_tetris::adapter::runtime::ClientCommand::Place {
-                                x,
-                                    rotation,
-                                    use_hold,
-                                } => apply_place(&mut game_state, x, rotation, use_hold),
-                            };
+                        }
+                        tui_tetris::adapter::runtime::InboundPayload::Command(cmd2) => {
+                            let ok = apply_client_command(&mut game_state, cmd2);
 
                             // If applying a command caused a lock/clear event, mark it for immediate observation.
                             if let Some(ev) = game_state.take_last_event() {
@@ -668,15 +622,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                                     });
                                 }
                                 Err(e) => {
-                                    let code = match e.code() {
-                                        "hold_unavailable" => {
-                                            tui_tetris::adapter::protocol::ErrorCode::HoldUnavailable
-                                        }
-                                        "invalid_place" => {
-                                            tui_tetris::adapter::protocol::ErrorCode::InvalidPlace
-                                        }
-                                        _ => tui_tetris::adapter::protocol::ErrorCode::InvalidCommand,
-                                    };
+                                    let code = map_place_error_code(e);
                                     let err = tui_tetris::adapter::protocol::create_error(
                                         cmd.seq,
                                         code,
