@@ -61,7 +61,7 @@ The adapter MUST implement:
 - Only the controller may release; otherwise `error(code="not_controller")`.
 - On success: reply `ack(status="ok")` and clear controller assignment.
 - After release:
-  - the adapter MAY immediately auto-promote an observer OR require an explicit claim
+  - the adapter MAY immediately auto-promote an eligible connected client OR require an explicit claim
   - whichever policy is chosen MUST be stable and documented (capability flag recommended)
 
 ### 2.4 Controller promotion on disconnect (RECOMMENDED)
@@ -80,6 +80,7 @@ Policy visibility (MUST):
 Eligibility rule (MUST):
 - Clients that connected with `requested.role="observer"` MUST NOT be auto-promoted to controller on disconnect.
 - Such clients may still become controller via explicit `control(action="claim")`.
+- `Eligible` in this section means connected clients that are not observer-locked by `requested.role="observer"`.
 
 ## 3) Sequencing & Framing (MUST)
 
