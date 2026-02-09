@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -13,7 +13,9 @@ use tui_tetris::core::GameState;
 use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::types::GameAction;
 
-async fn read_json_line(lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>) -> serde_json::Value {
+async fn read_json_line(
+    lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>,
+) -> serde_json::Value {
     let line = tokio::time::timeout(Duration::from_secs(3), lines.next_line())
         .await
         .expect("timeout waiting for line")
@@ -21,7 +23,6 @@ async fn read_json_line(lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::
         .expect("expected line");
     serde_json::from_str(&line).expect("invalid json")
 }
-
 
 async fn spawn_server(
     config: ServerConfig,
@@ -48,7 +49,10 @@ async fn spawn_server(
     (server_handle, addr, cmd_rx, out_tx)
 }
 
-async fn engine_task(mut cmd_rx: mpsc::Receiver<InboundCommand>, out_tx: mpsc::UnboundedSender<OutboundMessage>) {
+async fn engine_task(
+    mut cmd_rx: mpsc::Receiver<InboundCommand>,
+    out_tx: mpsc::UnboundedSender<OutboundMessage>,
+) {
     let mut gs = GameState::new(1);
     gs.start();
     let mut obs_seq: u64 = 100;
@@ -401,7 +405,11 @@ async fn engine_task_game_over_with_place(
                             line,
                         });
                     }
-                    ClientCommand::Place { x, rotation, use_hold } => match &mut mode {
+                    ClientCommand::Place {
+                        x,
+                        rotation,
+                        use_hold,
+                    } => match &mut mode {
                         Mode::GameOver => {
                             // Match place semantics: not playable => invalid_place.
                             let err = create_error(
@@ -477,11 +485,8 @@ async fn broadcast_observations_task(out_tx: mpsc::UnboundedSender<OutboundMessa
         let snap = gs.snapshot();
         let obs = build_observation(seq, &snap, None);
         seq = seq.wrapping_add(1);
-        let line: std::sync::Arc<str> =
-            std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-        let _ = out_tx.send(OutboundMessage::BroadcastArc {
-            line,
-        });
+        let line: std::sync::Arc<str> = std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
+        let _ = out_tx.send(OutboundMessage::BroadcastArc { line });
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
@@ -2208,6 +2213,92 @@ async fn acceptance_requested_role_observer_never_auto_becomes_controller() {
 }
 
 #[tokio::test]
+async fn acceptance_observer_connected_does_not_block_new_controller_hello() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.1.0".to_string(),
+        max_pending_commands: 16,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+
+    let (server_handle, addr, cmd_rx, out_tx) = spawn_server(config, 16).await;
+    let engine_handle = tokio::spawn(engine_task(cmd_rx, out_tx));
+
+    // Observer connects first.
+    let stream_obs = TcpStream::connect(addr).await.unwrap();
+    let (read_obs, mut write_obs) = stream_obs.into_split();
+    let mut lines_obs = BufReader::new(read_obs).lines();
+
+    let hello_obs = serde_json::json!({
+        "type": "hello",
+        "seq": 1,
+        "ts": 1,
+        "client": {"name": "observe", "version": "0.1.0"},
+        "protocol_version": "2.1.0",
+        "formats": ["json"],
+        "requested": {
+            "stream_observations": true,
+            "command_mode": "action",
+            "role": "observer"
+        }
+    });
+    write_obs
+        .write_all(serde_json::to_string(&hello_obs).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_obs.write_all(b"\n").await.unwrap();
+    write_obs.flush().await.unwrap();
+
+    let welcome_obs = read_json_line(&mut lines_obs).await;
+    assert_eq!(welcome_obs["type"], "welcome");
+    assert_eq!(welcome_obs["role"], "observer");
+    assert_eq!(welcome_obs["controller_id"], serde_json::Value::Null);
+    let _obs0 = read_json_line(&mut lines_obs).await;
+
+    // Controller client connects after observer and should become controller.
+    let stream_ai = TcpStream::connect(addr).await.unwrap();
+    let (read_ai, mut write_ai) = stream_ai.into_split();
+    let mut lines_ai = BufReader::new(read_ai).lines();
+
+    let hello_ai = create_hello(1, "ai-client", "2.1.0");
+    write_ai
+        .write_all(serde_json::to_string(&hello_ai).unwrap().as_bytes())
+        .await
+        .unwrap();
+    write_ai.write_all(b"\n").await.unwrap();
+    write_ai.flush().await.unwrap();
+
+    let welcome_ai = read_json_line(&mut lines_ai).await;
+    assert_eq!(welcome_ai["type"], "welcome");
+    assert_eq!(welcome_ai["role"], "controller");
+    assert_eq!(welcome_ai["controller_id"], welcome_ai["client_id"]);
+
+    // Controller command should be accepted (ack from harness engine).
+    let cmd_ai = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
+    write_ai.write_all(cmd_ai.as_bytes()).await.unwrap();
+    write_ai.write_all(b"\n").await.unwrap();
+    write_ai.flush().await.unwrap();
+
+    let mut saw_ack = false;
+    for _ in 0..10 {
+        let v = read_json_line(&mut lines_ai).await;
+        if v["type"] == "ack" && v["seq"] == 2 {
+            saw_ack = true;
+            break;
+        }
+    }
+    assert!(
+        saw_ack,
+        "controller should be able to command while observer stays connected"
+    );
+
+    server_handle.abort();
+    engine_handle.abort();
+}
+
+#[tokio::test]
 async fn acceptance_controller_disconnect_promotes_next_client() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
@@ -2285,7 +2376,10 @@ async fn acceptance_controller_disconnect_promotes_next_client() {
             break;
         }
     }
-    assert!(saw_ack, "expected ack after controller disconnect promotion");
+    assert!(
+        saw_ack,
+        "expected ack after controller disconnect promotion"
+    );
 
     server_handle.abort();
     engine_handle.abort();
@@ -2378,7 +2472,10 @@ async fn acceptance_controller_disconnect_does_not_auto_promote_observer_role() 
             break;
         }
     }
-    assert!(saw_not_controller, "observer must not be auto-promoted on disconnect");
+    assert!(
+        saw_not_controller,
+        "observer must not be auto-promoted on disconnect"
+    );
 
     // Observer can still explicitly claim and then command.
     let claim_b = r#"{"type":"control","seq":3,"ts":1,"action":"claim"}"#;
