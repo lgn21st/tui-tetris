@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 
 use crate::adapter::protocol::{
     create_hello, CommandMode, ObservationMessage, PieceKindLower, RequestedRole, RotationLower,
+    PROTOCOL_VERSION,
 };
 use crate::core::snapshot::{ActiveSnapshot, GameSnapshot, TimersSnapshot};
 use crate::types::{PieceKind, Rotation, BOARD_HEIGHT, BOARD_WIDTH};
@@ -19,6 +20,8 @@ pub struct ObserveConfig {
 }
 
 #[derive(Debug, Clone)]
+// Keeping observations inline avoids an extra heap allocation on every parsed frame.
+#[allow(clippy::large_enum_variant)]
 pub enum ObserveEvent {
     Welcome,
     Observation(ObservationMessage),
@@ -86,7 +89,7 @@ pub fn connect_observer(config: &ObserveConfig) -> Result<mpsc::Receiver<Observe
         .set_nodelay(true)
         .map_err(|e| anyhow!("observe: set_nodelay failed: {}", e))?;
 
-    let mut hello = create_hello(1, "tui-tetris-observe", "2.0.0");
+    let mut hello = create_hello(1, "tui-tetris-observe", PROTOCOL_VERSION);
     hello.requested.stream_observations = true;
     hello.requested.command_mode = CommandMode::Action;
     hello.requested.role = Some(RequestedRole::Observer);

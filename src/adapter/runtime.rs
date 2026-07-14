@@ -110,7 +110,8 @@ impl Adapter {
         let (status_tx, status_rx) = mpsc::unbounded_channel::<AdapterStatus>();
         let (ready_tx, ready_rx) = oneshot::channel::<SocketAddr>();
 
-        let rt = Runtime::new().expect("Failed to create tokio runtime");
+        let rt = Runtime::new()
+            .map_err(|error| anyhow::anyhow!("failed to create adapter runtime: {error}"))?;
         rt.spawn(async move {
             let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), Some(status_tx)).await;
         });

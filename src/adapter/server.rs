@@ -192,7 +192,7 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: 7777,
-            protocol_version: "2.1.0".to_string(),
+            protocol_version: PROTOCOL_VERSION.to_string(),
             max_pending_commands: 10,
             log_path: None,
             log_every_n: 1,
@@ -220,7 +220,7 @@ impl ServerConfig {
         let log_path = env::var("TETRIS_AI_LOG_PATH")
             .ok()
             .map(|s| s.trim().to_string())
-            .and_then(|s| if s.is_empty() { None } else { Some(s) });
+            .filter(|s| !s.is_empty());
 
         let log_every_n = env::var("TETRIS_AI_LOG_EVERY_N")
             .ok()
@@ -236,7 +236,7 @@ impl ServerConfig {
         Self {
             host,
             port,
-            protocol_version: "2.1.0".to_string(),
+            protocol_version: PROTOCOL_VERSION.to_string(),
             max_pending_commands,
             log_path,
             log_every_n,
@@ -244,10 +244,10 @@ impl ServerConfig {
         }
     }
 
-    pub fn socket_addr(&self) -> SocketAddr {
+    pub fn socket_addr(&self) -> anyhow::Result<SocketAddr> {
         format!("{}:{}", self.host, self.port)
             .parse()
-            .expect("Invalid socket address")
+            .map_err(|error| anyhow::anyhow!("invalid adapter listen address {}:{}: {error}", self.host, self.port))
     }
 }
 
@@ -329,13 +329,10 @@ async fn check_and_update_seq(state: &Arc<ServerState>, client_id: usize, seq: u
             client.last_seq = Some(seq);
             true
         }
-        Some(prev) => {
-            if seq <= prev {
-                false
-            } else {
-                client.last_seq = Some(seq);
-                true
-            }
+        Some(prev) if seq <= prev => false,
+        Some(_) => {
+            client.last_seq = Some(seq);
+            true
         }
     }
 }
@@ -407,7 +404,7 @@ pub async fn run_server(
 
             while let Some(rec) = rx.recv().await {
                 record_count = record_count.wrapping_add(1);
-                if record_count % log_every_n != 0 {
+                if !record_count.is_multiple_of(log_every_n) {
                     continue;
                 }
                 if let Some(max) = log_max_lines {
@@ -480,7 +477,7 @@ pub async fn run_server(
         None
     };
 
-    let addr = config.socket_addr();
+    let addr = config.socket_addr()?;
     let listener = TcpListener::bind(&addr).await?;
     let bound = listener.local_addr()?;
     // Emit initial status (0 clients).
@@ -776,7 +773,7 @@ async fn handle_client(
             break;
         }
 
-        let raw_line = line.trim_end_matches(|c| c == '\n' || c == '\r');
+        let raw_line = line.trim_end_matches(['\n', '\r']);
         let trimmed = raw_line.trim();
         if trimmed.is_empty() {
             continue;
@@ -844,7 +841,7 @@ async fn handle_client(
 
                     // If a prior controller disconnected unexpectedly, we may have a stale controller_id
                     // that blocks future claims. Clear it when it no longer exists in the client list.
-                    clear_stale_controller(&state, &mut *controller).await;
+                    clear_stale_controller(&state, &mut controller).await;
 
                     let requested_role = hello.requested.role.unwrap_or(RequestedRole::Auto);
                     let allow_auto_controller = requested_role != RequestedRole::Observer;
@@ -951,7 +948,7 @@ async fn handle_client(
                     {
                         let mut controller = state.controller.write().await;
                         // Clear stale controller_id (e.g. if the controller client crashed/disconnected).
-                        clear_stale_controller(&state, &mut *controller).await;
+                        clear_stale_controller(&state, &mut controller).await;
                         if *controller == Some(client_id) {
                             // Idempotent self-claim: already controller.
                             let mut clients = state.clients.write().await;
@@ -1292,6 +1289,20 @@ mod tests {
     fn test_server_config_from_env() {
         // This test just ensures it doesn't panic
         let _config = ServerConfig::from_env();
+    }
+
+    #[tokio::test]
+    async fn invalid_host_returns_error_instead_of_panicking() {
+        let config = ServerConfig {
+            host: "not a valid host name !!!".to_string(),
+            port: 7777,
+            ..ServerConfig::default()
+        };
+        let (command_tx, _command_rx) = mpsc::channel(1);
+        let (_out_tx, out_rx) = mpsc::unbounded_channel();
+
+        let result = run_server(config, command_tx, out_rx, None, None).await;
+        assert!(result.is_err());
     }
 
     #[test]

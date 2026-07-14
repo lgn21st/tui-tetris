@@ -9,42 +9,30 @@ use crate::types::{CoreLastEvent, PieceKind, Rotation, TSpinKind};
 
 use arrayvec::ArrayVec;
 
+/// Protocol version implemented by both the adapter server and bundled clients.
+pub const PROTOCOL_VERSION: &str = "2.1.0";
+
 // ============== Client -> Game Messages ==============
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HelloType {
     #[serde(rename = "hello")]
+    #[default]
     Hello,
 }
 
-impl Default for HelloType {
-    fn default() -> Self {
-        Self::Hello
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CommandType {
     #[serde(rename = "command")]
+    #[default]
     Command,
 }
 
-impl Default for CommandType {
-    fn default() -> Self {
-        Self::Command
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ControlType {
     #[serde(rename = "control")]
+    #[default]
     Control,
-}
-
-impl Default for ControlType {
-    fn default() -> Self {
-        Self::Control
-    }
 }
 
 /// Client hello message (first message to establish connection)
@@ -941,6 +929,11 @@ fn current_timestamp_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protocol_version_matches_adapter_spec() {
+        assert_eq!(PROTOCOL_VERSION, "2.1.0");
+    }
     use crate::types::CoreLastEvent;
 
     #[test]

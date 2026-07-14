@@ -1,3 +1,6 @@
+#![allow(clippy::field_reassign_with_default)] // Stepwise fixtures mirror protocol phases.
+#![allow(clippy::large_enum_variant)] // Test-only state machines favor direct GameState access.
+
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -38,7 +41,9 @@ async fn spawn_server(
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+        run_server(config, cmd_tx, out_rx, Some(ready_tx), None)
+            .await
+            .expect("acceptance server failed");
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -175,7 +180,7 @@ async fn engine_task_with_place(
                         rotation,
                         use_hold,
                     } => {
-                        ok = apply_place(&mut gs, x, rotation, use_hold).map_err(|e| e);
+                        ok = apply_place(&mut gs, x, rotation, use_hold);
                     }
                 }
 

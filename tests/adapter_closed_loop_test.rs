@@ -309,8 +309,8 @@ async fn closed_loop_stability_3x50_reconnects() {
 
                 let kind_s = active.as_ref().unwrap().get("kind").and_then(|v| v.as_str()).unwrap();
                 let rot_s = active.as_ref().unwrap().get("rotation").and_then(|v| v.as_str()).unwrap();
-                let kind = PieceKind::from_str(kind_s).expect("piece kind");
-                let rot = Rotation::from_str(rot_s).expect("rotation");
+                let kind = kind_s.parse::<PieceKind>().expect("piece kind");
+                let rot = rot_s.parse::<Rotation>().expect("rotation");
                 let x = compute_leftmost_x(kind, rot);
 
                 seq += 1;
@@ -488,8 +488,8 @@ async fn closed_loop_long_run_200_episodes() {
                 .get("rotation")
                 .and_then(|v| v.as_str())
                 .unwrap();
-            let kind = PieceKind::from_str(kind_s).expect("piece kind");
-            let rot = Rotation::from_str(rot_s).expect("rotation");
+            let kind = kind_s.parse::<PieceKind>().expect("piece kind");
+            let rot = rot_s.parse::<Rotation>().expect("rotation");
             let x = compute_leftmost_x(kind, rot);
 
             seq += 1;
