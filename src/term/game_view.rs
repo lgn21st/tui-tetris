@@ -246,6 +246,7 @@ impl GameView {
         self.fill_cell_rect(fb, start_x, start_y, x, y, '·', style);
     }
 
+    #[allow(clippy::too_many_arguments)] // Flat scalar arguments keep this render hot path allocation-free.
     fn draw_board_cell(
         &self,
         fb: &mut FrameBuffer,
@@ -274,6 +275,7 @@ impl GameView {
         self.fill_cell_rect(fb, start_x, start_y, x, y, ch, style);
     }
 
+    #[allow(clippy::too_many_arguments)] // Flat scalar arguments keep this render hot path allocation-free.
     fn fill_cell_rect(
         &self,
         fb: &mut FrameBuffer,
@@ -289,6 +291,7 @@ impl GameView {
         fb.fill_rect(px, py, self.cell_w, self.cell_h, ch, style);
     }
 
+    #[allow(clippy::too_many_arguments)] // Layout inputs are borrowed/scalar and grouped at the call site.
     fn draw_side_panel(
         &self,
         fb: &mut FrameBuffer,

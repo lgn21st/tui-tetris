@@ -60,7 +60,7 @@
 //! let piece = PieceKind::T;
 //!
 //! // Parse from string (case-insensitive)
-//! let parsed = PieceKind::from_str("t").unwrap();
+//! let parsed = "t".parse::<PieceKind>().unwrap();
 //! assert_eq!(piece, parsed);
 //!
 //! // Rotate
@@ -69,7 +69,7 @@
 //! assert_eq!(rotated, Rotation::East);
 //!
 //! // Parse game action
-//! let action = GameAction::from_str("moveLeft").unwrap();
+//! let action = "moveLeft".parse::<GameAction>().unwrap();
 //! assert_eq!(action, GameAction::MoveLeft);
 //!
 //! // Board dimensions
@@ -149,6 +149,14 @@ mod tests {
         assert_eq!(SOFT_DROP_DAS_MS, 0);
         assert_eq!(SOFT_DROP_ARR_MS, 50);
     }
+
+    #[test]
+    fn protocol_types_parse_case_insensitively_without_allocating_lowercase_strings() {
+        assert_eq!("t".parse::<PieceKind>(), Ok(PieceKind::T));
+        assert_eq!("WEST".parse::<Rotation>(), Ok(Rotation::West));
+        assert_eq!("RotateCcw".parse::<GameAction>(), Ok(GameAction::RotateCcw));
+        assert!("unknown".parse::<GameAction>().is_err());
+    }
 }
 
 /// The seven tetromino piece kinds
@@ -173,29 +181,11 @@ pub enum PieceKind {
 }
 
 impl PieceKind {
-    /// Parse piece kind from string (case-insensitive)
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tui_tetris::types::PieceKind;
-    ///
-    /// assert_eq!(PieceKind::from_str("i"), Some(PieceKind::I));
-    /// assert_eq!(PieceKind::from_str("O"), Some(PieceKind::O));
-    /// assert_eq!(PieceKind::from_str("T"), Some(PieceKind::T));
-    /// assert_eq!(PieceKind::from_str("unknown"), None);
-    /// ```
+    /// Parse a piece kind without allocating. Prefer the standard `str::parse`
+    /// interface in new code; this wrapper preserves the original public API.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "i" => Some(PieceKind::I),
-            "o" => Some(PieceKind::O),
-            "t" => Some(PieceKind::T),
-            "s" => Some(PieceKind::S),
-            "z" => Some(PieceKind::Z),
-            "j" => Some(PieceKind::J),
-            "l" => Some(PieceKind::L),
-            _ => None,
-        }
+        s.parse().ok()
     }
 
     /// Convert to lowercase string representation
@@ -221,6 +211,17 @@ impl PieceKind {
     }
 }
 
+impl std::str::FromStr for PieceKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        [Self::I, Self::O, Self::T, Self::S, Self::Z, Self::J, Self::L]
+            .into_iter()
+            .find(|kind| s.eq_ignore_ascii_case(kind.as_str()))
+            .ok_or(())
+    }
+}
+
 /// Rotation states following the Super Rotation System (SRS)
 ///
 /// - **North**: Spawn orientation (0° rotation)
@@ -238,6 +239,12 @@ pub enum Rotation {
 }
 
 impl Rotation {
+    /// Parse a rotation without allocating. Prefer `str::parse` in new code.
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Option<Self> {
+        s.parse().ok()
+    }
+
     /// Rotate clockwise (90°)
     ///
     /// # Examples
@@ -280,20 +287,6 @@ impl Rotation {
         }
     }
 
-    /// Parse rotation from string
-    ///
-    /// Accepts full names or single letters (case-insensitive):
-    /// "north" | "n", "east" | "e", "south" | "s", "west" | "w"
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "north" | "n" => Some(Rotation::North),
-            "east" | "e" => Some(Rotation::East),
-            "south" | "s" => Some(Rotation::South),
-            "west" | "w" => Some(Rotation::West),
-            _ => None,
-        }
-    }
-
     /// Convert to lowercase string
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -301,6 +294,20 @@ impl Rotation {
             Rotation::East => "east",
             Rotation::South => "south",
             Rotation::West => "west",
+        }
+    }
+}
+
+impl std::str::FromStr for Rotation {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            value if value.eq_ignore_ascii_case("north") || value.eq_ignore_ascii_case("n") => Ok(Self::North),
+            value if value.eq_ignore_ascii_case("east") || value.eq_ignore_ascii_case("e") => Ok(Self::East),
+            value if value.eq_ignore_ascii_case("south") || value.eq_ignore_ascii_case("s") => Ok(Self::South),
+            value if value.eq_ignore_ascii_case("west") || value.eq_ignore_ascii_case("w") => Ok(Self::West),
+            _ => Err(()),
         }
     }
 }
@@ -332,31 +339,10 @@ pub enum GameAction {
 }
 
 impl GameAction {
-    /// Parse action from string (for AI protocol)
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tui_tetris::types::GameAction;
-    ///
-    /// assert_eq!(GameAction::from_str("moveLeft"), Some(GameAction::MoveLeft));
-    /// assert_eq!(GameAction::from_str("rotateCw"), Some(GameAction::RotateCw));
-    /// assert_eq!(GameAction::from_str("hardDrop"), Some(GameAction::HardDrop));
-    /// assert_eq!(GameAction::from_str("unknown"), None);
-    /// ```
+    /// Parse an action without allocating. Prefer `str::parse` in new code.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "moveleft" => Some(GameAction::MoveLeft),
-            "moveright" => Some(GameAction::MoveRight),
-            "softdrop" => Some(GameAction::SoftDrop),
-            "harddrop" => Some(GameAction::HardDrop),
-            "rotatecw" => Some(GameAction::RotateCw),
-            "rotateccw" => Some(GameAction::RotateCcw),
-            "hold" => Some(GameAction::Hold),
-            "pause" => Some(GameAction::Pause),
-            "restart" => Some(GameAction::Restart),
-            _ => None,
-        }
+        s.parse().ok()
     }
 
     /// Convert to camelCase string for AI protocol
@@ -372,6 +358,20 @@ impl GameAction {
             GameAction::Pause => "pause",
             GameAction::Restart => "restart",
         }
+    }
+}
+
+impl std::str::FromStr for GameAction {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        [
+            Self::MoveLeft, Self::MoveRight, Self::SoftDrop, Self::HardDrop,
+            Self::RotateCw, Self::RotateCcw, Self::Hold, Self::Pause, Self::Restart,
+        ]
+        .into_iter()
+        .find(|action| s.eq_ignore_ascii_case(action.as_str()))
+        .ok_or(())
     }
 }
 

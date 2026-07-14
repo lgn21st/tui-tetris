@@ -1168,7 +1168,7 @@ mod tests {
         // Piece should be locked and new piece spawned
         assert!(state.active.is_some());
         // Score should increase from hard drop
-        assert!(state.score > score_before || state.score == score_before);
+        assert!(state.score >= score_before);
     }
 
     #[test]
@@ -1372,8 +1372,8 @@ mod tests {
 
         // Piece should have moved down or been locked
         // (depends on whether it's grounded)
-        if state.active.is_some() {
-            assert!(state.active.unwrap().y >= initial_y);
+        if let Some(active) = state.active {
+            assert!(active.y >= initial_y);
         }
     }
 
@@ -2175,7 +2175,7 @@ mod tests {
         assert!(ev.locked);
         assert_eq!(ev.lines_cleared, 4);
         assert_eq!(ev.tspin, None);
-        assert_eq!(ev.back_to_back, true);
+        assert!(ev.back_to_back);
         assert_eq!(ev.combo, expected_combo_after);
         assert_eq!(ev.line_clear_score, expected_line_clear_score);
         assert_eq!(state.score - score_before, expected_delta);
@@ -2211,12 +2211,12 @@ mod tests {
         state.lock_piece();
         let ev = state.take_last_event().expect("expected last_event");
 
-        let expected_line_clear_score = 1200 * (0 + 1);
+        let expected_line_clear_score = 1200;
         let expected_delta = expected_line_clear_score; // first clear in chain => combo=0, no combo bonus
 
         assert_eq!(ev.lines_cleared, 4);
         assert_eq!(ev.combo, 0);
-        assert_eq!(ev.back_to_back, true);
+        assert!(ev.back_to_back);
         assert_eq!(ev.line_clear_score, expected_line_clear_score);
         assert_eq!(state.score - score_before, expected_delta);
     }
@@ -2255,12 +2255,12 @@ mod tests {
 
         // I(East) lands at y=16 in this setup => 16 rows hard-dropped => 32 drop points.
         let expected_drop_points = 16 * 2;
-        let expected_line_clear_score = 1200 * (0 + 1);
+        let expected_line_clear_score = 1200;
         let expected_delta = expected_line_clear_score + expected_drop_points;
 
         assert_eq!(ev.lines_cleared, 4);
         assert_eq!(ev.combo, 0);
-        assert_eq!(ev.back_to_back, true);
+        assert!(ev.back_to_back);
         assert_eq!(ev.line_clear_score, expected_line_clear_score);
         assert_eq!(state.score - score_before, expected_delta);
     }
@@ -2430,7 +2430,7 @@ mod tests {
         state.back_to_back = true;
 
         let x = 3;
-        state.board.set(x + 0, 18, Some(PieceKind::I));
+        state.board.set(x, 18, Some(PieceKind::I));
         state.board.set(x + 2, 18, Some(PieceKind::I));
         state.last_action_was_rotate = true;
         state.active = Some(Tetromino {
@@ -2465,7 +2465,7 @@ mod tests {
         state.back_to_back = true;
 
         let x = 3;
-        state.board.set(x + 0, 18, Some(PieceKind::I));
+        state.board.set(x, 18, Some(PieceKind::I));
         state.last_action_was_rotate = true;
         state.active = Some(Tetromino {
             kind: PieceKind::T,

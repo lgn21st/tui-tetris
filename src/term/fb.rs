@@ -120,13 +120,11 @@ impl FrameBuffer {
     }
 
     pub fn put_str(&mut self, x: u16, y: u16, s: &str, style: CellStyle) {
-        let mut cx = x;
-        for ch in s.chars() {
+        for (cx, ch) in (x..).zip(s.chars()) {
             if cx >= self.width {
                 break;
             }
             self.put_char(cx, y, ch, style);
-            cx += 1;
         }
     }
 

@@ -46,10 +46,8 @@ pub fn apply_place(
     }
 
     // Hold first if requested.
-    if use_hold {
-        if !state.apply_action(GameAction::Hold) {
-            return Err(PlaceError::HoldUnavailable);
-        }
+    if use_hold && !state.apply_action(GameAction::Hold) {
+        return Err(PlaceError::HoldUnavailable);
     }
 
     let Some(active0) = state.active() else {
@@ -183,7 +181,7 @@ mod tests {
             max_dx = max_dx.max(dx);
         }
 
-        let (delta_x, target_x) = if a.x + min_dx - 1 >= 0 {
+        let (delta_x, target_x) = if a.x + min_dx > 0 {
             (-1i8, a.x - 1)
         } else if a.x + max_dx + 1 < BOARD_WIDTH as i8 {
             (1i8, a.x + 1)

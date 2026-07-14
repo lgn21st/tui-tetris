@@ -125,7 +125,7 @@ fn test_t_rotation_with_kick() {
     // Let's block x=4,y=6 which is part of the East rotation
     let is_valid = |x: i8, y: i8| {
         let blocked = x == 4 && y == 6; // Block one cell of East rotation
-        x >= 0 && x <= 9 && y >= 0 && y <= 19 && !blocked
+        (0..=9).contains(&x) && (0..=19).contains(&y) && !blocked
     };
 
     // T piece, rotate CW (needs kick because direct rotation is blocked)

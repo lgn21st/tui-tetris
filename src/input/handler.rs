@@ -6,7 +6,7 @@ use crossterm::event::KeyCode;
 
 use arrayvec::ArrayVec;
 
-use crate::types::{GameAction, DEFAULT_ARR_MS, DEFAULT_DAS_MS, SOFT_DROP_ARR_MS, SOFT_DROP_DAS_MS};
+use crate::types::{GameAction, DEFAULT_ARR_MS, DEFAULT_DAS_MS, SOFT_DROP_ARR_MS};
 
 /// Direction for horizontal movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -314,20 +314,11 @@ impl InputHandler {
         }
 
         if self.down_held {
-            let prev_das = self.down_das_timer;
             self.down_das_timer += elapsed_ms;
-
-            if self.down_das_timer >= SOFT_DROP_DAS_MS {
-                let excess = if prev_das < SOFT_DROP_DAS_MS {
-                    self.down_das_timer - SOFT_DROP_DAS_MS
-                } else {
-                    elapsed_ms
-                };
-                self.down_arr_accumulator += excess;
-                while self.down_arr_accumulator >= SOFT_DROP_ARR_MS {
-                    let _ = actions.try_push(GameAction::SoftDrop);
-                    self.down_arr_accumulator -= SOFT_DROP_ARR_MS;
-                }
+            self.down_arr_accumulator += elapsed_ms;
+            while self.down_arr_accumulator >= SOFT_DROP_ARR_MS {
+                let _ = actions.try_push(GameAction::SoftDrop);
+                self.down_arr_accumulator -= SOFT_DROP_ARR_MS;
             }
         } else {
             self.down_das_timer = 0;
@@ -532,7 +523,7 @@ mod tests {
         let mut ih = InputHandler::with_config(100, 25).with_key_release_timeout_ms(10_000);
 
         assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
-        assert!(ih.update(200).len() > 0, "expected repeats before reset");
+        assert!(!ih.update(200).is_empty(), "expected repeats before reset");
 
         ih.reset();
         assert!(ih.update(200).is_empty(), "reset should stop repeats");
