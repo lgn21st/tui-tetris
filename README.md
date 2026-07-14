@@ -76,6 +76,9 @@ cargo test
 - **Term Renderer**: framebuffer + diff flush (terminal-native renderer)
 - **Adapter**: AI protocol (JSON over TCP)
 
+See `docs/architecture.md` for dependency boundaries, runtime data flow, and the
+incremental decomposition plan for the larger orchestration modules.
+
 ## Project Layout
 
 ```
@@ -92,14 +95,18 @@ tui-tetris/
 │   │   ├── pieces.rs
 │   │   ├── rng.rs
 │   │   ├── scoring.rs
-│   │   └── game_state.rs
+│   │   ├── game_state.rs
+│   │   └── snapshot.rs   # allocation-free render/adapter projection
 │   ├── term/             # terminal rendering (framebuffer + diff flush)
 │   │   ├── fb.rs
 │   │   ├── game_view.rs
 │   │   └── renderer.rs
 │   ├── adapter/          # AI protocol server
+│   │   ├── game_loop.rs  # bounded pre-tick command processing
+│   │   ├── observation_schedule.rs # shared fixed-step observation cadence
 │   │   ├── protocol.rs   # JSON messages
-│   │   └── mod.rs
+│   │   ├── runtime.rs    # synchronous game-loop facade
+│   │   └── server.rs     # async TCP lifecycle and fanout
 │   └── engine/           # reusable engine helpers
 │       └── place.rs      # place-mode application logic
 ├── tests/                # integration tests
@@ -116,6 +123,9 @@ tui-tetris/
 ```bash
 # Run all tests
 cargo test
+
+# Treat all Clippy findings as errors
+cargo clippy --all-targets --all-features -- -D warnings
 
 # Run specific tests
 cargo test board
@@ -149,6 +159,7 @@ Benchmarks live under `benches/` and can be run via `cargo bench`.
 - Roadmap: `docs/roadmap.md`
 - Feature matrix: `docs/feature-matrix.md`
 - Dev workflow: `AGENTS.md`
+- Architecture and review notes: `docs/architecture.md`
 
 ## Headless Mode
 

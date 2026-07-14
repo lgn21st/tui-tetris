@@ -2,15 +2,16 @@
 
 This file is the current, maintained roadmap for tui-tetris.
 
-## Current Status (2026-02-03)
+## Current Status (2026-07-14)
 
 - TUI runner: crossterm + custom framebuffer diff flush
 - Core: deterministic, fixed-step tick (16ms), 7-bag RNG, scoring per `docs/rules-spec.md`
 - Core snapshots: stable `GameSnapshot` + `GameState::snapshot_into` for adapter/render usage
 - Input: DAS/ARR + timeout-based release for terminals without key-up events (`TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS`), plus repeat-driven auto-release for terminals that emit repeats but not releases
-- Adapter: TCP newline-delimited JSON protocol (protocol v2.0.0)
+- Adapter: TCP newline-delimited JSON protocol (protocol v2.1.0)
 - Adapter performance: observation and line fanout avoid per-client clones (Arc-based fanout)
 - Adapter runtime: avoids building/broadcasting observations when there are no streaming subscribers
+- Adapter runners: interactive/headless modes share adapter-owned bounded command draining and observation scheduling
 - Adapter status: `client_count` and `controller_id` reflect live connections only
 - Adapter I/O: buffered writes with a flush policy (immediate for welcome/ack/error; otherwise ≤16ms)
 - Acceptance: automated protocol gates + closed-loop stability tests
@@ -30,9 +31,16 @@ This file is the current, maintained roadmap for tui-tetris.
 - Reduce `pub` surface of `GameState` where practical
 - Keep snapshot APIs allocation-free and stable for adapter/render use
 
+4) Structural decomposition
+- ✅ Extract shared command draining and observation scheduling from interactive/headless runners
+- Split `GameState` tests into focused integration suites as behavior changes require touching them
+- Split adapter server connection, control-policy, and writer responsibilities behind internal APIs
+- Keep protocol versions and other cross-process compatibility constants centralized
+
 ## Validation Checklist
 
 - `cargo test`
+- `cargo clippy --all-targets --all-features -- -D warnings`
 - Adapter acceptance: `cargo test --test adapter_acceptance_test`
 - Adapter e2e: `cargo test --test adapter_e2e_test`
 - Closed-loop stability: `cargo test --test adapter_closed_loop_test`
