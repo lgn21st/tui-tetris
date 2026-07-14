@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use tui_tetris::adapter::protocol::parse_message;
 use tui_tetris::adapter::server::build_observation;
 use tui_tetris::core::{Board, GameSnapshot, GameState};
@@ -6,13 +6,21 @@ use tui_tetris::term::{encode_diff_into, FrameBuffer, GameView, Viewport};
 use tui_tetris::types::{GameAction, PieceKind};
 
 fn bench_tick(c: &mut Criterion) {
-    let mut state = GameState::new(12345);
-    state.start();
+    let mut template = GameState::new(12345);
+    template.start();
 
     c.bench_function("game_tick_16ms", |b| {
-        b.iter(|| {
-            state.tick(black_box(16), false);
-        })
+        // A long-lived state eventually reaches game-over, after which tick only
+        // exercises its early-return guard. Clone setup is excluded from timing so
+        // every sample measures an active, representative fixed-timestep update.
+        b.iter_batched(
+            || template.clone(),
+            |mut state| {
+                let changed = state.tick(black_box(16), false);
+                black_box((&state, changed));
+            },
+            BatchSize::SmallInput,
+        )
     });
 }
 
@@ -202,10 +210,65 @@ fn bench_encode_diff_into_noop(c: &mut Criterion) {
     });
 }
 
+fn bench_renderer_pipeline_noop(c: &mut Criterion) {
+    let mut state = GameState::new(12345);
+    state.start();
+    let view = GameView::default();
+    let viewport = Viewport::new(80, 24);
+    let mut snap = GameSnapshot::default();
+    state.snapshot_into(&mut snap);
+    let mut prev = FrameBuffer::new(viewport.width, viewport.height);
+    let mut next = FrameBuffer::new(viewport.width, viewport.height);
+    view.render_into(&snap, viewport, &mut prev);
+    let mut out = Vec::with_capacity(64 * 1024);
+
+    c.bench_function("renderer_pipeline_noop", |b| {
+        b.iter(|| {
+            out.clear();
+            view.render_into(black_box(&snap), viewport, black_box(&mut next));
+            encode_diff_into(&prev, &next, &mut out).unwrap();
+            std::mem::swap(&mut prev, &mut next);
+            black_box(out.len())
+        })
+    });
+}
+
+fn bench_renderer_pipeline_changed_frame(c: &mut Criterion) {
+    let mut state = GameState::new(12345);
+    state.start();
+    let view = GameView::default();
+    let viewport = Viewport::new(80, 24);
+    let mut snap = GameSnapshot::default();
+    state.snapshot_into(&mut snap);
+    let mut prev = FrameBuffer::new(viewport.width, viewport.height);
+    let mut next = FrameBuffer::new(viewport.width, viewport.height);
+    view.render_into(&snap, viewport, &mut prev);
+    let mut out = Vec::with_capacity(64 * 1024);
+    let mut move_left = true;
+
+    c.bench_function("renderer_pipeline_changed_frame", |b| {
+        b.iter(|| {
+            let action = if move_left {
+                GameAction::MoveLeft
+            } else {
+                GameAction::MoveRight
+            };
+            move_left = !move_left;
+            black_box(state.apply_action(action));
+            state.snapshot_meta_into(&mut snap);
+
+            out.clear();
+            view.render_into(black_box(&snap), viewport, black_box(&mut next));
+            encode_diff_into(&prev, &next, &mut out).unwrap();
+            std::mem::swap(&mut prev, &mut next);
+            black_box(out.len())
+        })
+    });
+}
+
 fn bench_parse_command_action(c: &mut Criterion) {
     // Representative action-mode command from tetris-ai.
-    let json =
-        r#"{"type":"command","seq":7,"ts":1730000001300,"mode":"action","actions":["rotateCw","moveLeft","hardDrop"]}"#;
+    let json = r#"{"type":"command","seq":7,"ts":1730000001300,"mode":"action","actions":["rotateCw","moveLeft","hardDrop"]}"#;
 
     c.bench_function("parse_command_action", |b| {
         b.iter(|| {
@@ -228,6 +291,8 @@ criterion_group!(
     bench_render_into,
     bench_encode_diff_into,
     bench_encode_diff_into_noop,
+    bench_renderer_pipeline_noop,
+    bench_renderer_pipeline_changed_frame,
     bench_parse_command_action
 );
 criterion_main!(benches);

@@ -24,7 +24,9 @@ from pathlib import Path
 
 THRESHOLDS_SECONDS: dict[str, float] = {
     # "nano" benchmarks: keep very generous (these are extremely machine-dependent).
-    "game_tick_16ms": 20e-9,  # 20ns
+    # Uses a fresh active state per sample; the old long-lived benchmark mostly
+    # measured the game-over early return. Leave cross-machine headroom.
+    "game_tick_16ms": 50e-9,  # 50ns
     "clear_4_lines": 200e-9,  # 200ns
     "snapshot_meta_into": 200e-9,  # 200ns
     "snapshot_board_into": 200e-9,  # 200ns
@@ -36,6 +38,9 @@ THRESHOLDS_SECONDS: dict[str, float] = {
     "render_into": 10e-6,  # 10us
     "encode_diff_into": 20e-6,  # 20us
     "encode_diff_into_noop": 5e-6,  # 5us
+    # snapshot/render/diff/swap pipeline, excluding environment-dependent stdout I/O.
+    "renderer_pipeline_noop": 15e-6,  # 15us
+    "renderer_pipeline_changed_frame": 20e-6,  # 20us
     # JSON parsing can vary a lot by CPU and serde_json version; keep generous.
     "parse_command_action": 50e-6,  # 50us
 }
