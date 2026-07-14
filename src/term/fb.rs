@@ -120,11 +120,15 @@ impl FrameBuffer {
     }
 
     pub fn put_str(&mut self, x: u16, y: u16, s: &str, style: CellStyle) {
-        for (cx, ch) in (x..).zip(s.chars()) {
-            if cx >= self.width {
-                break;
-            }
-            self.put_char(cx, y, ch, style);
+        let Some(start) = self.idx(x, y) else {
+            return;
+        };
+        let available = (self.width - x) as usize;
+        for (cell, ch) in self.cells[start..start + available]
+            .iter_mut()
+            .zip(s.chars())
+        {
+            *cell = Cell { ch, style };
         }
     }
 
@@ -148,10 +152,48 @@ impl FrameBuffer {
     }
 
     pub fn fill_rect(&mut self, x: u16, y: u16, w: u16, h: u16, ch: char, style: CellStyle) {
-        for dy in 0..h {
-            for dx in 0..w {
-                self.put_char(x.saturating_add(dx), y.saturating_add(dy), ch, style);
-            }
+        let end_x = x.saturating_add(w).min(self.width);
+        let end_y = y.saturating_add(h).min(self.height);
+        if x >= end_x || y >= end_y {
+            return;
         }
+
+        let fill = Cell { ch, style };
+        let width = self.width as usize;
+        for row in y as usize..end_y as usize {
+            let start = row * width + x as usize;
+            let end = row * width + end_x as usize;
+            self.cells[start..end].fill(fill);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn put_str_clips_at_the_right_edge() {
+        let mut fb = FrameBuffer::new(3, 1);
+        let style = CellStyle::default();
+
+        fb.put_str(1, 0, "ABCD", style);
+
+        assert_eq!(fb.get(0, 0).unwrap().ch, ' ');
+        assert_eq!(fb.get(1, 0).unwrap().ch, 'A');
+        assert_eq!(fb.get(2, 0).unwrap().ch, 'B');
+    }
+
+    #[test]
+    fn fill_rect_clips_to_the_framebuffer() {
+        let mut fb = FrameBuffer::new(3, 2);
+        let style = CellStyle::default();
+
+        fb.fill_rect(1, 1, 4, 3, 'X', style);
+
+        assert_eq!(fb.get(0, 1).unwrap().ch, ' ');
+        assert_eq!(fb.get(1, 1).unwrap().ch, 'X');
+        assert_eq!(fb.get(2, 1).unwrap().ch, 'X');
+        assert_eq!(fb.get(2, 0).unwrap().ch, ' ');
     }
 }
