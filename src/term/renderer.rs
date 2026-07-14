@@ -84,7 +84,9 @@ impl TerminalRenderer {
         } else {
             self.buf.clear();
             encode_diff_into(&prev, fb, &mut self.buf)?;
-            self.flush_buf()?;
+            if !self.buf.is_empty() {
+                self.flush_buf()?;
+            }
         }
 
         // Swap current into prev so next frame can diff without cloning.
@@ -97,6 +99,12 @@ impl TerminalRenderer {
         self.stdout.write_all(&self.buf)?;
         self.stdout.flush()?;
         Ok(())
+    }
+}
+
+impl Default for TerminalRenderer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -146,8 +154,10 @@ pub fn encode_diff_into(prev: &FrameBuffer, next: &FrameBuffer, out: &mut Vec<u8
         Ok(())
     })?;
 
-    out.queue(ResetColor)?;
-    out.queue(SetAttribute(Attribute::Reset))?;
+    if current_style.is_some() {
+        out.queue(ResetColor)?;
+        out.queue(SetAttribute(Attribute::Reset))?;
+    }
     Ok(())
 }
 
@@ -275,5 +285,15 @@ mod tests {
         })
         .unwrap();
         assert_eq!(runs, vec![(0, 0, 3), (0, 1, 3)]);
+    }
+
+    #[test]
+    fn identical_framebuffers_encode_no_terminal_output() {
+        let frame = FrameBuffer::new(80, 24);
+        let mut output = Vec::new();
+
+        encode_diff_into(&frame, &frame, &mut output).unwrap();
+
+        assert!(output.is_empty());
     }
 }
