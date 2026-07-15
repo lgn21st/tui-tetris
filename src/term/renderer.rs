@@ -17,16 +17,26 @@ use crossterm::{
 
 use crate::term::fb::{CellStyle, FrameBuffer, Rgb};
 
-pub struct TerminalRenderer {
-    stdout: io::Stdout,
+pub struct TerminalRenderer<W: Write = io::Stdout> {
+    writer: W,
     last: Option<FrameBuffer>,
     buf: Vec<u8>,
 }
 
-impl TerminalRenderer {
+impl TerminalRenderer<io::Stdout> {
     pub fn new() -> Self {
+        Self::with_writer(io::stdout())
+    }
+}
+
+impl<W: Write> TerminalRenderer<W> {
+    /// Construct a renderer backed by an arbitrary writer.
+    ///
+    /// This keeps terminal encoding and flush behavior testable and benchmarkable
+    /// without coupling measurements to a particular terminal emulator.
+    pub fn with_writer(writer: W) -> Self {
         Self {
-            stdout: io::stdout(),
+            writer,
             last: None,
             buf: Vec::with_capacity(64 * 1024),
         }
@@ -96,13 +106,13 @@ impl TerminalRenderer {
     }
 
     fn flush_buf(&mut self) -> Result<()> {
-        self.stdout.write_all(&self.buf)?;
-        self.stdout.flush()?;
+        self.writer.write_all(&self.buf)?;
+        self.writer.flush()?;
         Ok(())
     }
 }
 
-impl Default for TerminalRenderer {
+impl Default for TerminalRenderer<io::Stdout> {
     fn default() -> Self {
         Self::new()
     }
@@ -230,6 +240,26 @@ fn for_each_changed_run(
 mod tests {
     use super::*;
     use crate::term::fb::{Cell, CellStyle};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct CountingWriter {
+        counts: Arc<Mutex<(usize, usize, usize)>>,
+    }
+
+    impl Write for CountingWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let mut counts = self.counts.lock().unwrap();
+            counts.0 += 1;
+            counts.1 += buf.len();
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.counts.lock().unwrap().2 += 1;
+            Ok(())
+        }
+    }
 
     // This is not a perfect test of terminal output, but it ensures we can build
     // a framebuffer and iterate all cells without panicking.
@@ -295,5 +325,39 @@ mod tests {
         encode_diff_into(&frame, &frame, &mut output).unwrap();
 
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn injected_writer_skips_output_and_flush_for_unchanged_frame() {
+        let writer = CountingWriter::default();
+        let counts = Arc::clone(&writer.counts);
+        let mut renderer = TerminalRenderer::with_writer(writer);
+        let mut frame = FrameBuffer::new(4, 2);
+
+        renderer.draw_swap(&mut frame).unwrap();
+        let after_first = *counts.lock().unwrap();
+        renderer.draw_swap(&mut frame).unwrap();
+
+        assert!(after_first.0 > 0);
+        assert!(after_first.1 > 0);
+        assert_eq!(*counts.lock().unwrap(), after_first);
+    }
+
+    #[test]
+    fn injected_writer_flushes_changed_frame() {
+        let writer = CountingWriter::default();
+        let counts = Arc::clone(&writer.counts);
+        let mut renderer = TerminalRenderer::with_writer(writer);
+        let mut frame = FrameBuffer::new(4, 2);
+        renderer.draw_swap(&mut frame).unwrap();
+        let after_first = *counts.lock().unwrap();
+
+        frame.put_char(1, 0, 'X', CellStyle::default());
+        renderer.draw_swap(&mut frame).unwrap();
+        let after_change = *counts.lock().unwrap();
+
+        assert!(after_change.0 > after_first.0);
+        assert!(after_change.1 > after_first.1);
+        assert!(after_change.2 > after_first.2);
     }
 }
