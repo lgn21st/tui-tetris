@@ -29,6 +29,8 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Custom framebuffer ✅
 - Diff-based flush ✅
 - Resizing invalidation ✅
+- Unchanged frames skip terminal write and flush ✅
+- Injectable renderer output backend ✅
 - Snapshot-style renderer tests ✅
 - GameView allocation-free gate ✅
 - Remote observer renderer mode (`cargo run -- observe ...`) ✅
@@ -53,3 +55,5 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - End-to-end allocation-free (input + adapter + render, no I/O) ✅
 - Benchmarks (`cargo bench`) ✅
 - Benchmark regression gate (`python3 scripts/bench_gate.py`) ✅
+- Active-state tick benchmark (does not collapse into game-over early return) ✅
+- Full renderer pipeline and injected-backend benchmarks ✅

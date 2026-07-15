@@ -25,7 +25,9 @@ main / observe
   backpressure. `ObservationSchedule` owns cadence, critical-state detection, and
   sequence generation shared by interactive and headless modes. Its `game_loop`
   boundary owns bounded pre-tick command draining, snapshot requests, and
-  acknowledgements. Game commands cross the boundary as typed messages.
+  acknowledgements. `observation` owns snapshot-to-wire projection and stable
+  state hashing; `server_config` owns environment parsing and listen validation.
+  Game commands cross the boundary as typed messages.
 - `main` is the composition root. Interactive, headless, and observe modes select
   which input/output edges are active.
 
@@ -61,19 +63,5 @@ and framebuffer swapping. Backend gates also exercise `TerminalRenderer` write a
 flush dispatch through an injected writer; terminal device I/O remains outside the
 reproducible gate.
 
-## Structural Improvement Plan
-
-The largest files are orchestration and acceptance-test hotspots, not a reason for
-a broad rewrite. Decompose them incrementally when the associated behavior is
-changed:
-
-1. ✅ Extract the duplicated adapter command/observation pump from interactive and
-   headless loops behind a small stateful internal type.
-2. Separate adapter server connection handling, controller policy, and buffered
-   writer/fanout logic while preserving the public protocol surface.
-3. Move `GameState` unit tests into behavior-focused test modules so rule changes
-   do not keep growing the production source file.
-4. Factor shared TCP test-client helpers out of adapter acceptance/e2e suites.
-
-Each extraction must start with characterization tests and keep the allocation
-and protocol acceptance gates green.
+Future structural work is tracked only in `roadmap.md`; this document describes
+the architecture that exists today.

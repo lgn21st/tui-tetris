@@ -11,13 +11,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Controller/Observer pattern for multiplayer AI
   - Action and Place command modes
   - Observation streaming with full game state
-  - Protocol version 2.0.0 compliance
+  - Protocol version 2.1.0 compliance
 - Professional DAS/ARR input handling
   - Delayed Auto Shift: 167ms
   - Auto Repeat Rate: 33ms
   - Ghost key elimination for rapid alternation
 - Aspect ratio correction (2:1 character ratio for square blocks)
 - Terminal-first renderer (framebuffer + diff/dirty-cell flush)
+- Injectable renderer output backend with regression benchmarks for the full render pipeline
 - Engine-facing input module (key mapping + DAS/ARR)
 - Comprehensive rustdoc documentation with doc-test examples
 - Input test utility (`cargo run --bin input-test`)
@@ -34,10 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Switched to diff/dirty-cell flushing for terminal performance
 
 ### Technical
-- 137 tests passing (including 8 doc tests)
-- Zero compiler warnings
-- Complete API documentation
-- Modular adapter architecture ready for extensions
+- Allocation gates for core, input, adapter observation, rendering, and the no-I/O end-to-end path
+- Criterion regression gates for game logic, adapter serialization, and renderer pipelines
+- Clippy clean with warnings treated as errors
+- Shared deterministic adapter command draining and observation scheduling
 
 ## [0.1.0] - 2025-02-02
 

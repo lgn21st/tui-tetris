@@ -2,7 +2,7 @@
 
 This file is the current, maintained roadmap for tui-tetris.
 
-## Current Status (2026-07-14)
+## Current Status (2026-07-15)
 
 - TUI runner: crossterm + custom framebuffer diff flush
 - Core: deterministic, fixed-step tick (16ms), 7-bag RNG, scoring per `docs/rules-spec.md`
@@ -14,6 +14,8 @@ This file is the current, maintained roadmap for tui-tetris.
 - Adapter runners: interactive/headless modes share adapter-owned bounded command draining and observation scheduling
 - Adapter status: `client_count` and `controller_id` reflect live connections only
 - Adapter I/O: buffered writes with a flush policy (immediate for welcome/ack/error; otherwise ≤16ms)
+- Renderer I/O: injectable writer, diff-only flushes, and no write/flush for unchanged frames
+- Performance gates: active-state tick plus render, diff, pipeline, and renderer-backend benchmarks
 - Acceptance: automated protocol gates + closed-loop stability tests
 
 ## Next Priorities
@@ -33,8 +35,10 @@ This file is the current, maintained roadmap for tui-tetris.
 
 4) Structural decomposition
 - ✅ Extract shared command draining and observation scheduling from interactive/headless runners
-- Split `GameState` tests into focused integration suites as behavior changes require touching them
-- Split adapter server connection, control-policy, and writer responsibilities behind internal APIs
+- ✅ Separate `GameState` unit tests from the production implementation file
+- ✅ Separate adapter observation projection/state hashing and server configuration from TCP lifecycle
+- ✅ Share adapter TCP line/server fixtures across integration suites
+- Continue splitting connection, control-policy, and writer responsibilities when those flows change
 - Keep protocol versions and other cross-process compatibility constants centralized
 
 ## Validation Checklist
