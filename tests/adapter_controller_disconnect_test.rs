@@ -9,15 +9,8 @@ use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{run_server, ServerConfig};
 use tui_tetris::adapter::{InboundCommand, OutboundMessage};
 
-async fn read_line(
-    lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>,
-) -> String {
-    tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-        .await
-        .expect("timeout waiting for line")
-        .expect("io error")
-        .expect("expected line")
-}
+mod support;
+use support::read_line;
 
 #[tokio::test]
 async fn controller_disconnect_does_not_leave_stale_controller() {
@@ -72,7 +65,8 @@ async fn controller_disconnect_does_not_leave_stale_controller() {
         write_half.write_all(b"\n").await.unwrap();
         write_half.flush().await.unwrap();
 
-        let welcome: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
+        let welcome: serde_json::Value =
+            serde_json::from_str(&read_line(&mut lines).await).unwrap();
         assert_eq!(welcome["type"], "welcome");
 
         // Send an invalid UTF-8 line to force a server-side read error in the line reader.
@@ -101,7 +95,8 @@ async fn controller_disconnect_does_not_leave_stale_controller() {
         write_half.write_all(b"\n").await.unwrap();
         write_half.flush().await.unwrap();
 
-        let welcome: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
+        let welcome: serde_json::Value =
+            serde_json::from_str(&read_line(&mut lines).await).unwrap();
         assert_eq!(welcome["type"], "welcome");
 
         // If the server leaked a stale controller, this client would remain an observer:

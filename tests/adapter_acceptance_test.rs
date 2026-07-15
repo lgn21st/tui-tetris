@@ -1,7 +1,6 @@
 #![allow(clippy::field_reassign_with_default)] // Stepwise fixtures mirror protocol phases.
 #![allow(clippy::large_enum_variant)] // Test-only state machines favor direct GameState access.
 
-use std::net::SocketAddr;
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -16,43 +15,8 @@ use tui_tetris::core::GameState;
 use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::types::GameAction;
 
-async fn read_json_line(
-    lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>,
-) -> serde_json::Value {
-    let line = tokio::time::timeout(Duration::from_secs(3), lines.next_line())
-        .await
-        .expect("timeout waiting for line")
-        .expect("io error")
-        .expect("expected line");
-    serde_json::from_str(&line).expect("invalid json")
-}
-
-async fn spawn_server(
-    config: ServerConfig,
-    cmd_capacity: usize,
-) -> (
-    tokio::task::JoinHandle<()>,
-    SocketAddr,
-    mpsc::Receiver<InboundCommand>,
-    mpsc::UnboundedSender<OutboundMessage>,
-) {
-    let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(cmd_capacity);
-    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
-    let (ready_tx, ready_rx) = oneshot::channel();
-
-    let server_handle = tokio::spawn(async move {
-        run_server(config, cmd_tx, out_rx, Some(ready_tx), None)
-            .await
-            .expect("acceptance server failed");
-    });
-
-    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
-        .await
-        .unwrap()
-        .unwrap();
-
-    (server_handle, addr, cmd_rx, out_tx)
-}
+mod support;
+use support::{read_json_line, spawn_server};
 
 async fn engine_task(
     mut cmd_rx: mpsc::Receiver<InboundCommand>,

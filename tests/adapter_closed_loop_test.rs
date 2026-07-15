@@ -12,15 +12,8 @@ use tui_tetris::core::{get_shape, GameState};
 use tui_tetris::engine::place::apply_place;
 use tui_tetris::types::{PieceKind, Rotation};
 
-async fn read_line(
-    lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>,
-) -> String {
-    tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-        .await
-        .expect("timeout waiting for line")
-        .expect("io error")
-        .expect("expected line")
-}
+mod support;
+use support::read_line;
 
 async fn read_next_json(
     lines: &mut tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>,
@@ -292,11 +285,13 @@ async fn closed_loop_stability_3x50_reconnects() {
             write_half.flush().await.unwrap();
 
             // welcome
-            let welcome: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
+            let welcome: serde_json::Value =
+                serde_json::from_str(&read_line(&mut lines).await).unwrap();
             assert_eq!(welcome["type"], "welcome");
 
             // first observation (from snapshot request)
-            let mut obs: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
+            let mut obs: serde_json::Value =
+                serde_json::from_str(&read_line(&mut lines).await).unwrap();
             assert_eq!(obs["type"], "observation");
 
             // Drive until game over or safety cap.
@@ -307,8 +302,18 @@ async fn closed_loop_stability_3x50_reconnects() {
                     break;
                 }
 
-                let kind_s = active.as_ref().unwrap().get("kind").and_then(|v| v.as_str()).unwrap();
-                let rot_s = active.as_ref().unwrap().get("rotation").and_then(|v| v.as_str()).unwrap();
+                let kind_s = active
+                    .as_ref()
+                    .unwrap()
+                    .get("kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap();
+                let rot_s = active
+                    .as_ref()
+                    .unwrap()
+                    .get("rotation")
+                    .and_then(|v| v.as_str())
+                    .unwrap();
                 let kind = kind_s.parse::<PieceKind>().expect("piece kind");
                 let rot = rot_s.parse::<Rotation>().expect("rotation");
                 let x = compute_leftmost_x(kind, rot);
@@ -330,7 +335,8 @@ async fn closed_loop_stability_3x50_reconnects() {
 
                 // Expect ack or error for this seq.
                 loop {
-                    let v: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
+                    let v: serde_json::Value =
+                        serde_json::from_str(&read_line(&mut lines).await).unwrap();
                     if v["type"] == "ack" || v["type"] == "error" {
                         assert_eq!(v["seq"], seq);
                         break;
@@ -455,8 +461,7 @@ async fn closed_loop_long_run_200_episodes() {
 
         // Expect ack for restart.
         loop {
-            let v: serde_json::Value =
-                serde_json::from_str(&read_line(&mut lines).await).unwrap();
+            let v: serde_json::Value = serde_json::from_str(&read_line(&mut lines).await).unwrap();
             if v["type"] == "ack" {
                 assert_eq!(v["seq"], seq);
                 break;
