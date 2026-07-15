@@ -57,7 +57,9 @@ requires tests plus updates to `rules-spec.md` or `adapter.md`.
 Run `cargo test` for correctness and allocation gates. Run `cargo bench` followed
 by `python3 scripts/bench_gate.py` for performance regression checks.
 Renderer pipeline gates measure snapshot-to-framebuffer rendering, diff encoding,
-and framebuffer swapping; terminal device I/O remains outside the reproducible gate.
+and framebuffer swapping. Backend gates also exercise `TerminalRenderer` write and
+flush dispatch through an injected writer; terminal device I/O remains outside the
+reproducible gate.
 
 ## Structural Improvement Plan
 

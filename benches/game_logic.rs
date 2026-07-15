@@ -1,9 +1,30 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use std::io::{self, Write};
 use tui_tetris::adapter::protocol::parse_message;
 use tui_tetris::adapter::server::build_observation;
 use tui_tetris::core::{Board, GameSnapshot, GameState};
-use tui_tetris::term::{encode_diff_into, FrameBuffer, GameView, Viewport};
+use tui_tetris::term::{encode_diff_into, FrameBuffer, GameView, TerminalRenderer, Viewport};
 use tui_tetris::types::{GameAction, PieceKind};
+
+#[derive(Default)]
+struct BenchmarkWriter {
+    bytes: usize,
+    flushes: usize,
+}
+
+impl Write for BenchmarkWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        black_box(buf);
+        self.bytes = self.bytes.wrapping_add(buf.len());
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.flushes = self.flushes.wrapping_add(1);
+        black_box(self.flushes);
+        Ok(())
+    }
+}
 
 fn bench_tick(c: &mut Criterion) {
     let mut template = GameState::new(12345);
@@ -266,6 +287,55 @@ fn bench_renderer_pipeline_changed_frame(c: &mut Criterion) {
     });
 }
 
+fn bench_renderer_backend_noop(c: &mut Criterion) {
+    let mut state = GameState::new(12345);
+    state.start();
+    let view = GameView::default();
+    let viewport = Viewport::new(80, 24);
+    let mut snap = GameSnapshot::default();
+    state.snapshot_into(&mut snap);
+    let mut frame = FrameBuffer::new(viewport.width, viewport.height);
+    view.render_into(&snap, viewport, &mut frame);
+    let mut renderer = TerminalRenderer::with_writer(BenchmarkWriter::default());
+    renderer.draw_swap(&mut frame).unwrap();
+
+    c.bench_function("renderer_backend_noop", |b| {
+        b.iter(|| {
+            view.render_into(black_box(&snap), viewport, black_box(&mut frame));
+            renderer.draw_swap(&mut frame).unwrap();
+        })
+    });
+}
+
+fn bench_renderer_backend_changed_frame(c: &mut Criterion) {
+    let mut state = GameState::new(12345);
+    state.start();
+    let view = GameView::default();
+    let viewport = Viewport::new(80, 24);
+    let mut snap = GameSnapshot::default();
+    state.snapshot_into(&mut snap);
+    let mut frame = FrameBuffer::new(viewport.width, viewport.height);
+    view.render_into(&snap, viewport, &mut frame);
+    let mut renderer = TerminalRenderer::with_writer(BenchmarkWriter::default());
+    renderer.draw_swap(&mut frame).unwrap();
+    let mut move_left = true;
+
+    c.bench_function("renderer_backend_changed_frame", |b| {
+        b.iter(|| {
+            let action = if move_left {
+                GameAction::MoveLeft
+            } else {
+                GameAction::MoveRight
+            };
+            move_left = !move_left;
+            black_box(state.apply_action(action));
+            state.snapshot_meta_into(&mut snap);
+            view.render_into(black_box(&snap), viewport, black_box(&mut frame));
+            renderer.draw_swap(&mut frame).unwrap();
+        })
+    });
+}
+
 fn bench_parse_command_action(c: &mut Criterion) {
     // Representative action-mode command from tetris-ai.
     let json = r#"{"type":"command","seq":7,"ts":1730000001300,"mode":"action","actions":["rotateCw","moveLeft","hardDrop"]}"#;
@@ -293,6 +363,8 @@ criterion_group!(
     bench_encode_diff_into_noop,
     bench_renderer_pipeline_noop,
     bench_renderer_pipeline_changed_frame,
+    bench_renderer_backend_noop,
+    bench_renderer_backend_changed_frame,
     bench_parse_command_action
 );
 criterion_main!(benches);

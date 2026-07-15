@@ -152,8 +152,9 @@ The maintained roadmap lives in `docs/roadmap.md`.
 Performance targets and optimization plan are tracked in `docs/roadmap.md`.
 Benchmarks live under `benches/` and can be run via `cargo bench`.
 The renderer pipeline benchmarks cover framebuffer rendering, diff encoding, and
-buffer swapping. Terminal write/flush latency is intentionally excluded because
-it depends on the host terminal and is not suitable for a stable regression gate.
+buffer swapping. Backend benchmarks additionally cover `TerminalRenderer` calls
+through `write_all` and `flush` using a deterministic injected writer. Host terminal
+or PTY latency remains excluded because it is not suitable for a stable gate.
 
 ## Documentation
 

@@ -41,6 +41,9 @@ THRESHOLDS_SECONDS: dict[str, float] = {
     # snapshot/render/diff/swap pipeline, excluding environment-dependent stdout I/O.
     "renderer_pipeline_noop": 15e-6,  # 15us
     "renderer_pipeline_changed_frame": 20e-6,  # 20us
+    # Same pipeline through TerminalRenderer with an injected deterministic writer.
+    "renderer_backend_noop": 15e-6,  # 15us
+    "renderer_backend_changed_frame": 20e-6,  # 20us
     # JSON parsing can vary a lot by CPU and serde_json version; keep generous.
     "parse_command_action": 50e-6,  # 50us
 }
