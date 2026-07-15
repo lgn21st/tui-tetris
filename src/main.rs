@@ -127,9 +127,7 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
                         term.invalidate();
                         dirty = true;
                     }
-                    Event::Key(key)
-                        if key.kind == KeyEventKind::Press && should_quit(key) =>
-                    {
+                    Event::Key(key) if key.kind == KeyEventKind::Press && should_quit(key) => {
                         return Ok(());
                     }
                     _ => {}
@@ -203,8 +201,7 @@ fn run_headless() -> Result<()> {
                     game_state.snapshot_board_into(&mut snap);
                 }
                 game_state.snapshot_meta_into(&mut snap);
-                let obs =
-                    tui_tetris::adapter::server::build_observation(seq, &snap, last_event);
+                let obs = tui_tetris::adapter::server::build_observation(seq, &snap, last_event);
                 ad.send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) });
             }
         }
@@ -294,66 +291,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
 
         let now_ms = render_epoch.elapsed().as_millis() as u64;
         let is_static = game_state.paused() || game_state.game_over();
-        let fingerprint = {
-            // FNV-1a 64-bit over a small set of render-relevant fields.
-            let mut h64: u64 = 0xcbf29ce484222325;
-            let mut push_u64 = |v: u64| {
-                for b in v.to_le_bytes() {
-                    h64 ^= b as u64;
-                    h64 = h64.wrapping_mul(0x00000100000001B3);
-                }
-            };
-
-            push_u64(w as u64);
-            push_u64(h as u64);
-            push_u64(game_state.board_id() as u64);
-            push_u64(game_state.episode_id() as u64);
-            push_u64(game_state.piece_id() as u64);
-            push_u64(game_state.active_id() as u64);
-            push_u64(game_state.step_in_piece() as u64);
-            push_u64(game_state.score() as u64);
-            push_u64(game_state.level() as u64);
-            push_u64(game_state.lines() as u64);
-            push_u64(game_state.can_hold() as u64);
-            push_u64(game_state.paused() as u64);
-            push_u64(game_state.game_over() as u64);
-            push_u64(
-                game_state
-                    .hold_piece()
-                    .map(|p| p as u64)
-                    .unwrap_or(u64::MAX),
-            );
-            for p in game_state.next_queue().iter().copied() {
-                push_u64(p as u64);
-            }
-
-            // Adapter HUD fields that can change while paused.
-            push_u64(adapter_view.enabled as u64);
-            push_u64(adapter_view.client_count as u64);
-            push_u64(adapter_view.streaming_count as u64);
-            push_u64(adapter_view.controller_id.unwrap_or(usize::MAX) as u64);
-            push_u64(adapter_view.pid as u64);
-            if let Some(addr) = adapter_view.listen_addr {
-                push_u64(addr.ip().is_ipv4() as u64);
-                match addr.ip() {
-                    std::net::IpAddr::V4(v4) => {
-                        for b in v4.octets() {
-                            push_u64(b as u64);
-                        }
-                    }
-                    std::net::IpAddr::V6(v6) => {
-                        for seg in v6.segments() {
-                            push_u64(seg as u64);
-                        }
-                    }
-                }
-                push_u64(addr.port() as u64);
-            } else {
-                push_u64(u64::MAX);
-            }
-
-            h64
-        };
+        let fingerprint = render_fingerprint(&game_state, &adapter_view, Viewport::new(w, h));
 
         if render_throttle.should_render(now_ms, fingerprint, is_static) {
             if game_state.board_id() != last_board_id {
@@ -495,6 +433,70 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     }
 }
 
+fn render_fingerprint(
+    game_state: &GameState,
+    adapter: &AdapterStatusView,
+    viewport: Viewport,
+) -> u64 {
+    // FNV-1a 64-bit over render-relevant fields only.
+    let mut hash = 0xcbf29ce484222325_u64;
+    let mut push_u64 = |value: u64| {
+        for byte in value.to_le_bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x00000100000001B3);
+        }
+    };
+
+    push_u64(viewport.width as u64);
+    push_u64(viewport.height as u64);
+    push_u64(game_state.board_id() as u64);
+    push_u64(game_state.episode_id() as u64);
+    push_u64(game_state.piece_id() as u64);
+    push_u64(game_state.active_id() as u64);
+    push_u64(game_state.step_in_piece() as u64);
+    push_u64(game_state.score() as u64);
+    push_u64(game_state.level() as u64);
+    push_u64(game_state.lines() as u64);
+    push_u64(game_state.can_hold() as u64);
+    push_u64(game_state.paused() as u64);
+    push_u64(game_state.game_over() as u64);
+    push_u64(
+        game_state
+            .hold_piece()
+            .map(|piece| piece as u64)
+            .unwrap_or(u64::MAX),
+    );
+    for piece in game_state.next_queue().iter().copied() {
+        push_u64(piece as u64);
+    }
+
+    push_u64(adapter.enabled as u64);
+    push_u64(adapter.client_count as u64);
+    push_u64(adapter.streaming_count as u64);
+    push_u64(adapter.controller_id.unwrap_or(usize::MAX) as u64);
+    push_u64(adapter.pid as u64);
+    if let Some(addr) = adapter.listen_addr {
+        push_u64(addr.ip().is_ipv4() as u64);
+        match addr.ip() {
+            std::net::IpAddr::V4(ip) => {
+                for byte in ip.octets() {
+                    push_u64(byte as u64);
+                }
+            }
+            std::net::IpAddr::V6(ip) => {
+                for segment in ip.segments() {
+                    push_u64(segment as u64);
+                }
+            }
+        }
+        push_u64(addr.port() as u64);
+    } else {
+        push_u64(u64::MAX);
+    }
+
+    hash
+}
+
 fn game_view_from_env() -> GameView {
     let anchor_y = std::env::var("TUI_TETRIS_ANCHOR_Y")
         .ok()
@@ -507,4 +509,53 @@ fn game_view_from_env() -> GameView {
         })
         .unwrap_or(AnchorY::Center);
     GameView::default().with_anchor_y(anchor_y)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn adapter_view() -> AdapterStatusView {
+        AdapterStatusView {
+            enabled: true,
+            client_count: 0,
+            controller_id: None,
+            streaming_count: 0,
+            pid: 1,
+            listen_addr: None,
+        }
+    }
+
+    #[test]
+    fn render_fingerprint_changes_with_render_relevant_state() {
+        let mut game = GameState::new(1);
+        game.start();
+        let adapter = adapter_view();
+        let viewport = Viewport::new(80, 24);
+        let before = render_fingerprint(&game, &adapter, viewport);
+
+        game.tick(TICK_MS, false);
+
+        assert_ne!(render_fingerprint(&game, &adapter, viewport), before);
+    }
+
+    #[test]
+    fn render_fingerprint_includes_adapter_hud_and_viewport() {
+        let mut game = GameState::new(1);
+        game.start();
+        let adapter = adapter_view();
+        let baseline = render_fingerprint(&game, &adapter, Viewport::new(80, 24));
+
+        let mut connected = adapter;
+        connected.client_count = 1;
+
+        assert_ne!(
+            render_fingerprint(&game, &connected, Viewport::new(80, 24)),
+            baseline
+        );
+        assert_ne!(
+            render_fingerprint(&game, &adapter, Viewport::new(100, 30)),
+            baseline
+        );
+    }
 }
