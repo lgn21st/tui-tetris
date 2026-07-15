@@ -5,38 +5,24 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::io::BufWriter;
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, RwLock};
-use tokio::io::BufWriter;
 use tokio::time::{Duration, MissedTickBehavior};
 
 use crate::adapter::protocol::*;
-use crate::adapter::runtime::{AdapterStatus, ClientCommand, InboundCommand, InboundPayload, OutboundMessage};
-use crate::core::GameSnapshot;
+use crate::adapter::runtime::{
+    AdapterStatus, ClientCommand, InboundCommand, InboundPayload, OutboundMessage,
+};
 use crate::types::{GameAction, Rotation};
+
+pub use crate::adapter::observation::build_observation;
+pub use crate::adapter::server_config::{check_tcp_listen_available, ServerConfig};
 
 use arrayvec::ArrayVec;
 
 const BACKPRESSURE_RETRY_AFTER_MS: u64 = 50;
-
-pub fn check_tcp_listen_available(host: &str, port: u16) -> std::io::Result<()> {
-    if port == 0 {
-        return Ok(());
-    }
-    let listener = std::net::TcpListener::bind((host, port))?;
-    drop(listener);
-    Ok(())
-}
-
-/// Stable 64-bit FNV-1a hasher for deterministic `state_hash`.
-///
-/// We avoid `DefaultHasher` here since its output is not guaranteed stable across
-/// Rust versions/platforms.
-#[derive(Debug, Clone)]
-struct Fnv1aHasher {
-    state: u64,
-}
 
 fn extract_seq_best_effort(s: &str) -> Option<u64> {
     let start = s.find("\"seq\"")?;
@@ -70,7 +56,9 @@ where
 
 async fn clear_stale_controller(state: &Arc<ServerState>, controller: &mut Option<usize>) {
     let clients = state.clients.read().await;
-    clear_stale_controller_id(controller, |id| clients.iter().any(|c| c.id == id && !c.tx.is_closed()));
+    clear_stale_controller_id(controller, |id| {
+        clients.iter().any(|c| c.id == id && !c.tx.is_closed())
+    });
 }
 
 fn sync_controller_flags(clients: &mut [ClientHandle], controller_id: Option<usize>) {
@@ -85,7 +73,11 @@ fn send_client_error(
     code: ErrorCode,
     message: impl AsRef<str>,
 ) {
-    let _ = tx.send(ClientOutbound::Error(create_error(seq, code, message.as_ref())));
+    let _ = tx.send(ClientOutbound::Error(create_error(
+        seq,
+        code,
+        message.as_ref(),
+    )));
 }
 
 fn encode_json_into_buf<T: serde::Serialize>(buf: &mut Vec<u8>, value: &T) -> bool {
@@ -126,7 +118,12 @@ async fn enforce_strict_seq(
     seq: u64,
 ) -> bool {
     if !check_and_update_seq(state, client_id, seq).await {
-        send_client_error(tx, seq, ErrorCode::InvalidCommand, "seq must be strictly increasing");
+        send_client_error(
+            tx,
+            seq,
+            ErrorCode::InvalidCommand,
+            "seq must be strictly increasing",
+        );
         return false;
     }
     true
@@ -151,106 +148,6 @@ async fn enforce_handshake_and_seq(
     enforce_strict_seq(state, tx, client_id, seq).await
 }
 
-impl Fnv1aHasher {
-    const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-    const PRIME: u64 = 0x100000001b3;
-
-    fn new() -> Self {
-        Self {
-            state: Self::OFFSET_BASIS,
-        }
-    }
-}
-
-impl std::hash::Hasher for Fnv1aHasher {
-    fn finish(&self) -> u64 {
-        self.state
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        for &b in bytes {
-            self.state ^= b as u64;
-            self.state = self.state.wrapping_mul(Self::PRIME);
-        }
-    }
-}
-
-/// Server configuration
-#[derive(Debug, Clone)]
-pub struct ServerConfig {
-    pub host: String,
-    pub port: u16,
-    pub protocol_version: String,
-    pub max_pending_commands: usize,
-    pub log_path: Option<String>,
-    pub log_every_n: u64,
-    pub log_max_lines: Option<u64>,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            host: "127.0.0.1".to_string(),
-            port: 7777,
-            protocol_version: PROTOCOL_VERSION.to_string(),
-            max_pending_commands: 10,
-            log_path: None,
-            log_every_n: 1,
-            log_max_lines: None,
-        }
-    }
-}
-
-impl ServerConfig {
-    /// Create from environment variables (matching `docs/adapter.md` defaults)
-    pub fn from_env() -> Self {
-        use std::env;
-
-        let host = env::var("TETRIS_AI_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-        let port = env::var("TETRIS_AI_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(7777);
-
-        let max_pending_commands = env::var("TETRIS_AI_MAX_PENDING")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(10);
-
-        let log_path = env::var("TETRIS_AI_LOG_PATH")
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-
-        let log_every_n = env::var("TETRIS_AI_LOG_EVERY_N")
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .filter(|&n| n >= 1)
-            .unwrap_or(1);
-
-        let log_max_lines = env::var("TETRIS_AI_LOG_MAX_LINES")
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .filter(|&n| n >= 1);
-
-        Self {
-            host,
-            port,
-            protocol_version: PROTOCOL_VERSION.to_string(),
-            max_pending_commands,
-            log_path,
-            log_every_n,
-            log_max_lines,
-        }
-    }
-
-    pub fn socket_addr(&self) -> anyhow::Result<SocketAddr> {
-        format!("{}:{}", self.host, self.port)
-            .parse()
-            .map_err(|error| anyhow::anyhow!("invalid adapter listen address {}:{}: {error}", self.host, self.port))
-    }
-}
-
 /// Shared server state
 pub struct ServerState {
     config: ServerConfig,
@@ -260,7 +157,10 @@ pub struct ServerState {
 }
 
 impl ServerState {
-    pub fn new(config: ServerConfig, status_tx: Option<mpsc::UnboundedSender<AdapterStatus>>) -> Self {
+    pub fn new(
+        config: ServerConfig,
+        status_tx: Option<mpsc::UnboundedSender<AdapterStatus>>,
+    ) -> Self {
         Self {
             config,
             clients: Arc::new(RwLock::new(Vec::new())),
@@ -385,97 +285,103 @@ pub async fn run_server(
         }
     }
 
-    let wire_log_tx: Option<mpsc::UnboundedSender<WireRecord>> = if let Some(path) = config.log_path.clone() {
-        let log_every_n = config.log_every_n.max(1);
-        let log_max_lines = config.log_max_lines;
-        let (tx, mut rx) = mpsc::unbounded_channel::<WireRecord>();
-        tokio::spawn(async move {
-            use tokio::fs::OpenOptions;
-            use tokio::io::AsyncWriteExt;
+    let wire_log_tx: Option<mpsc::UnboundedSender<WireRecord>> =
+        if let Some(path) = config.log_path.clone() {
+            let log_every_n = config.log_every_n.max(1);
+            let log_max_lines = config.log_max_lines;
+            let (tx, mut rx) = mpsc::unbounded_channel::<WireRecord>();
+            tokio::spawn(async move {
+                use tokio::fs::OpenOptions;
+                use tokio::io::AsyncWriteExt;
 
-            let mut file = match OpenOptions::new().create(true).append(true).open(&path).await {
-                Ok(f) => f,
-                Err(_) => return,
-            };
+                let mut file = match OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .await
+                {
+                    Ok(f) => f,
+                    Err(_) => return,
+                };
 
-            let mut buf: Vec<u8> = Vec::with_capacity(4096);
-            let mut line_count: u64 = 0;
-            let mut record_count: u64 = 0;
+                let mut buf: Vec<u8> = Vec::with_capacity(4096);
+                let mut line_count: u64 = 0;
+                let mut record_count: u64 = 0;
 
-            while let Some(rec) = rx.recv().await {
-                record_count = record_count.wrapping_add(1);
-                if !record_count.is_multiple_of(log_every_n) {
-                    continue;
-                }
-                if let Some(max) = log_max_lines {
-                    if line_count >= max {
+                while let Some(rec) = rx.recv().await {
+                    record_count = record_count.wrapping_add(1);
+                    if !record_count.is_multiple_of(log_every_n) {
                         continue;
                     }
+                    if let Some(max) = log_max_lines {
+                        if line_count >= max {
+                            continue;
+                        }
+                    }
+                    match rec {
+                        WireRecord::LineArc(s) => {
+                            if file.write_all(s.as_bytes()).await.is_err() {
+                                break;
+                            }
+                        }
+                        WireRecord::Welcome(v) => {
+                            buf.clear();
+                            if serde_json::to_writer(&mut buf, &v).is_err() {
+                                continue;
+                            }
+                            if file.write_all(&buf).await.is_err() {
+                                break;
+                            }
+                        }
+                        WireRecord::Ack(v) => {
+                            buf.clear();
+                            if serde_json::to_writer(&mut buf, &v).is_err() {
+                                continue;
+                            }
+                            if file.write_all(&buf).await.is_err() {
+                                break;
+                            }
+                        }
+                        WireRecord::Error(v) => {
+                            buf.clear();
+                            if serde_json::to_writer(&mut buf, &v).is_err() {
+                                continue;
+                            }
+                            if file.write_all(&buf).await.is_err() {
+                                break;
+                            }
+                        }
+                        WireRecord::Observation(v) => {
+                            buf.clear();
+                            if serde_json::to_writer(&mut buf, &v).is_err() {
+                                continue;
+                            }
+                            if file.write_all(&buf).await.is_err() {
+                                break;
+                            }
+                        }
+                        WireRecord::ObservationArc(v) => {
+                            buf.clear();
+                            if serde_json::to_writer(&mut buf, v.as_ref()).is_err() {
+                                continue;
+                            }
+                            if file.write_all(&buf).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    if file.write_all(b"\n").await.is_err() {
+                        break;
+                    }
+                    line_count = line_count.wrapping_add(1);
                 }
-                match rec {
-                    WireRecord::LineArc(s) => {
-                        if file.write_all(s.as_bytes()).await.is_err() {
-                            break;
-                        }
-                    }
-                    WireRecord::Welcome(v) => {
-                        buf.clear();
-                        if serde_json::to_writer(&mut buf, &v).is_err() {
-                            continue;
-                        }
-                        if file.write_all(&buf).await.is_err() {
-                            break;
-                        }
-                    }
-                    WireRecord::Ack(v) => {
-                        buf.clear();
-                        if serde_json::to_writer(&mut buf, &v).is_err() {
-                            continue;
-                        }
-                        if file.write_all(&buf).await.is_err() {
-                            break;
-                        }
-                    }
-                    WireRecord::Error(v) => {
-                        buf.clear();
-                        if serde_json::to_writer(&mut buf, &v).is_err() {
-                            continue;
-                        }
-                        if file.write_all(&buf).await.is_err() {
-                            break;
-                        }
-                    }
-                    WireRecord::Observation(v) => {
-                        buf.clear();
-                        if serde_json::to_writer(&mut buf, &v).is_err() {
-                            continue;
-                        }
-                        if file.write_all(&buf).await.is_err() {
-                            break;
-                        }
-                    }
-                    WireRecord::ObservationArc(v) => {
-                        buf.clear();
-                        if serde_json::to_writer(&mut buf, v.as_ref()).is_err() {
-                            continue;
-                        }
-                        if file.write_all(&buf).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-                if file.write_all(b"\n").await.is_err() {
-                    break;
-                }
-                line_count = line_count.wrapping_add(1);
-            }
 
-            let _ = file.flush().await;
-        });
-        Some(tx)
-    } else {
-        None
-    };
+                let _ = file.flush().await;
+            });
+            Some(tx)
+        } else {
+            None
+        };
 
     let addr = config.socket_addr()?;
     let listener = TcpListener::bind(&addr).await?;
@@ -582,7 +488,7 @@ pub async fn run_server(
         client_id_counter += 1;
         let client_id = client_id_counter;
 
-    emit_status(&state).await;
+        emit_status(&state).await;
 
         let state_clone = Arc::clone(&state);
         let command_tx = command_tx.clone();
@@ -590,8 +496,15 @@ pub async fn run_server(
 
         // Spawn task to handle this client
         tokio::spawn(async move {
-            if let Err(e) =
-                handle_client(socket, addr, client_id, state_clone, command_tx, wire_log_tx).await
+            if let Err(e) = handle_client(
+                socket,
+                addr,
+                client_id,
+                state_clone,
+                command_tx,
+                wire_log_tx,
+            )
+            .await
             {
                 let _ = e;
             }
@@ -633,7 +546,7 @@ async fn handle_client(
         clients.push(client_handle);
     }
 
-        emit_status(&state).await;
+    emit_status(&state).await;
 
     let wire_log_tx_out = wire_log_tx.clone();
 
@@ -788,7 +701,12 @@ async fn handle_client(
             Ok(ParsedMessage::Hello(hello)) => {
                 // Require hello to start the per-sender sequence at 1.
                 if hello.seq != 1 {
-                    send_client_error(&tx, hello.seq, ErrorCode::InvalidCommand, "hello seq must be 1");
+                    send_client_error(
+                        &tx,
+                        hello.seq,
+                        ErrorCode::InvalidCommand,
+                        "hello seq must be 1",
+                    );
                     continue;
                 }
 
@@ -940,7 +858,8 @@ async fn handle_client(
 
             Ok(ParsedMessage::Control(ctrl)) => match ctrl.action {
                 ControlAction::Claim => {
-                    if !enforce_handshake_and_seq(&state, &tx, client_id, ctrl.seq, "control").await {
+                    if !enforce_handshake_and_seq(&state, &tx, client_id, ctrl.seq, "control").await
+                    {
                         continue;
                     }
 
@@ -977,7 +896,8 @@ async fn handle_client(
                     }
                 }
                 ControlAction::Release => {
-                    if !enforce_handshake_and_seq(&state, &tx, client_id, ctrl.seq, "control").await {
+                    if !enforce_handshake_and_seq(&state, &tx, client_id, ctrl.seq, "control").await
+                    {
                         continue;
                     }
 
@@ -1147,268 +1067,6 @@ fn map_command(cmd: &CommandMessage) -> Result<ClientCommand, (ErrorCode, String
     }
 }
 
-/// Build observation message from game state
-pub fn build_observation(
-    seq: u64,
-    snap: &GameSnapshot,
-    last_event: Option<LastEvent>,
-) -> ObservationMessage {
-    use std::hash::{Hash, Hasher};
-
-    let cells = snap.board;
-
-    // Build state hash
-    let mut hasher = Fnv1aHasher::new();
-    snap.board_hash.hash(&mut hasher);
-    snap.board_id.hash(&mut hasher);
-    snap.active.hash(&mut hasher);
-    snap.hold.hash(&mut hasher);
-    snap.can_hold.hash(&mut hasher);
-    snap.next_queue.hash(&mut hasher);
-    snap.paused.hash(&mut hasher);
-    snap.game_over.hash(&mut hasher);
-    snap.episode_id.hash(&mut hasher);
-    snap.piece_id.hash(&mut hasher);
-    snap.step_in_piece.hash(&mut hasher);
-    snap.seed.hash(&mut hasher);
-    snap.score.hash(&mut hasher);
-    snap.level.hash(&mut hasher);
-    snap.lines.hash(&mut hasher);
-    snap.timers.drop_ms.hash(&mut hasher);
-    snap.timers.lock_ms.hash(&mut hasher);
-    snap.timers.line_clear_ms.hash(&mut hasher);
-    // Include last_event since it is part of the observation payload.
-    last_event.is_some().hash(&mut hasher);
-    if let Some(ev) = last_event.as_ref() {
-        ev.locked.hash(&mut hasher);
-        ev.lines_cleared.hash(&mut hasher);
-        ev.line_clear_score.hash(&mut hasher);
-        ev.tspin.hash(&mut hasher);
-        ev.combo.hash(&mut hasher);
-        ev.back_to_back.hash(&mut hasher);
-    }
-    let state_hash = StateHash(hasher.finish());
-
-    // Build next queue
-    let next_queue: [PieceKindLower; 5] =
-        std::array::from_fn(|i| PieceKindLower::from(snap.next_queue[i]));
-
-    let next = next_queue[0];
-
-    // Build active piece
-    let active = snap.active.map(|piece| ActivePieceSnapshot {
-        kind: PieceKindLower::from(piece.kind),
-        rotation: RotationLower::from(piece.rotation),
-        x: piece.x,
-        y: piece.y,
-    });
-
-    // Build hold
-    let hold = snap.hold.map(PieceKindLower::from);
-
-    ObservationMessage {
-        msg_type: ObservationType::Observation,
-        seq,
-        ts: current_timestamp_ms(),
-        playable: snap.playable(),
-        paused: snap.paused,
-        game_over: snap.game_over,
-        episode_id: snap.episode_id,
-        seed: snap.seed,
-        piece_id: snap.piece_id,
-        step_in_piece: snap.step_in_piece,
-        board: BoardSnapshot {
-            width: 10,
-            height: 20,
-            cells,
-        },
-        board_id: snap.board_id,
-        active,
-        ghost_y: snap.ghost_y,
-        next,
-        next_queue,
-        hold,
-        can_hold: snap.can_hold,
-        last_event,
-        state_hash,
-        score: snap.score,
-        level: snap.level,
-        lines: snap.lines,
-        timers: TimersSnapshot {
-            drop_ms: snap.timers.drop_ms,
-            lock_ms: snap.timers.lock_ms,
-            line_clear_ms: snap.timers.line_clear_ms,
-        },
-    }
-}
-
-/// Get current timestamp in milliseconds
-fn current_timestamp_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::GameState;
-
-    #[test]
-    fn test_map_command_action_mode() {
-        let json = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft","rotateCw","hardDrop"]}"#;
-        let ParsedMessage::Command(cmd) = parse_message(json).unwrap() else {
-            panic!("expected command");
-        };
-        let mapped = map_command(&cmd).unwrap();
-        match mapped {
-            ClientCommand::Actions { actions, restart_seed } => {
-                assert_eq!(actions.as_slice(), [GameAction::MoveLeft, GameAction::RotateCw, GameAction::HardDrop]);
-                assert_eq!(restart_seed, None);
-            }
-            _ => panic!("expected action mapping"),
-        }
-    }
-
-    #[test]
-    fn test_build_observation_copies_timers_fields() {
-        let mut snap = crate::core::snapshot::GameSnapshot::default();
-        snap.timers.drop_ms = 12;
-        snap.timers.lock_ms = 34;
-        snap.timers.line_clear_ms = 56;
-
-        let obs = build_observation(1, &snap, None);
-        assert_eq!(obs.timers.drop_ms, 12);
-        assert_eq!(obs.timers.lock_ms, 34);
-        assert_eq!(obs.timers.line_clear_ms, 56);
-    }
-
-    #[test]
-    fn test_server_config_from_env() {
-        // This test just ensures it doesn't panic
-        let _config = ServerConfig::from_env();
-    }
-
-    #[tokio::test]
-    async fn invalid_host_returns_error_instead_of_panicking() {
-        let config = ServerConfig {
-            host: "not a valid host name !!!".to_string(),
-            port: 7777,
-            ..ServerConfig::default()
-        };
-        let (command_tx, _command_rx) = mpsc::channel(1);
-        let (_out_tx, out_rx) = mpsc::unbounded_channel();
-
-        let result = run_server(config, command_tx, out_rx, None, None).await;
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_clear_stale_controller_id_clears() {
-        let mut controller = Some(42usize);
-        clear_stale_controller_id(&mut controller, |id| id == 7);
-        assert_eq!(controller, None);
-    }
-
-    #[test]
-    fn test_clear_stale_controller_id_keeps() {
-        let mut controller = Some(42usize);
-        clear_stale_controller_id(&mut controller, |id| id == 42);
-        assert_eq!(controller, Some(42));
-    }
-
-    #[test]
-    fn test_encode_json_into_buf_ack() {
-        let ack = create_ack(10, 10);
-        let mut buf = Vec::new();
-        assert!(encode_json_into_buf(&mut buf, &ack));
-        let text = std::str::from_utf8(&buf).unwrap();
-        assert!(text.contains("\"type\":\"ack\""));
-        assert!(text.contains("\"seq\":10"));
-    }
-
-    #[test]
-    fn test_sync_controller_flags_sets_single_controller() {
-        let addr = "127.0.0.1:9999".parse().unwrap();
-        let (tx1, _) = mpsc::unbounded_channel();
-        let (tx2, _) = mpsc::unbounded_channel();
-        let mut clients = vec![
-            ClientHandle {
-                id: 1,
-                addr,
-                is_controller: false,
-                requested_role: RequestedRole::Auto,
-                command_mode: CommandMode::Action,
-                stream_observations: false,
-                handshaken: true,
-                last_seq: Some(1),
-                tx: tx1,
-            },
-            ClientHandle {
-                id: 2,
-                addr,
-                is_controller: false,
-                requested_role: RequestedRole::Auto,
-                command_mode: CommandMode::Action,
-                stream_observations: false,
-                handshaken: true,
-                last_seq: Some(1),
-                tx: tx2,
-            },
-        ];
-
-        sync_controller_flags(&mut clients, Some(2));
-        assert!(!clients[0].is_controller);
-        assert!(clients[1].is_controller);
-    }
-
-    #[test]
-    fn test_state_hash_changes_when_meta_changes() {
-        let mut gs = GameState::new(1);
-        gs.start();
-
-        let mut s1 = gs.snapshot();
-        s1.episode_id = 0;
-        s1.piece_id = 1;
-        s1.step_in_piece = 0;
-        let obs1 = build_observation(1, &s1, None);
-
-        let mut s2 = gs.snapshot();
-        s2.episode_id = 1;
-        s2.piece_id = 2;
-        s2.step_in_piece = 3;
-        let obs2 = build_observation(2, &s2, None);
-        assert_ne!(obs1.state_hash, obs2.state_hash);
-    }
-
-    #[test]
-    fn test_state_hash_changes_when_hold_changes() {
-        let mut gs = GameState::new(1);
-        gs.start();
-
-        let s1 = gs.snapshot();
-        let obs1 = build_observation(1, &s1, None);
-        assert!(gs.apply_action(GameAction::Hold));
-
-        let s2 = gs.snapshot();
-        let obs2 = build_observation(2, &s2, None);
-        assert_ne!(obs1.state_hash, obs2.state_hash);
-    }
-
-    #[test]
-    fn test_state_hash_changes_when_board_id_changes() {
-        let mut gs = GameState::new(1);
-        gs.start();
-
-        let s1 = gs.snapshot();
-        let obs1 = build_observation(1, &s1, None);
-
-        let mut s2 = s1;
-        s2.board_id = s2.board_id.wrapping_add(1);
-        let obs2 = build_observation(2, &s2, None);
-
-        assert_ne!(obs1.state_hash, obs2.state_hash);
-    }
-}
+#[path = "server_tests.rs"]
+mod tests;

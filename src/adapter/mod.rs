@@ -72,12 +72,14 @@
 
 pub mod command_apply;
 pub mod game_loop;
+pub mod observation;
 pub mod observation_schedule;
 pub mod protocol;
 pub mod runtime;
 pub mod server;
+pub mod server_config;
 
-// Re-export protocol types for convenience
-pub use protocol::*;
+// Keep the adapter root intentionally small. Wire types and server internals stay
+// available through their named modules so adding a helper does not accidentally
+// expand the crate's convenience API.
 pub use runtime::{Adapter, ClientCommand, InboundCommand, OutboundMessage};
-pub use server::*;
