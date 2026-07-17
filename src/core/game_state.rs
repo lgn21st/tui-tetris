@@ -497,6 +497,14 @@ impl GameState {
         // (even if lock failed, we need to try spawning next piece)
         self.active = None;
 
+        // Detect T-spin against the locked board before line clearing shifts the
+        // corner cells away from the piece's lock position.
+        let tspin = if lock_success && active.kind == PieceKind::T {
+            self.t_spin_kind(&active)
+        } else {
+            TSpinKind::None
+        };
+
         // Clear full rows
         let cleared_rows = self.board.clear_full_rows();
         let lines_cleared = cleared_rows.len();
@@ -504,13 +512,6 @@ impl GameState {
         if lock_success || lines_cleared > 0 {
             self.board_id = self.board_id.wrapping_add(1);
         }
-
-        // Detect T-spin
-        let tspin = if active.kind == PieceKind::T {
-            self.t_spin_kind(&active, &cleared_rows)
-        } else {
-            TSpinKind::None
-        };
 
         // Update game state
         let line_clear_score = self.apply_line_clear(lines_cleared, tspin);
@@ -595,7 +596,7 @@ impl GameState {
     }
 
     /// Detect T-spin type based on corner occupancy
-    fn t_spin_kind(&self, piece: &Tetromino, _cleared_rows: &[usize]) -> TSpinKind {
+    fn t_spin_kind(&self, piece: &Tetromino) -> TSpinKind {
         if !self.last_action_was_rotate {
             return TSpinKind::None;
         }
@@ -769,7 +770,7 @@ impl GameState {
                 // and activates soft drop speed for a short grace window.
                 let moved = self.try_move(0, 1);
                 if moved {
-                    self.score += calculate_drop_score(1, false);
+                    self.score = self.score.saturating_add(calculate_drop_score(1, false));
                 }
                 self.is_soft_dropping = true;
                 self.soft_drop_timer_ms = SOFT_DROP_GRACE_MS;
@@ -780,7 +781,7 @@ impl GameState {
                 // Hard drop is an action, so it clears the rotate flag before lock.
                 self.last_action_was_rotate = false;
                 let drop_score = self.hard_drop();
-                self.score += drop_score;
+                self.score = self.score.saturating_add(drop_score);
                 true
             }
             GameAction::RotateCw => self.try_rotate(true),

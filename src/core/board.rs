@@ -90,7 +90,7 @@ impl Board {
     }
 
     /// Clear a row and shift all rows above down
-    /// Uses copy_nonoverlapping for efficient memory movement
+    /// Uses overlap-safe in-place copying for efficient memory movement
     /// Returns the number of lines cleared (1 or 0)
     pub fn clear_row(&mut self, y: usize) -> usize {
         if y >= BOARD_HEIGHT as usize {
@@ -100,15 +100,9 @@ impl Board {
         let width = BOARD_WIDTH as usize;
         let start = y * width;
 
-        // Safety: We're copying within the same array, and the ranges don't overlap
-        // because we're copying from [0..start] to [width..start+width]
-        unsafe {
-            let src = self.cells.as_ptr();
-            let dst = self.cells.as_mut_ptr().add(width);
-
-            // Copy rows 0..y down by one row
-            std::ptr::copy(src, dst, start);
-        }
+        // Copy rows 0..y down by one row. These ranges overlap for y > 1,
+        // which is exactly the case `copy_within` is designed to handle.
+        self.cells.copy_within(0..start, width);
 
         // Clear the top row
         for i in 0..width {

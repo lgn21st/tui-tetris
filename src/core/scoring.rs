@@ -7,7 +7,7 @@
 //! - B2B applies a 3/2 multiplier to the base clear points (before combo bonus).
 //! - Combo bonus is `combo_base * combo_index` with no level multiplier.
 
-use crate::types::{B2B_DENOMINATOR, B2B_NUMERATOR, TSpinKind, COMBO_BASE, LINE_SCORES};
+use crate::types::{TSpinKind, B2B_DENOMINATOR, B2B_NUMERATOR, COMBO_BASE, LINE_SCORES};
 
 /// Score calculation result
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -30,19 +30,20 @@ pub fn calculate_line_score(lines: usize, level: u32) -> u32 {
         return 0;
     }
     let base_score = LINE_SCORES[lines];
-    base_score * (level + 1)
+    base_score.saturating_mul(level.saturating_add(1))
 }
 
 /// Calculate T-spin score (Modern rules)
 pub fn calculate_tspin_score(tspin: TSpinKind, lines: usize, level: u32) -> u32 {
+    let level_multiplier = level.saturating_add(1);
     match (tspin, lines) {
-        (TSpinKind::Full, 0) => 400 * (level + 1), // T-spin no lines
-        (TSpinKind::Full, 1) => 800 * (level + 1), // T-spin single
-        (TSpinKind::Full, 2) => 1200 * (level + 1), // T-spin double
-        (TSpinKind::Full, 3) => 1600 * (level + 1), // T-spin triple
-        (TSpinKind::Mini, 0) => 100 * (level + 1), // Mini T-spin no lines
-        (TSpinKind::Mini, 1) => 200 * (level + 1), // Mini T-spin single
-        (TSpinKind::Mini, 2) => 400 * (level + 1), // Mini T-spin double
+        (TSpinKind::Full, 0) => 400u32.saturating_mul(level_multiplier),
+        (TSpinKind::Full, 1) => 800u32.saturating_mul(level_multiplier),
+        (TSpinKind::Full, 2) => 1200u32.saturating_mul(level_multiplier),
+        (TSpinKind::Full, 3) => 1600u32.saturating_mul(level_multiplier),
+        (TSpinKind::Mini, 0) => 100u32.saturating_mul(level_multiplier),
+        (TSpinKind::Mini, 1) => 200u32.saturating_mul(level_multiplier),
+        (TSpinKind::Mini, 2) => 400u32.saturating_mul(level_multiplier),
         _ => 0,
     }
 }
@@ -57,7 +58,7 @@ pub fn calculate_combo_bonus(combo_index: i32) -> u32 {
     if combo_index <= 0 {
         return 0;
     }
-    COMBO_BASE * (combo_index as u32)
+    COMBO_BASE.saturating_mul(combo_index as u32)
 }
 
 /// Check if this clear qualifies for back-to-back
@@ -124,7 +125,7 @@ pub fn calculate_score(
 /// hard_drop: +2 per cell
 pub fn calculate_drop_score(cells: u32, is_hard_drop: bool) -> u32 {
     if is_hard_drop {
-        cells * 2
+        cells.saturating_mul(2)
     } else {
         cells
     }
@@ -316,6 +317,17 @@ mod tests {
     fn test_drop_scores() {
         assert_eq!(calculate_drop_score(10, false), 10); // Soft drop 10 cells
         assert_eq!(calculate_drop_score(10, true), 20); // Hard drop 10 cells
+    }
+
+    #[test]
+    fn score_helpers_saturate_instead_of_overflowing() {
+        assert_eq!(calculate_line_score(4, u32::MAX), u32::MAX);
+        assert_eq!(
+            calculate_tspin_score(TSpinKind::Full, 3, u32::MAX),
+            u32::MAX
+        );
+        assert_eq!(calculate_drop_score(u32::MAX, true), u32::MAX);
+        assert_eq!(calculate_combo_bonus(i32::MAX), u32::MAX);
     }
 
     #[test]

@@ -472,7 +472,7 @@ fn test_t_spin_detection() {
     state.board.set(5, 20, Some(PieceKind::I)); // bottom-right
 
     // Detect T-spin
-    let tspin = state.t_spin_kind(&piece, &[]);
+    let tspin = state.t_spin_kind(&piece);
 
     // Should detect some T-spin type
     assert_ne!(tspin, TSpinKind::None);
@@ -498,7 +498,7 @@ fn test_t_spin_no_rotation() {
     state.board.set(3, 20, Some(PieceKind::I));
     state.board.set(5, 20, Some(PieceKind::I));
 
-    let tspin = state.t_spin_kind(&piece, &[]);
+    let tspin = state.t_spin_kind(&piece);
 
     // Should be None because last action wasn't a rotation
     assert_eq!(tspin, TSpinKind::None);
@@ -1249,6 +1249,17 @@ fn test_soft_drop_scoring() {
 }
 
 #[test]
+fn test_drop_scoring_saturates_at_u32_max() {
+    let mut state = GameState::new(12345);
+    state.start();
+    state.score = u32::MAX;
+
+    let _ = state.apply_action(GameAction::SoftDrop);
+
+    assert_eq!(state.score, u32::MAX);
+}
+
+#[test]
 fn test_soft_drop_action_clears_last_action_was_rotate() {
     let mut state = GameState::new(12345);
     state.start();
@@ -1642,6 +1653,38 @@ fn test_lock_piece_tspin_no_lines_awards_points_but_last_event_omits_tspin_mini(
     assert!(!ev.back_to_back);
 }
 
+#[test]
+fn test_tspin_is_detected_before_cleared_rows_shift_the_corners() {
+    let mut state = GameState::new(12345);
+    state.start();
+
+    // A north-facing T at (3, 17) completes row 18. Its two front corners are
+    // on row 17 and its third occupied corner is on row 19. Clearing row 18
+    // shifts row 17, so inspecting the board after the clear loses the spin.
+    for x in 0..10 {
+        if !(3..=5).contains(&x) {
+            state.board.set(x, 18, Some(PieceKind::I));
+        }
+    }
+    state.board.set(3, 17, Some(PieceKind::I));
+    state.board.set(5, 17, Some(PieceKind::I));
+    state.board.set(3, 19, Some(PieceKind::I));
+    state.last_action_was_rotate = true;
+    state.active = Some(Tetromino {
+        kind: PieceKind::T,
+        rotation: Rotation::North,
+        x: 3,
+        y: 17,
+    });
+
+    state.lock_piece();
+    let event = state.take_last_event().expect("expected lock event");
+
+    assert_eq!(event.lines_cleared, 1);
+    assert_eq!(event.tspin, Some(TSpinKind::Full));
+    assert_eq!(event.line_clear_score, 800);
+}
+
 fn assert_tspin_for_rotation(rotation: Rotation, filled_corners: &[(i8, i8)], expected: TSpinKind) {
     let mut state = GameState::new(12345);
     let x = 3;
@@ -1657,7 +1700,7 @@ fn assert_tspin_for_rotation(rotation: Rotation, filled_corners: &[(i8, i8)], ex
         x,
         y,
     };
-    let tspin = state.t_spin_kind(&piece, &[]);
+    let tspin = state.t_spin_kind(&piece);
     assert_eq!(tspin, expected);
 }
 

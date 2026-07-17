@@ -41,6 +41,18 @@ pub fn apply_place(
     target_rot: Rotation,
     use_hold: bool,
 ) -> Result<(), PlaceError> {
+    let mut candidate = state.clone();
+    apply_place_in_place(&mut candidate, target_x, target_rot, use_hold)?;
+    *state = candidate;
+    Ok(())
+}
+
+fn apply_place_in_place(
+    state: &mut GameState,
+    target_x: i8,
+    target_rot: Rotation,
+    use_hold: bool,
+) -> Result<(), PlaceError> {
     if state.paused() || state.game_over() {
         return Err(PlaceError::NotPlayable);
     }
@@ -201,6 +213,44 @@ mod tests {
     }
 
     #[test]
+    fn rejected_place_rolls_back_partial_movement() {
+        let mut gs = GameState::new(1);
+        gs.start();
+        let active = gs.active().expect("expected active piece");
+        let (max_dx, dy_at_max) = active
+            .shape()
+            .into_iter()
+            .max_by_key(|(dx, _)| *dx)
+            .expect("tetromino shape");
+
+        // The first right move is clear; the second hits this blocker.
+        assert!(gs.board_mut().set(
+            active.x + max_dx + 2,
+            active.y + dy_at_max,
+            Some(PieceKind::I),
+        ));
+        let before = gs.snapshot();
+
+        let err = apply_place(&mut gs, active.x + 2, active.rotation, false).unwrap_err();
+
+        assert_eq!(err, PlaceError::XBlocked);
+        assert_eq!(gs.snapshot(), before);
+    }
+
+    #[test]
+    fn rejected_place_rolls_back_requested_hold() {
+        let mut gs = GameState::new(1);
+        gs.start();
+        let active = gs.active().expect("expected active piece");
+        let before = gs.snapshot();
+
+        let err = apply_place(&mut gs, -50, active.rotation, true).unwrap_err();
+
+        assert_eq!(err, PlaceError::XOutOfBounds);
+        assert_eq!(gs.snapshot(), before);
+    }
+
+    #[test]
     fn place_rejected_when_game_over() {
         let mut gs = GameState::new(1);
         gs.start();
@@ -228,7 +278,10 @@ mod tests {
         let _ = gs.apply_action(GameAction::HardDrop);
         assert!(gs.game_over());
 
-        assert!(gs.active().is_none(), "expected no active piece after game over");
+        assert!(
+            gs.active().is_none(),
+            "expected no active piece after game over"
+        );
 
         // Once game_over, place should be rejected as not playable.
         let err = apply_place(&mut gs, 3, Rotation::North, false).unwrap_err();
