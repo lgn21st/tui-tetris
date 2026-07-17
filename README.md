@@ -37,7 +37,7 @@ cargo test
 - ✅ Full lifecycle: start, pause, game over, restart
 - ✅ Ghost piece
 - ✅ Hold
-- ✅ AI control: TCP protocol per `docs/adapter.md`
+- ✅ AI control: versioned Tetris AI Adapter Protocol 2.1.1
 - ✅ DAS/ARR input (150ms / 50ms)
 - ✅ Custom terminal renderer: framebuffer + diff flush (no ratatui widgets)
 
@@ -159,7 +159,9 @@ or PTY latency remains excluded because it is not suitable for a stable gate.
 ## Documentation
 
 - Rules: `docs/rules-spec.md`
-- Adapter spec / acceptance gate: `docs/adapter.md`
+- Adapter documentation index: `docs/adapter.md`
+- Versioned adapter release: `protocol/adapter/v2.1.1/`
+- tui-tetris adapter profile: `docs/adapter-tui-tetris.md`
 - Roadmap: `docs/roadmap.md`
 - Feature matrix: `docs/feature-matrix.md`
 - Dev workflow: `AGENTS.md`
@@ -230,9 +232,10 @@ AI panel metrics (runtime HUD):
 
 ## Compatibility
 
-AI protocol, complete runtime configuration, JSON Schema, and release checks: see
-`docs/adapter.md`. With a local adapter running, execute the maintained stdlib-only
-probe with `python3 scripts/adapter_verify.py all`.
+The pinned shared protocol, JSON Schema, TCP profile, changelog, and conformance
+client live in `protocol/adapter/v2.1.1/`. tui-tetris runtime configuration and
+implementation decisions are in `docs/adapter-tui-tetris.md`. With a local adapter
+running, execute `python3 scripts/adapter_verify.py all`.
 
 Environment variables:
 - `TETRIS_AI_HOST` (default: `127.0.0.1`)

@@ -30,7 +30,7 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
-    /// Create from environment variables matching `docs/adapter.md` defaults.
+    /// Create from environment variables matching `docs/adapter-tui-tetris.md`.
     pub fn from_env() -> Self {
         let host = std::env::var("TETRIS_AI_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
         let port = std::env::var("TETRIS_AI_PORT")

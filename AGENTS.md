@@ -9,7 +9,10 @@
 - `docs/rules-spec.md`: authoritative rules/timing constants
 - `docs/feature-matrix.md`: feature checklist
 - `docs/roadmap.md`: goals and validation checklist
-- `docs/adapter.md`: AI communication protocol specification (source-of-truth: tetris-ai)
+- `protocol/adapter/v2.1.1/SPEC.md`: pinned, implementation-neutral AI protocol
+- `protocol/adapter/v2.1.1/schema.json`: machine-readable protocol schema
+- `docs/adapter.md`: adapter documentation index
+- `docs/adapter-tui-tetris.md`: tui-tetris implementation profile
 
 ## Architecture Expectations
 - `core` owns board, pieces, RNG, scoring, timing, and actions (NO external deps)
@@ -37,6 +40,6 @@
 - Terminal: crossterm (I/O), custom framebuffer renderer (no ratatui)
 
 ## Protocol Compatibility
-- AI protocol 100% compatible with `docs/adapter.md`
+- AI protocol 100% compatible with `protocol/adapter/v2.1.1/SPEC.md` and its selected TCP profile
 - Same environment variables: `TETRIS_AI_HOST`, `TETRIS_AI_PORT`, `TETRIS_AI_DISABLED`
 - Same JSON message format and error codes

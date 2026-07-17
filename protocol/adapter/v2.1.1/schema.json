@@ -1,0 +1,424 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Tetris AI Adapter Protocol 2.1.1",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/definitions/hello" },
+    { "$ref": "#/definitions/welcome" },
+    { "$ref": "#/definitions/command" },
+    { "$ref": "#/definitions/control" },
+    { "$ref": "#/definitions/observation" },
+    { "$ref": "#/definitions/ack" },
+    { "$ref": "#/definitions/error" }
+  ],
+  "definitions": {
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "formats": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["json"] }
+        },
+        "command_modes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["action", "place"] }
+        },
+        "features": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/capability_feature" }
+        },
+        "features_always": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/capability_feature" }
+        },
+        "features_optional": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/capability_feature" }
+        },
+        "control_policy": {
+          "type": "object",
+          "properties": {
+            "auto_promote_on_disconnect": { "type": "boolean" },
+            "promotion_order": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["auto_promote_on_disconnect", "promotion_order"]
+        }
+      },
+      "required": [
+        "formats",
+        "command_modes",
+        "features",
+        "features_always",
+        "features_optional",
+        "control_policy"
+      ]
+    },
+    "capability_feature": {
+      "type": "string",
+      "enum": [
+        "hold",
+        "next",
+        "next_queue",
+        "can_hold",
+        "ghost_y",
+        "board_id",
+        "last_event",
+        "state_hash",
+        "score",
+        "timers"
+      ]
+    },
+    "piece_kind": {
+      "type": "string",
+      "enum": ["i", "o", "t", "s", "z", "j", "l"]
+    },
+    "rotation": {
+      "type": "string",
+      "enum": ["north", "east", "south", "west"]
+    },
+    "action_name": {
+      "type": "string",
+      "enum": [
+        "moveLeft",
+        "moveRight",
+        "softDrop",
+        "hardDrop",
+        "rotateCw",
+        "rotateCcw",
+        "hold",
+        "pause",
+        "restart"
+      ]
+    },
+    "tspin": {
+      "type": "string",
+      "enum": ["mini", "full"]
+    },
+    "role": {
+      "type": "string",
+      "enum": ["auto", "controller", "observer"]
+    },
+    "place": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "integer", "minimum": -128, "maximum": 127 },
+        "rotation": { "$ref": "#/definitions/rotation" },
+        "useHold": { "type": "boolean" }
+      },
+      "required": ["x", "rotation", "useHold"]
+    },
+    "board": {
+      "type": "object",
+      "properties": {
+        "width": { "const": 10 },
+        "height": { "const": 20 },
+        "cells": {
+          "type": "array",
+          "minItems": 20,
+          "maxItems": 20,
+          "items": {
+            "type": "array",
+            "minItems": 10,
+            "maxItems": 10,
+            "items": { "type": "integer", "minimum": 0, "maximum": 7 }
+          }
+        }
+      },
+      "required": ["width", "height", "cells"]
+    },
+    "active_piece": {
+      "type": "object",
+      "properties": {
+        "kind": { "$ref": "#/definitions/piece_kind" },
+        "rotation": { "$ref": "#/definitions/rotation" },
+        "x": { "type": "integer", "minimum": -128, "maximum": 127 },
+        "y": { "type": "integer", "minimum": -128, "maximum": 127 }
+      },
+      "required": ["kind", "rotation", "x", "y"]
+    },
+    "last_event": {
+      "type": "object",
+      "properties": {
+        "locked": { "type": "boolean" },
+        "lines_cleared": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "line_clear_score": { "type": "integer", "minimum": 0 },
+        "tspin": {
+          "oneOf": [
+            { "$ref": "#/definitions/tspin" },
+            { "type": "null" }
+          ]
+        },
+        "combo": { "type": "integer" },
+        "back_to_back": { "type": "boolean" }
+      },
+      "required": [
+        "locked",
+        "lines_cleared",
+        "line_clear_score",
+        "combo",
+        "back_to_back"
+      ]
+    },
+    "timers": {
+      "type": "object",
+      "properties": {
+        "drop_ms": { "type": "integer", "minimum": 0 },
+        "lock_ms": { "type": "integer", "minimum": 0 },
+        "line_clear_ms": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["drop_ms", "lock_ms", "line_clear_ms"]
+    },
+    "hello": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "hello" },
+        "seq": { "const": 1 },
+        "ts": { "type": "integer" },
+        "client": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "version": { "type": "string" }
+          },
+          "required": ["name", "version"]
+        },
+        "protocol_version": {
+          "type": "string",
+          "pattern": "^2\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "formats": {
+          "type": "array",
+          "minItems": 1,
+          "contains": { "const": "json" },
+          "items": { "type": "string" }
+        },
+        "requested": {
+          "type": "object",
+          "properties": {
+            "stream_observations": { "type": "boolean" },
+            "command_mode": {
+              "type": "string",
+              "enum": ["action", "place"]
+            },
+            "role": { "$ref": "#/definitions/role" }
+          },
+          "required": ["stream_observations", "command_mode"]
+        }
+      },
+      "required": [
+        "type",
+        "seq",
+        "ts",
+        "client",
+        "protocol_version",
+        "formats",
+        "requested"
+      ]
+    },
+    "welcome": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "welcome" },
+        "seq": { "const": 1 },
+        "ts": { "type": "integer" },
+        "protocol_version": {
+          "type": "string",
+          "pattern": "^2\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "client_id": { "type": "integer" },
+        "role": {
+          "type": "string",
+          "enum": ["controller", "observer"]
+        },
+        "controller_id": {
+          "anyOf": [
+            { "type": "integer" },
+            { "type": "null" }
+          ]
+        },
+        "game_id": { "type": "string" },
+        "capabilities": { "$ref": "#/definitions/capabilities" }
+      },
+      "required": [
+        "type",
+        "seq",
+        "ts",
+        "protocol_version",
+        "client_id",
+        "role",
+        "controller_id",
+        "game_id",
+        "capabilities"
+      ]
+    },
+    "command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "command" },
+            "seq": { "type": "integer", "minimum": 0 },
+            "ts": { "type": "integer" },
+            "mode": { "const": "action" },
+            "actions": {
+              "type": "array",
+              "maxItems": 32,
+              "items": { "$ref": "#/definitions/action_name" }
+            },
+            "restart": {
+              "type": "object",
+              "properties": {
+                "seed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                }
+              },
+              "required": ["seed"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["type", "seq", "ts", "mode", "actions"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "command" },
+            "seq": { "type": "integer", "minimum": 0 },
+            "ts": { "type": "integer" },
+            "mode": { "const": "place" },
+            "place": { "$ref": "#/definitions/place" }
+          },
+          "required": ["type", "seq", "ts", "mode", "place"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "control": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "control" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer", "minimum": 0 },
+        "action": {
+          "type": "string",
+          "enum": ["claim", "release"]
+        }
+      },
+      "required": ["type", "seq", "ts", "action"]
+    },
+    "observation": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "observation" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer", "minimum": 0 },
+        "playable": { "type": "boolean" },
+        "paused": { "type": "boolean" },
+        "game_over": { "type": "boolean" },
+        "episode_id": { "type": "integer", "minimum": 0 },
+        "seed": { "type": "integer", "minimum": 0 },
+        "piece_id": { "type": "integer", "minimum": 0 },
+        "step_in_piece": { "type": "integer", "minimum": 0 },
+        "board": { "$ref": "#/definitions/board" },
+        "board_id": { "type": "integer", "minimum": 0 },
+        "active": {
+          "anyOf": [
+            { "$ref": "#/definitions/active_piece" },
+            { "type": "null" }
+          ]
+        },
+        "ghost_y": { "type": ["integer", "null"] },
+        "next": { "$ref": "#/definitions/piece_kind" },
+        "next_queue": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": { "$ref": "#/definitions/piece_kind" }
+        },
+        "hold": {
+          "anyOf": [
+            { "$ref": "#/definitions/piece_kind" },
+            { "type": "null" }
+          ]
+        },
+        "can_hold": { "type": "boolean" },
+        "last_event": {
+          "anyOf": [
+            { "$ref": "#/definitions/last_event" },
+            { "type": "null" }
+          ]
+        },
+        "state_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "score": { "type": "integer", "minimum": 0 },
+        "level": { "type": "integer", "minimum": 0 },
+        "lines": { "type": "integer", "minimum": 0 },
+        "timers": { "$ref": "#/definitions/timers" }
+      },
+      "required": [
+        "type",
+        "seq",
+        "ts",
+        "playable",
+        "paused",
+        "game_over",
+        "episode_id",
+        "seed",
+        "piece_id",
+        "step_in_piece",
+        "board",
+        "board_id",
+        "next",
+        "next_queue",
+        "can_hold",
+        "state_hash",
+        "score",
+        "level",
+        "lines",
+        "timers"
+      ]
+    },
+    "ack": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "ack" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer" },
+        "status": { "type": "string", "enum": ["ok"] }
+      },
+      "required": ["type", "seq", "ts", "status"]
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "error" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "ts": { "type": "integer" },
+        "code": {
+          "type": "string",
+          "enum": [
+            "handshake_required",
+            "protocol_mismatch",
+            "not_controller",
+            "controller_active",
+            "invalid_command",
+            "invalid_place",
+            "hold_unavailable",
+            "snapshot_required",
+            "backpressure"
+          ]
+        },
+        "message": { "type": "string" },
+        "retry_after_ms": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["type", "seq", "ts", "code", "message"]
+    }
+  }
+}

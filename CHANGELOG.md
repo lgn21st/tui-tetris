@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
-- AI Adapter with TCP protocol (`docs/adapter.md`)
+- AI Adapter with a versioned protocol release bundle (`protocol/adapter/v2.1.1/`)
   - Controller/Observer pattern for multiplayer AI
   - Action and Place command modes
   - Observation streaming with full game state

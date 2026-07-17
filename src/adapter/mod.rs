@@ -1,7 +1,9 @@
 //! Adapter module - AI control via TCP socket with JSON protocol
 //!
 //! This module enables external AI agents to control the game through a
-//! TCP socket connection. The protocol is defined in `docs/adapter.md`.
+//! TCP socket connection. The shared protocol is defined in
+//! `protocol/adapter/v2.1.1/SPEC.md`; project-specific behavior is documented in
+//! `docs/adapter-tui-tetris.md`.
 //!
 //! # Protocol Overview
 //!
@@ -42,7 +44,7 @@
 //! - `TETRIS_AI_HOST`: Bind address (default: "127.0.0.1")
 //! - `TETRIS_AI_PORT`: Port number (default: 7777)
 //! - `TETRIS_AI_DISABLED`: Set to "1" or "true" to disable adapter entirely
-//! - See `docs/adapter.md` for queue, observation, and wire-log settings
+//! - See `docs/adapter-tui-tetris.md` for queue, observation, and wire-log settings
 //!
 //! # Example Protocol Flow
 //!
