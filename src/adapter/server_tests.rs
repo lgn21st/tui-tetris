@@ -2,6 +2,17 @@ use super::*;
 use crate::core::GameState;
 
 #[test]
+fn protocol_compatibility_requires_semver_with_major_two() {
+    assert!(is_compatible_protocol_version("2.0.0"));
+    assert!(is_compatible_protocol_version("2.1.0-beta.1"));
+    assert!(!is_compatible_protocol_version("3.0.0"));
+    assert!(!is_compatible_protocol_version("2.invalid"));
+    assert!(!is_compatible_protocol_version("2.1"));
+    assert!(!is_compatible_protocol_version("2.1.0-"));
+    assert!(!is_compatible_protocol_version("2.1.0-01"));
+}
+
+#[test]
 fn test_map_command_action_mode() {
     let json = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft","rotateCw","hardDrop"]}"#;
     let ParsedMessage::Command(cmd) = parse_message(json).unwrap() else {

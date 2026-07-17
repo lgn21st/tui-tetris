@@ -24,6 +24,58 @@ use arrayvec::ArrayVec;
 
 const BACKPRESSURE_RETRY_AFTER_MS: u64 = 50;
 
+fn is_compatible_protocol_version(version: &str) -> bool {
+    fn valid_identifiers(value: &str, reject_numeric_leading_zero: bool) -> bool {
+        !value.is_empty()
+            && value.split('.').all(|identifier| {
+                !identifier.is_empty()
+                    && identifier
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                    && (!reject_numeric_leading_zero
+                        || !identifier.bytes().all(|byte| byte.is_ascii_digit())
+                        || identifier.len() == 1
+                        || !identifier.starts_with('0'))
+            })
+    }
+
+    let mut build_parts = version.split('+');
+    let base = build_parts.next().unwrap_or_default();
+    if let Some(build) = build_parts.next() {
+        if !valid_identifiers(build, false) || build_parts.next().is_some() {
+            return false;
+        }
+    }
+
+    let core = match base.split_once('-') {
+        Some((core, prerelease)) if valid_identifiers(prerelease, true) => core,
+        Some(_) => return false,
+        None => base,
+    };
+
+    let mut components = core.split('.');
+    let mut parse_numeric = || {
+        let value = components.next()?;
+        if value.is_empty()
+            || !value.bytes().all(|byte| byte.is_ascii_digit())
+            || (value.len() > 1 && value.starts_with('0'))
+        {
+            return None;
+        }
+        value.parse::<u64>().ok()
+    };
+    let Some(major) = parse_numeric() else {
+        return false;
+    };
+    let Some(_minor) = parse_numeric() else {
+        return false;
+    };
+    let Some(_patch) = parse_numeric() else {
+        return false;
+    };
+    major == 2 && components.next().is_none()
+}
+
 fn extract_seq_best_effort(s: &str) -> Option<u64> {
     let start = s.find("\"seq\"")?;
     let after_key = &s[start + 5..];
@@ -718,7 +770,7 @@ async fn handle_client(
                 }
 
                 // Validate protocol version
-                if !hello.protocol_version.starts_with("2.") {
+                if !is_compatible_protocol_version(&hello.protocol_version) {
                     let error = create_error(
                         hello.seq,
                         ErrorCode::ProtocolMismatch,
