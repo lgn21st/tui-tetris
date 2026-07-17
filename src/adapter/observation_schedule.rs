@@ -6,8 +6,8 @@ use crate::types::TICK_MS;
 
 #[derive(Debug)]
 pub struct ObservationSchedule {
-    interval_ms: u32,
-    accumulated_ms: u32,
+    frequency_hz: u32,
+    accumulated_frequency_units: u32,
     seq: u64,
     last_episode_id: u32,
     last_piece_id: u32,
@@ -19,10 +19,9 @@ pub struct ObservationSchedule {
 
 impl ObservationSchedule {
     pub fn new(game: &GameState, frequency_hz: u32) -> Self {
-        let interval_ms = (1000 / frequency_hz.clamp(1, 60)).max(1);
         Self {
-            interval_ms,
-            accumulated_ms: 0,
+            frequency_hz: frequency_hz.clamp(1, 60),
+            accumulated_frequency_units: 0,
             seq: 0,
             last_episode_id: game.episode_id(),
             last_piece_id: game.piece_id(),
@@ -65,12 +64,18 @@ impl ObservationSchedule {
             critical = true;
         }
 
-        self.accumulated_ms = self.accumulated_ms.saturating_add(TICK_MS);
-        if !critical && self.accumulated_ms < self.interval_ms {
+        self.accumulated_frequency_units = self
+            .accumulated_frequency_units
+            .saturating_add(TICK_MS.saturating_mul(self.frequency_hz));
+        if !critical && self.accumulated_frequency_units < 1000 {
             return None;
         }
 
-        self.accumulated_ms = 0;
+        if critical {
+            self.accumulated_frequency_units = 0;
+        } else {
+            self.accumulated_frequency_units -= 1000;
+        }
         Some(self.immediate())
     }
 }
@@ -99,6 +104,21 @@ mod tests {
         assert!(schedule.after_tick(&mut game).is_none());
         assert!(schedule.after_tick(&mut game).is_none());
         assert_eq!(schedule.after_tick(&mut game).unwrap().0, 1);
+    }
+
+    #[test]
+    fn preserves_requested_frequency_without_integer_period_drift() {
+        let mut game = GameState::new(1);
+        game.start();
+        let mut schedule = ObservationSchedule::new(&game, 20);
+
+        // 63 fixed 16ms steps cover 1008ms, so a 20Hz schedule should emit 20
+        // observations and retain the fractional phase for the next second.
+        let emissions = (0..63)
+            .filter(|_| schedule.after_tick(&mut game).is_some())
+            .count();
+
+        assert_eq!(emissions, 20);
     }
 
     #[test]

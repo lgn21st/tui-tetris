@@ -78,3 +78,10 @@ fn maintained_verification_script_exists() {
         .join("scripts/adapter_verify.py")
         .is_file());
 }
+
+#[test]
+fn adapter_resource_and_atomicity_contracts_are_documented() {
+    assert!(ADAPTER_DOC.contains("65,536 payload bytes"));
+    assert!(ADAPTER_DOC.contains("Place application is atomic"));
+    assert!(ADAPTER_DOC.contains("fixed-step phase"));
+}

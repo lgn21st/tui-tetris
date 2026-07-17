@@ -4,15 +4,17 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use tui_tetris::adapter::protocol::{create_ack, create_hello};
 use tui_tetris::adapter::protocol::LastEvent;
-use tui_tetris::adapter::runtime::InboundPayload;
+use tui_tetris::adapter::protocol::{create_ack, create_hello};
 use tui_tetris::adapter::runtime::AdapterStatus;
-use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
+use tui_tetris::adapter::runtime::InboundPayload;
+use tui_tetris::adapter::server::{
+    build_observation, run_server, ServerConfig, MAX_INBOUND_LINE_BYTES,
+};
 use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
 use tui_tetris::core::GameSnapshot;
 use tui_tetris::core::GameState;
@@ -41,8 +43,7 @@ fn adapter_observation_last_event_scoring_fields_match_core_semantics() {
         back_to_back: false,
     };
     let obs = build_observation(1, &snap, Some(LastEvent::from(last_event)));
-    let v: serde_json::Value =
-        serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
     assert_eq!(v["type"], "observation");
     assert_eq!(v["last_event"]["combo"], -1);
     assert_eq!(v["last_event"]["line_clear_score"], 0);
@@ -60,8 +61,7 @@ fn adapter_observation_last_event_scoring_fields_match_core_semantics() {
         back_to_back: true,
     };
     let obs = build_observation(2, &snap, Some(LastEvent::from(last_event)));
-    let v: serde_json::Value =
-        serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
     assert_eq!(v["type"], "observation");
     assert_eq!(v["seq"], 2);
     assert_eq!(v["score"], 5450);
@@ -163,8 +163,7 @@ async fn adapter_wire_logging_writes_raw_frames() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
         if let Ok(contents) = tokio::fs::read_to_string(&log_path).await {
-            if contents.contains("\"type\":\"hello\"")
-                && contents.contains("\"type\":\"welcome\"")
+            if contents.contains("\"type\":\"hello\"") && contents.contains("\"type\":\"welcome\"")
             {
                 // Ensure raw JSON lines only (no prefixes).
                 for line in contents.lines() {
@@ -246,7 +245,10 @@ async fn adapter_hello_command_ack_and_observation() {
         .unwrap();
     assert_eq!(inbound.seq, 2);
     match inbound.payload {
-        InboundPayload::Command(ClientCommand::Actions { actions, restart_seed }) => {
+        InboundPayload::Command(ClientCommand::Actions {
+            actions,
+            restart_seed,
+        }) => {
             assert_eq!(actions.as_slice(), [GameAction::MoveLeft]);
             assert_eq!(restart_seed, None);
         }
@@ -320,7 +322,10 @@ async fn adapter_broadcast_observation_arc_fanout() {
     async fn connect_and_handshake(
         addr: std::net::SocketAddr,
         name: &str,
-    ) -> (tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>, tokio::net::tcp::OwnedWriteHalf) {
+    ) -> (
+        tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>,
+        tokio::net::tcp::OwnedWriteHalf,
+    ) {
         let stream = TcpStream::connect(addr).await.expect("connect failed");
         let (read_half, mut write_half) = stream.into_split();
         let mut lines = BufReader::new(read_half).lines();
@@ -487,7 +492,10 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
     // hello (disable snapshot request to keep cmd_rx predictable)
     let mut hello = create_hello(1, "ack-test", "2.0.0");
     hello.requested.stream_observations = false;
-    write_half.write_all(serde_json::to_string(&hello).unwrap().as_bytes()).await.unwrap();
+    write_half
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .await
+        .unwrap();
     write_half.write_all(b"\n").await.unwrap();
     write_half.flush().await.unwrap();
 
@@ -509,9 +517,11 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
     assert_eq!(inbound.seq, 2);
 
     // No ack should be emitted until the game loop applies and sends it.
-    assert!(tokio::time::timeout(Duration::from_millis(150), lines.next_line())
-        .await
-        .is_err());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(150), lines.next_line())
+            .await
+            .is_err()
+    );
 
     // Simulate game loop apply -> send ack.
     let ack = create_ack(2, 2);
@@ -533,7 +543,6 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
 
     server_handle.abort();
 }
-
 
 #[tokio::test]
 async fn adapter_emits_status_updates_on_connect_and_controller() {
@@ -575,7 +584,9 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
     // Wait until we see client_count >= 1.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
-        if let Ok(Some(st)) = tokio::time::timeout(Duration::from_millis(50), status_rx.recv()).await {
+        if let Ok(Some(st)) =
+            tokio::time::timeout(Duration::from_millis(50), status_rx.recv()).await
+        {
             if st.client_count >= 1 {
                 break;
             }
@@ -603,7 +614,9 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
     // Status should eventually show controller_id set and stream_observations enabled.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
-        if let Ok(Some(st)) = tokio::time::timeout(Duration::from_millis(50), status_rx.recv()).await {
+        if let Ok(Some(st)) =
+            tokio::time::timeout(Duration::from_millis(50), status_rx.recv()).await
+        {
             if st.controller_id.is_some() && st.streaming_count >= 1 {
                 break;
             }
@@ -868,9 +881,11 @@ async fn adapter_backpressure_returns_error() {
     assert_eq!(first.seq, 2);
 
     // Ensure the backpressured command was NOT enqueued.
-    assert!(tokio::time::timeout(Duration::from_millis(100), recv_next_command(&mut cmd_rx))
-        .await
-        .is_err());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), recv_next_command(&mut cmd_rx))
+            .await
+            .is_err()
+    );
 
     // Retry with a new, larger seq after draining the queue should succeed.
     let cmd3 = r#"{"type":"command","seq":4,"ts":1,"mode":"action","actions":["moveRight"]}"#;
@@ -882,7 +897,6 @@ async fn adapter_backpressure_returns_error() {
         .await
         .unwrap();
     assert_eq!(retried.seq, 4);
-
 
     server_handle.abort();
 }
@@ -1121,11 +1135,11 @@ async fn adapter_rejects_out_of_order_seq_after_hello() {
     assert_eq!(v["code"], "invalid_command");
 
     // Ensure it was not enqueued.
-    assert!(tokio::time::timeout(Duration::from_millis(100), recv_next_command(&mut cmd_rx))
-        .await
-        .is_err());
-
-    
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), recv_next_command(&mut cmd_rx))
+            .await
+            .is_err()
+    );
 
     server_handle.abort();
 }
@@ -1179,9 +1193,11 @@ async fn adapter_rejects_hello_seq_not_one() {
     assert_eq!(v["code"], "invalid_command");
 
     // Ensure it did not trigger snapshot request.
-    assert!(tokio::time::timeout(Duration::from_millis(100), cmd_rx.recv())
-        .await
-        .is_err());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), cmd_rx.recv())
+            .await
+            .is_err()
+    );
 
     server_handle.abort();
 }
@@ -1314,6 +1330,39 @@ async fn adapter_unknown_message_type_echoes_seq() {
     assert_eq!(v["type"], "error");
     assert_eq!(v["seq"], 9);
     assert_eq!(v["code"], "invalid_command");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn adapter_disconnects_frames_that_exceed_the_inbound_limit() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "2.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+        ..ServerConfig::default()
+    };
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+    let addr = ready_rx.await.expect("server ready");
+
+    let mut stream = TcpStream::connect(addr).await.expect("connect");
+    let oversized = vec![b' '; MAX_INBOUND_LINE_BYTES + 1];
+    let _ = stream.write_all(&oversized).await;
+    let _ = stream.shutdown().await;
+
+    let mut byte = [0u8; 1];
+    match tokio::time::timeout(Duration::from_secs(2), stream.read(&mut byte)).await {
+        Ok(Ok(0)) | Ok(Err(_)) => {}
+        Ok(Ok(count)) => panic!("server wrote {count} bytes instead of closing oversized frame"),
+        Err(_) => panic!("server did not close oversized frame"),
+    }
 
     server_handle.abort();
 }

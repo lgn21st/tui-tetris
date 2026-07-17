@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::BufWriter;
-use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::{Duration, MissedTickBehavior};
@@ -23,6 +23,47 @@ pub use crate::adapter::server_config::{check_tcp_listen_available, ServerConfig
 use arrayvec::ArrayVec;
 
 const BACKPRESSURE_RETRY_AFTER_MS: u64 = 50;
+pub const MAX_INBOUND_LINE_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BoundedLineRead {
+    Eof,
+    Line,
+    TooLong,
+}
+
+async fn read_bounded_line<R>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+) -> std::io::Result<BoundedLineRead>
+where
+    R: AsyncBufRead + Unpin,
+{
+    line.clear();
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            return Ok(if line.is_empty() {
+                BoundedLineRead::Eof
+            } else {
+                BoundedLineRead::Line
+            });
+        }
+
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let payload_len = newline.unwrap_or(available.len());
+        if line.len().saturating_add(payload_len) > MAX_INBOUND_LINE_BYTES {
+            return Ok(BoundedLineRead::TooLong);
+        }
+
+        let consumed = newline.map_or(available.len(), |index| index + 1);
+        line.extend_from_slice(&available[..consumed]);
+        reader.consume(consumed);
+        if newline.is_some() {
+            return Ok(BoundedLineRead::Line);
+        }
+    }
+}
 
 fn is_compatible_protocol_version(version: &str) -> bool {
     fn valid_identifiers(value: &str, reject_numeric_leading_zero: bool) -> bool {
@@ -720,12 +761,11 @@ async fn handle_client(
     });
 
     // Handle incoming messages
-    let mut line = String::new();
+    let mut line = Vec::with_capacity(4096);
 
     loop {
-        line.clear();
-        let bytes_read = match reader.read_line(&mut line).await {
-            Ok(n) => n,
+        let read = match read_bounded_line(&mut reader, &mut line).await {
+            Ok(read) => read,
             Err(_) => {
                 // Treat I/O errors the same as a disconnect for lifecycle cleanup purposes.
                 // Some clients may terminate abruptly, and we must still release/promote controller.
@@ -733,11 +773,14 @@ async fn handle_client(
             }
         };
 
-        if bytes_read == 0 {
-            // Client disconnected
-            break;
+        match read {
+            BoundedLineRead::Eof | BoundedLineRead::TooLong => break,
+            BoundedLineRead::Line => {}
         }
 
+        let Ok(line) = std::str::from_utf8(&line) else {
+            break;
+        };
         let raw_line = line.trim_end_matches(['\n', '\r']);
         let trimmed = raw_line.trim();
         if trimmed.is_empty() {
