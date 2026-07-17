@@ -10,4 +10,3 @@ fn adapter_port_check_fails_when_port_in_use() {
     let err = check_tcp_listen_available("127.0.0.1", port).expect_err("expected addr in use");
     assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
 }
-

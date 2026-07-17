@@ -83,8 +83,14 @@ pub fn parse_observe_args(args: &[String]) -> Result<Option<ObserveConfig>> {
 }
 
 pub fn connect_observer(config: &ObserveConfig) -> Result<mpsc::Receiver<ObserveEvent>> {
-    let mut stream = TcpStream::connect((config.host.as_str(), config.port))
-        .map_err(|e| anyhow!("observe: connect {}:{} failed: {}", config.host, config.port, e))?;
+    let mut stream = TcpStream::connect((config.host.as_str(), config.port)).map_err(|e| {
+        anyhow!(
+            "observe: connect {}:{} failed: {}",
+            config.host,
+            config.port,
+            e
+        )
+    })?;
     stream
         .set_nodelay(true)
         .map_err(|e| anyhow!("observe: set_nodelay failed: {}", e))?;
@@ -312,7 +318,10 @@ fn parse_server_line(line: &str) -> Option<ObserveEvent> {
             ))),
         },
         "error" => {
-            let code = value.get("code").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let code = value
+                .get("code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             let msg = value.get("message").and_then(|v| v.as_str()).unwrap_or("");
             Some(ObserveEvent::Error(format!(
                 "observe: server error {} {}",

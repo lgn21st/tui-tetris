@@ -424,11 +424,19 @@ pub struct ServerCapabilities {
     pub features: Vec<CapabilityFeature>,
 
     /// Features that are guaranteed to be present in every observation payload.
-    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "features_always")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        rename = "features_always"
+    )]
     pub features_always: Vec<CapabilityFeature>,
 
     /// Features that may be omitted when unknown/not-applicable.
-    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "features_optional")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        rename = "features_optional"
+    )]
     pub features_optional: Vec<CapabilityFeature>,
 
     /// Deterministic controller lifecycle policy.
@@ -994,16 +1002,15 @@ mod tests {
         assert_eq!(welcome.controller_id, Some(7));
         assert_eq!(welcome.game_id, "tui-tetris");
         assert_eq!(
+            welcome.capabilities.control_policy.promotion_order,
+            ControlPromotionOrder::LowestClientId
+        );
+        assert!(
             welcome
                 .capabilities
                 .control_policy
-                .promotion_order,
-            ControlPromotionOrder::LowestClientId
+                .auto_promote_on_disconnect
         );
-        assert!(welcome
-            .capabilities
-            .control_policy
-            .auto_promote_on_disconnect);
     }
 
     #[test]

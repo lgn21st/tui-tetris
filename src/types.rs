@@ -215,10 +215,18 @@ impl std::str::FromStr for PieceKind {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        [Self::I, Self::O, Self::T, Self::S, Self::Z, Self::J, Self::L]
-            .into_iter()
-            .find(|kind| s.eq_ignore_ascii_case(kind.as_str()))
-            .ok_or(())
+        [
+            Self::I,
+            Self::O,
+            Self::T,
+            Self::S,
+            Self::Z,
+            Self::J,
+            Self::L,
+        ]
+        .into_iter()
+        .find(|kind| s.eq_ignore_ascii_case(kind.as_str()))
+        .ok_or(())
     }
 }
 
@@ -303,10 +311,18 @@ impl std::str::FromStr for Rotation {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            value if value.eq_ignore_ascii_case("north") || value.eq_ignore_ascii_case("n") => Ok(Self::North),
-            value if value.eq_ignore_ascii_case("east") || value.eq_ignore_ascii_case("e") => Ok(Self::East),
-            value if value.eq_ignore_ascii_case("south") || value.eq_ignore_ascii_case("s") => Ok(Self::South),
-            value if value.eq_ignore_ascii_case("west") || value.eq_ignore_ascii_case("w") => Ok(Self::West),
+            value if value.eq_ignore_ascii_case("north") || value.eq_ignore_ascii_case("n") => {
+                Ok(Self::North)
+            }
+            value if value.eq_ignore_ascii_case("east") || value.eq_ignore_ascii_case("e") => {
+                Ok(Self::East)
+            }
+            value if value.eq_ignore_ascii_case("south") || value.eq_ignore_ascii_case("s") => {
+                Ok(Self::South)
+            }
+            value if value.eq_ignore_ascii_case("west") || value.eq_ignore_ascii_case("w") => {
+                Ok(Self::West)
+            }
             _ => Err(()),
         }
     }
@@ -366,8 +382,15 @@ impl std::str::FromStr for GameAction {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         [
-            Self::MoveLeft, Self::MoveRight, Self::SoftDrop, Self::HardDrop,
-            Self::RotateCw, Self::RotateCcw, Self::Hold, Self::Pause, Self::Restart,
+            Self::MoveLeft,
+            Self::MoveRight,
+            Self::SoftDrop,
+            Self::HardDrop,
+            Self::RotateCw,
+            Self::RotateCcw,
+            Self::Hold,
+            Self::Pause,
+            Self::Restart,
         ]
         .into_iter()
         .find(|action| s.eq_ignore_ascii_case(action.as_str()))

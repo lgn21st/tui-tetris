@@ -29,4 +29,3 @@ fn render_throttle_dynamic_always_renders() {
     assert!(t.should_render(1, 1, false));
     assert!(t.should_render(2, 1, false));
 }
-

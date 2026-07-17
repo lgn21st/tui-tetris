@@ -45,4 +45,3 @@ fn snapshot_meta_into_does_not_change_board_hash() {
     assert_eq!(snap.board_hash, before);
     assert_eq!(snap.board_hash, fnv1a64_board(&snap.board));
 }
-

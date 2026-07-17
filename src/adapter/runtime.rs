@@ -13,8 +13,8 @@ use arrayvec::ArrayVec;
 
 use std::sync::Arc;
 
-use crate::adapter::server::{run_server, ServerConfig, ServerState};
 use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage};
+use crate::adapter::server::{run_server, ServerConfig, ServerState};
 use crate::types::{GameAction, Rotation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,23 +58,46 @@ pub enum ClientCommand {
 /// Outbound message to be delivered by the server.
 #[derive(Debug, Clone)]
 pub enum OutboundMessage {
-    ToClient { client_id: usize, line: String },
+    ToClient {
+        client_id: usize,
+        line: String,
+    },
     /// Send a pre-built line without taking ownership of a `String`.
-    ToClientArc { client_id: usize, line: Arc<str> },
-    Broadcast { line: String },
+    ToClientArc {
+        client_id: usize,
+        line: Arc<str>,
+    },
+    Broadcast {
+        line: String,
+    },
     /// Broadcast a pre-built line without cloning a `String` per fan-out source.
-    BroadcastArc { line: Arc<str> },
-    ToClientObservation { client_id: usize, obs: ObservationMessage },
-    BroadcastObservation { obs: ObservationMessage },
+    BroadcastArc {
+        line: Arc<str>,
+    },
+    ToClientObservation {
+        client_id: usize,
+        obs: ObservationMessage,
+    },
+    BroadcastObservation {
+        obs: ObservationMessage,
+    },
     /// Same as `ToClientObservation` but avoids cloning large observations for fan-out paths.
     ToClientObservationArc {
         client_id: usize,
         obs: Arc<ObservationMessage>,
     },
     /// Same as `BroadcastObservation` but avoids cloning large observations for each client.
-    BroadcastObservationArc { obs: Arc<ObservationMessage> },
-    ToClientAck { client_id: usize, ack: AckMessage },
-    ToClientError { client_id: usize, err: ErrorMessage },
+    BroadcastObservationArc {
+        obs: Arc<ObservationMessage>,
+    },
+    ToClientAck {
+        client_id: usize,
+        ack: AckMessage,
+    },
+    ToClientError {
+        client_id: usize,
+        err: ErrorMessage,
+    },
 }
 
 /// Running adapter instance.
@@ -96,7 +119,9 @@ impl Adapter {
         }
 
         let config = ServerConfig::from_env();
-        if let Err(e) = crate::adapter::server::check_tcp_listen_available(&config.host, config.port) {
+        if let Err(e) =
+            crate::adapter::server::check_tcp_listen_available(&config.host, config.port)
+        {
             return Err(anyhow::anyhow!(
                 "AI adapter listen address is unavailable ({}:{}): {}. Set TETRIS_AI_PORT to a free port, or set TETRIS_AI_DISABLED=1 to disable the adapter.",
                 config.host,

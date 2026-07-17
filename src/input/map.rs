@@ -7,15 +7,21 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub fn handle_key_event(key: KeyEvent) -> Option<GameAction> {
     match key.code {
         // Movement
-        KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('H') | KeyCode::Char('a') | KeyCode::Char('A') => {
-            Some(GameAction::MoveLeft)
-        }
-        KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') | KeyCode::Char('d') | KeyCode::Char('D') => {
-            Some(GameAction::MoveRight)
-        }
-        KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Char('s') | KeyCode::Char('S') => {
-            Some(GameAction::SoftDrop)
-        }
+        KeyCode::Left
+        | KeyCode::Char('h')
+        | KeyCode::Char('H')
+        | KeyCode::Char('a')
+        | KeyCode::Char('A') => Some(GameAction::MoveLeft),
+        KeyCode::Right
+        | KeyCode::Char('l')
+        | KeyCode::Char('L')
+        | KeyCode::Char('d')
+        | KeyCode::Char('D') => Some(GameAction::MoveRight),
+        KeyCode::Down
+        | KeyCode::Char('j')
+        | KeyCode::Char('J')
+        | KeyCode::Char('s')
+        | KeyCode::Char('S') => Some(GameAction::SoftDrop),
 
         // Rotation
         KeyCode::Up
@@ -23,10 +29,9 @@ pub fn handle_key_event(key: KeyEvent) -> Option<GameAction> {
         | KeyCode::Char('K')
         | KeyCode::Char('w')
         | KeyCode::Char('W') => Some(GameAction::RotateCw),
-        KeyCode::Char('z')
-        | KeyCode::Char('Z')
-        | KeyCode::Char('y')
-        | KeyCode::Char('Y') => Some(GameAction::RotateCcw),
+        KeyCode::Char('z') | KeyCode::Char('Z') | KeyCode::Char('y') | KeyCode::Char('Y') => {
+            Some(GameAction::RotateCcw)
+        }
 
         // Actions
         KeyCode::Char(' ') => Some(GameAction::HardDrop),

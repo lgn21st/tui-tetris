@@ -49,4 +49,3 @@ impl RenderThrottle {
         false
     }
 }
-
