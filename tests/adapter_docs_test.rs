@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use tui_tetris::adapter::protocol::PROTOCOL_VERSION;
+use tui_tetris::adapter::server::{CLIENT_RELIABLE_QUEUE_CAPACITY, WIRE_LOG_QUEUE_CAPACITY};
 
 const ADAPTER_DOC: &str = include_str!("../docs/adapter.md");
 
@@ -84,4 +85,9 @@ fn adapter_resource_and_atomicity_contracts_are_documented() {
     assert!(ADAPTER_DOC.contains("65,536 payload bytes"));
     assert!(ADAPTER_DOC.contains("Place application is atomic"));
     assert!(ADAPTER_DOC.contains("fixed-step phase"));
+    assert!(ADAPTER_DOC.contains(&format!(
+        "bounded reliable queue of {CLIENT_RELIABLE_QUEUE_CAPACITY} messages"
+    )));
+    assert_eq!(WIRE_LOG_QUEUE_CAPACITY, 1024);
+    assert!(ADAPTER_DOC.contains("bounded 1,024-record queue"));
 }

@@ -6,15 +6,14 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot, watch};
 
 use arrayvec::ArrayVec;
 
 use std::sync::Arc;
 
 use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage};
-use crate::adapter::server::{run_server, ServerConfig, ServerState};
+use crate::adapter::server::{run_server_with_startup, ServerConfig, ServerState};
 use crate::types::{GameAction, Rotation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,8 +104,8 @@ pub struct Adapter {
     _rt: Runtime,
     cmd_rx: mpsc::Receiver<InboundCommand>,
     out_tx: mpsc::UnboundedSender<OutboundMessage>,
-    status_rx: mpsc::UnboundedReceiver<AdapterStatus>,
-    listen_addr: Option<SocketAddr>,
+    status_rx: watch::Receiver<AdapterStatus>,
+    listen_addr: SocketAddr,
 }
 
 impl Adapter {
@@ -118,43 +117,51 @@ impl Adapter {
             return Ok(None);
         }
 
-        let config = ServerConfig::from_env();
-        if let Err(e) =
-            crate::adapter::server::check_tcp_listen_available(&config.host, config.port)
-        {
-            return Err(anyhow::anyhow!(
-                "AI adapter listen address is unavailable ({}:{}): {}. Set TETRIS_AI_PORT to a free port, or set TETRIS_AI_DISABLED=1 to disable the adapter.",
-                config.host,
-                config.port,
-                e
-            ));
+        Self::start(ServerConfig::from_env()).map(Some)
+    }
+
+    /// Start the adapter with an explicit configuration.
+    ///
+    /// This returns only after the async server has completed its authoritative
+    /// TCP bind, so a successful adapter always has a valid listen address.
+    pub fn start(config: ServerConfig) -> anyhow::Result<Self> {
+        if ServerState::is_disabled() {
+            return Err(anyhow::anyhow!("AI adapter is disabled"));
         }
+
         let max_pending = config.max_pending_commands.max(1);
         let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(max_pending);
         let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
-        let (status_tx, status_rx) = mpsc::unbounded_channel::<AdapterStatus>();
-        let (ready_tx, ready_rx) = oneshot::channel::<SocketAddr>();
+        let (status_tx, status_rx) = watch::channel(AdapterStatus {
+            client_count: 0,
+            controller_id: None,
+            streaming_count: 0,
+        });
+        let (startup_tx, startup_rx) = oneshot::channel::<Result<SocketAddr, String>>();
 
         let rt = Runtime::new()
             .map_err(|error| anyhow::anyhow!("failed to create adapter runtime: {error}"))?;
         rt.spawn(async move {
-            let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), Some(status_tx)).await;
+            let _ =
+                run_server_with_startup(config, cmd_tx, out_rx, startup_tx, Some(status_tx)).await;
         });
 
-        let listen_addr = rt.block_on(async move {
-            tokio::time::timeout(Duration::from_millis(200), ready_rx)
-                .await
-                .ok()
-                .and_then(|r| r.ok())
-        });
+        let listen_addr = match rt
+            .block_on(async move { tokio::time::timeout(Duration::from_secs(2), startup_rx).await })
+        {
+            Ok(Ok(Ok(address))) => address,
+            Ok(Ok(Err(error))) => return Err(anyhow::anyhow!(error)),
+            Ok(Err(_)) => return Err(anyhow::anyhow!("AI adapter startup task stopped early")),
+            Err(_) => return Err(anyhow::anyhow!("AI adapter startup timed out")),
+        };
 
-        Ok(Some(Self {
+        Ok(Self {
             _rt: rt,
             cmd_rx,
             out_tx,
             status_rx,
             listen_addr,
-        }))
+        })
     }
 
     pub fn try_recv(&mut self) -> Option<InboundCommand> {
@@ -162,10 +169,13 @@ impl Adapter {
     }
 
     pub fn try_recv_status(&mut self) -> Option<AdapterStatus> {
-        self.status_rx.try_recv().ok()
+        match self.status_rx.has_changed() {
+            Ok(true) => Some(*self.status_rx.borrow_and_update()),
+            Ok(false) | Err(_) => None,
+        }
     }
 
-    pub fn listen_addr(&self) -> Option<SocketAddr> {
+    pub fn listen_addr(&self) -> SocketAddr {
         self.listen_addr
     }
 

@@ -46,6 +46,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Clippy clean with warnings treated as errors
 - Shared deterministic adapter command draining and observation scheduling
 - Incrementally bounded 64 KiB adapter input framing
+- Per-client bounded reliable output queues with latest-observation coalescing
+- Bounded best-effort wire logging and latest-only adapter status delivery
+- Authoritative adapter bind result propagation without a preflight-bind race
 
 ## [0.1.0] - 2025-02-02
 

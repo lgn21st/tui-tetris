@@ -176,7 +176,7 @@ fn run_headless() -> Result<()> {
     let tick_duration = Duration::from_millis(TICK_MS as u64);
 
     loop {
-        // Drain adapter status updates to avoid unbounded growth.
+        // Consume the latest coalesced adapter status update.
         if let Some(ad) = adapter.as_mut() {
             while let Some(st) = ad.try_recv_status() {
                 adapter_streaming_count = st.streaming_count;
@@ -254,7 +254,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
 
     let mut adapter = Adapter::start_from_env()?;
     let listen_addr = if adapter.is_some() {
-        adapter.as_ref().and_then(|a| a.listen_addr()).or_else(|| {
+        adapter.as_ref().map(|a| a.listen_addr()).or_else(|| {
             // Fallback to configured env, mirroring adapter defaults.
             let host_s = std::env::var("TETRIS_AI_HOST")
                 .ok()

@@ -40,13 +40,16 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - TCP server (tokio) ✅
 - JSON line framing ✅
 - Bounded inbound frames (64 KiB, incremental enforcement) ✅
+- Bounded reliable outbound queues with slow-client isolation ✅
+- Latest-only observation and status delivery under backpressure ✅
 - hello/welcome handshake ✅
 - Welcome advertises `features_always` / `features_optional` ✅
 - Controller/observer enforcement ✅
 - Backpressure errors ✅
 - Monotonic seq enforcement ✅
 - Best-effort seq echo on parse errors ✅
-- Wire logging (`TETRIS_AI_LOG_PATH`) ✅
+- Bounded best-effort wire logging (`TETRIS_AI_LOG_PATH`) ✅
+- Authoritative bind startup/error propagation ✅
 - Immediate snapshot on hello ✅
 - Drift-free fixed-step observation cadence ✅
 - Closed-loop stability tests ✅

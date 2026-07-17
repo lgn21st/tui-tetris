@@ -59,6 +59,8 @@
 //! - Uses **tokio** for async networking
 //! - Multiple clients can connect (only one controller at a time)
 //! - Controller can release control for another client to take over
+//! - Reliable replies use bounded per-client queues; pending observations coalesce
+//! - Diagnostic wire logging is bounded and best-effort under storage backpressure
 //! - See [`protocol`] for message structure definitions
 //! - See [`server`] for TCP server implementation
 //!
@@ -71,6 +73,7 @@
 //! {"type":"hello","seq":1,"ts":1234567890,"client":{"name":"test","version":"1.0.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":true,"command_mode":"action"}}
 //! ```
 
+mod client_mailbox;
 pub mod command_apply;
 pub mod game_loop;
 pub mod observation;
@@ -79,6 +82,7 @@ pub mod protocol;
 pub mod runtime;
 pub mod server;
 pub mod server_config;
+mod wire_log;
 
 // Keep the adapter root intentionally small. Wire types and server internals stay
 // available through their named modules so adding a helper does not accidentally

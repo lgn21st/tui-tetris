@@ -327,6 +327,15 @@ requests an immediate full snapshot. Periodic scheduling uses a fixed-step phase
 accumulator, preserving the requested long-run frequency without integer-period
 drift (for example, 20Hz does not degrade to one frame every four 16ms steps).
 
+Observation delivery is latest-state oriented. Each client has one pending
+observation slot; when a socket writer is slower than the producer, a newer full
+snapshot replaces the pending older snapshot. Clients MUST therefore use `seq`
+to detect skipped snapshots and MUST NOT assume that every scheduled observation
+will be delivered. `welcome`, `ack`, `error`, and targeted non-observation frames
+instead use a bounded reliable queue of 32 messages. If that queue fills, the
+adapter closes only the slow connection rather than dropping a correlated
+response or blocking other clients.
+
 ### 7.1 Runtime configuration (tui-tetris)
 
 | Variable | Default | Meaning |
@@ -341,6 +350,9 @@ drift (for example, 20Hz does not degrade to one frame every four 16ms steps).
 | `TETRIS_AI_LOG_MAX_LINES` | unlimited | Optional maximum number of written log lines |
 
 Wire logging is diagnostic and MUST NOT change protocol ordering or game state.
+The logger has a bounded 1,024-record queue. If storage cannot keep up, new
+diagnostic records are dropped; the wire log is therefore not an audit log and
+MAY contain gaps under sustained I/O backpressure.
 
 ## 8) Acceptance / Release Gate (MUST)
 

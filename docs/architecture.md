@@ -26,8 +26,11 @@ main / observe
   sequence generation shared by interactive and headless modes. Its `game_loop`
   boundary owns bounded pre-tick command draining, snapshot requests, and
   acknowledgements. `observation` owns snapshot-to-wire projection and stable
-  state hashing; `server_config` owns environment parsing and listen validation.
-  Game commands cross the boundary as typed messages.
+  state hashing; `client_mailbox` owns per-client reliable queues, latest-only
+  observation slots, and slow-client cancellation; `wire_log` owns bounded
+  best-effort diagnostic persistence. `server_config` owns environment parsing
+  and listen-address construction, while `runtime` waits for the server's single
+  authoritative bind result. Game commands cross the boundary as typed messages.
 - `main` is the composition root. Interactive, headless, and observe modes select
   which input/output edges are active.
 
@@ -60,6 +63,14 @@ requires tests plus updates to `rules-spec.md` or `adapter.md`.
   subscribers.
 - Adapter input framing is incrementally bounded at 64 KiB per JSON line, so a
   client cannot force unbounded allocation by withholding a newline.
+- Each client has a 32-message reliable output queue plus one replaceable
+  observation slot. Reliable overflow disconnects only that client; stale
+  observations are coalesced instead of accumulated.
+- Adapter status is a latest-value channel, and wire logging uses a bounded 1,024
+  record queue with best-effort drops, so connection churn and slow storage cannot
+  create unbounded internal backlogs.
+- Adapter startup reports the result of the actual async TCP bind; it does not
+  probe and release the address before starting the server.
 - Terminal output uses framebuffer diffs and explicit invalidation after resize.
 
 Run `cargo test` for correctness and allocation gates. Run `cargo bench` followed

@@ -8,22 +8,29 @@ use std::sync::Arc;
 use tokio::io::BufWriter;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot, watch, RwLock};
 use tokio::time::{Duration, MissedTickBehavior};
 
+use crate::adapter::client_mailbox::{
+    client_outbound_channel, ClientOutbound, ClientOutboundSender,
+};
 use crate::adapter::protocol::*;
 use crate::adapter::runtime::{
     AdapterStatus, ClientCommand, InboundCommand, InboundPayload, OutboundMessage,
 };
+use crate::adapter::wire_log::{spawn_wire_logger, try_log as log_wire_record, WireRecord};
 use crate::types::{GameAction, Rotation};
 
+pub use crate::adapter::client_mailbox::CLIENT_RELIABLE_QUEUE_CAPACITY;
 pub use crate::adapter::observation::build_observation;
-pub use crate::adapter::server_config::{check_tcp_listen_available, ServerConfig};
+pub use crate::adapter::server_config::ServerConfig;
+pub use crate::adapter::wire_log::WIRE_LOG_QUEUE_CAPACITY;
 
 use arrayvec::ArrayVec;
 
 const BACKPRESSURE_RETRY_AFTER_MS: u64 = 50;
 pub const MAX_INBOUND_LINE_BYTES: usize = 64 * 1024;
+const CLIENT_WRITER_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BoundedLineRead {
@@ -150,7 +157,7 @@ where
 async fn clear_stale_controller(state: &Arc<ServerState>, controller: &mut Option<usize>) {
     let clients = state.clients.read().await;
     clear_stale_controller_id(controller, |id| {
-        clients.iter().any(|c| c.id == id && !c.tx.is_closed())
+        clients.iter().any(|c| c.id == id && c.outbound.is_live())
     });
 }
 
@@ -161,12 +168,12 @@ fn sync_controller_flags(clients: &mut [ClientHandle], controller_id: Option<usi
 }
 
 fn send_client_error(
-    tx: &mpsc::UnboundedSender<ClientOutbound>,
+    outbound: &ClientOutboundSender,
     seq: u64,
     code: ErrorCode,
     message: impl AsRef<str>,
 ) {
-    let _ = tx.send(ClientOutbound::Error(create_error(
+    outbound.try_send_reliable(ClientOutbound::Error(create_error(
         seq,
         code,
         message.as_ref(),
@@ -178,17 +185,11 @@ fn encode_json_into_buf<T: serde::Serialize>(buf: &mut Vec<u8>, value: &T) -> bo
     serde_json::to_writer(&mut *buf, value).is_ok()
 }
 
-fn log_wire_record(log_tx: Option<&mpsc::UnboundedSender<WireRecord>>, record: WireRecord) {
-    if let Some(tx) = log_tx {
-        let _ = tx.send(record);
-    }
-}
-
 async fn write_json_and_log<W, T, F>(
     writer: &mut BufWriter<W>,
     buf: &mut Vec<u8>,
     value: T,
-    log_tx: Option<&mpsc::UnboundedSender<WireRecord>>,
+    log_tx: Option<&mpsc::Sender<WireRecord>>,
     wrap: F,
 ) -> std::io::Result<()>
 where
@@ -206,13 +207,13 @@ where
 
 async fn enforce_strict_seq(
     state: &Arc<ServerState>,
-    tx: &mpsc::UnboundedSender<ClientOutbound>,
+    outbound: &ClientOutboundSender,
     client_id: usize,
     seq: u64,
 ) -> bool {
     if !check_and_update_seq(state, client_id, seq).await {
         send_client_error(
-            tx,
+            outbound,
             seq,
             ErrorCode::InvalidCommand,
             "seq must be strictly increasing",
@@ -224,21 +225,21 @@ async fn enforce_strict_seq(
 
 async fn enforce_handshake_and_seq(
     state: &Arc<ServerState>,
-    tx: &mpsc::UnboundedSender<ClientOutbound>,
+    outbound: &ClientOutboundSender,
     client_id: usize,
     seq: u64,
     noun: &str,
 ) -> bool {
     if !is_handshaken(state, client_id).await {
         send_client_error(
-            tx,
+            outbound,
             seq,
             ErrorCode::HandshakeRequired,
             format!("Send hello before {}", noun),
         );
         return false;
     }
-    enforce_strict_seq(state, tx, client_id, seq).await
+    enforce_strict_seq(state, outbound, client_id, seq).await
 }
 
 /// Shared server state
@@ -246,14 +247,11 @@ pub struct ServerState {
     config: ServerConfig,
     clients: Arc<RwLock<Vec<ClientHandle>>>,
     controller: Arc<RwLock<Option<usize>>>, // Index into clients vec
-    status_tx: Option<mpsc::UnboundedSender<AdapterStatus>>,
+    status_tx: Option<watch::Sender<AdapterStatus>>,
 }
 
 impl ServerState {
-    pub fn new(
-        config: ServerConfig,
-        status_tx: Option<mpsc::UnboundedSender<AdapterStatus>>,
-    ) -> Self {
+    pub fn new(config: ServerConfig, status_tx: Option<watch::Sender<AdapterStatus>>) -> Self {
         Self {
             config,
             clients: Arc::new(RwLock::new(Vec::new())),
@@ -281,21 +279,21 @@ async fn emit_status(state: &Arc<ServerState>) {
     let clients = state.clients.read().await;
     let live_client_count = clients
         .iter()
-        .filter(|c| !c.tx.is_closed())
+        .filter(|c| c.outbound.is_live())
         .count()
         .min(u16::MAX as usize) as u16;
     let controller_id = controller.and_then(|id| {
         clients
             .iter()
-            .any(|c| c.id == id && !c.tx.is_closed())
+            .any(|c| c.id == id && c.outbound.is_live())
             .then_some(id)
     });
     let streaming_count = clients
         .iter()
-        .filter(|c| c.stream_observations && !c.tx.is_closed())
+        .filter(|c| c.stream_observations && c.outbound.is_live())
         .count()
         .min(u16::MAX as usize) as u16;
-    let _ = tx.send(AdapterStatus {
+    tx.send_replace(AdapterStatus {
         client_count: live_client_count,
         controller_id,
         streaming_count,
@@ -340,156 +338,122 @@ pub struct ClientHandle {
     pub stream_observations: bool,
     pub handshaken: bool,
     pub last_seq: Option<u64>,
-    pub tx: mpsc::UnboundedSender<ClientOutbound>, // Channel to send messages to client
+    outbound: ClientOutboundSender,
 }
 
-#[derive(Debug, Clone)]
-pub enum ClientOutbound {
-    LineArc(Arc<str>),
-    Ack(AckMessage),
-    Error(ErrorMessage),
-    Welcome(WelcomeMessage),
-    Observation(ObservationMessage),
-    ObservationArc(Arc<ObservationMessage>),
+enum StartupNotifier {
+    Address(Option<oneshot::Sender<SocketAddr>>),
+    Result(oneshot::Sender<Result<SocketAddr, String>>),
 }
 
-#[derive(Debug, Clone)]
-enum WireRecord {
-    LineArc(Arc<str>),
-    Welcome(WelcomeMessage),
-    Ack(AckMessage),
-    Error(ErrorMessage),
-    Observation(ObservationMessage),
-    ObservationArc(Arc<ObservationMessage>),
-}
-
-/// Start the TCP server
-pub async fn run_server(
-    config: ServerConfig,
-    command_tx: mpsc::Sender<InboundCommand>,
-    mut out_rx: mpsc::UnboundedReceiver<OutboundMessage>,
-    ready_tx: Option<oneshot::Sender<SocketAddr>>,
-    status_tx: Option<mpsc::UnboundedSender<AdapterStatus>>,
-) -> anyhow::Result<()> {
-    if ServerState::is_disabled() {
-        // Just drain the command channel to prevent blocking
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+impl StartupNotifier {
+    fn success(self, address: SocketAddr) {
+        match self {
+            Self::Address(Some(tx)) => {
+                let _ = tx.send(address);
+            }
+            Self::Address(None) => {}
+            Self::Result(tx) => {
+                let _ = tx.send(Ok(address));
+            }
         }
     }
 
-    let wire_log_tx: Option<mpsc::UnboundedSender<WireRecord>> =
-        if let Some(path) = config.log_path.clone() {
-            let log_every_n = config.log_every_n.max(1);
-            let log_max_lines = config.log_max_lines;
-            let (tx, mut rx) = mpsc::unbounded_channel::<WireRecord>();
-            tokio::spawn(async move {
-                use tokio::fs::OpenOptions;
-                use tokio::io::AsyncWriteExt;
+    fn failure(self, error: &anyhow::Error) {
+        if let Self::Result(tx) = self {
+            let _ = tx.send(Err(error.to_string()));
+        }
+    }
+}
 
-                let mut file = match OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&path)
-                    .await
-                {
-                    Ok(f) => f,
-                    Err(_) => return,
-                };
+/// Start the TCP server.
+///
+/// The optional readiness channel is retained for callers that only need the
+/// bound address. [`run_server_with_startup`] is used by [`crate::adapter::Adapter`]
+/// when startup errors must be propagated synchronously.
+pub async fn run_server(
+    config: ServerConfig,
+    command_tx: mpsc::Sender<InboundCommand>,
+    out_rx: mpsc::UnboundedReceiver<OutboundMessage>,
+    ready_tx: Option<oneshot::Sender<SocketAddr>>,
+    status_tx: Option<watch::Sender<AdapterStatus>>,
+) -> anyhow::Result<()> {
+    run_server_inner(
+        config,
+        command_tx,
+        out_rx,
+        StartupNotifier::Address(ready_tx),
+        status_tx,
+    )
+    .await
+}
 
-                let mut buf: Vec<u8> = Vec::with_capacity(4096);
-                let mut line_count: u64 = 0;
-                let mut record_count: u64 = 0;
+pub(crate) async fn run_server_with_startup(
+    config: ServerConfig,
+    command_tx: mpsc::Sender<InboundCommand>,
+    out_rx: mpsc::UnboundedReceiver<OutboundMessage>,
+    startup_tx: oneshot::Sender<Result<SocketAddr, String>>,
+    status_tx: Option<watch::Sender<AdapterStatus>>,
+) -> anyhow::Result<()> {
+    run_server_inner(
+        config,
+        command_tx,
+        out_rx,
+        StartupNotifier::Result(startup_tx),
+        status_tx,
+    )
+    .await
+}
 
-                while let Some(rec) = rx.recv().await {
-                    record_count = record_count.wrapping_add(1);
-                    if !record_count.is_multiple_of(log_every_n) {
-                        continue;
-                    }
-                    if let Some(max) = log_max_lines {
-                        if line_count >= max {
-                            continue;
-                        }
-                    }
-                    match rec {
-                        WireRecord::LineArc(s) => {
-                            if file.write_all(s.as_bytes()).await.is_err() {
-                                break;
-                            }
-                        }
-                        WireRecord::Welcome(v) => {
-                            buf.clear();
-                            if serde_json::to_writer(&mut buf, &v).is_err() {
-                                continue;
-                            }
-                            if file.write_all(&buf).await.is_err() {
-                                break;
-                            }
-                        }
-                        WireRecord::Ack(v) => {
-                            buf.clear();
-                            if serde_json::to_writer(&mut buf, &v).is_err() {
-                                continue;
-                            }
-                            if file.write_all(&buf).await.is_err() {
-                                break;
-                            }
-                        }
-                        WireRecord::Error(v) => {
-                            buf.clear();
-                            if serde_json::to_writer(&mut buf, &v).is_err() {
-                                continue;
-                            }
-                            if file.write_all(&buf).await.is_err() {
-                                break;
-                            }
-                        }
-                        WireRecord::Observation(v) => {
-                            buf.clear();
-                            if serde_json::to_writer(&mut buf, &v).is_err() {
-                                continue;
-                            }
-                            if file.write_all(&buf).await.is_err() {
-                                break;
-                            }
-                        }
-                        WireRecord::ObservationArc(v) => {
-                            buf.clear();
-                            if serde_json::to_writer(&mut buf, v.as_ref()).is_err() {
-                                continue;
-                            }
-                            if file.write_all(&buf).await.is_err() {
-                                break;
-                            }
-                        }
-                    }
-                    if file.write_all(b"\n").await.is_err() {
-                        break;
-                    }
-                    line_count = line_count.wrapping_add(1);
-                }
+async fn run_server_inner(
+    config: ServerConfig,
+    command_tx: mpsc::Sender<InboundCommand>,
+    mut out_rx: mpsc::UnboundedReceiver<OutboundMessage>,
+    startup: StartupNotifier,
+    status_tx: Option<watch::Sender<AdapterStatus>>,
+) -> anyhow::Result<()> {
+    if ServerState::is_disabled() {
+        let error = anyhow::anyhow!("AI adapter is disabled");
+        startup.failure(&error);
+        return Err(error);
+    }
 
-                let _ = file.flush().await;
-            });
-            Some(tx)
-        } else {
-            None
-        };
-
-    let addr = config.socket_addr()?;
-    let listener = TcpListener::bind(&addr).await?;
-    let bound = listener.local_addr()?;
+    let addr = match config.socket_addr() {
+        Ok(address) => address,
+        Err(error) => {
+            startup.failure(&error);
+            return Err(error);
+        }
+    };
+    let listener = match TcpListener::bind(&addr).await {
+        Ok(listener) => listener,
+        Err(source) => {
+            let error = anyhow::anyhow!("failed to bind AI adapter at {addr}: {source}");
+            startup.failure(&error);
+            return Err(error);
+        }
+    };
+    let bound = match listener.local_addr() {
+        Ok(address) => address,
+        Err(source) => {
+            let error = anyhow::anyhow!("failed to read AI adapter address: {source}");
+            startup.failure(&error);
+            return Err(error);
+        }
+    };
+    let wire_log_tx = config
+        .log_path
+        .clone()
+        .map(|path| spawn_wire_logger(path, config.log_every_n, config.log_max_lines));
     // Emit initial status (0 clients).
     if let Some(tx) = status_tx.as_ref() {
-        let _ = tx.send(AdapterStatus {
+        tx.send_replace(AdapterStatus {
             client_count: 0,
             controller_id: None,
             streaming_count: 0,
         });
     }
-    if let Some(tx) = ready_tx {
-        let _ = tx.send(bound);
-    }
+    startup.success(bound);
 
     let state = Arc::new(ServerState::new(config, status_tx));
     let mut client_id_counter = 0usize;
@@ -503,13 +467,14 @@ pub async fn run_server(
                     OutboundMessage::ToClient { client_id, line } => {
                         let clients = state.clients.read().await;
                         if let Some(c) = clients.iter().find(|c| c.id == client_id) {
-                            let _ = c.tx.send(ClientOutbound::LineArc(Arc::from(line)));
+                            c.outbound
+                                .try_send_reliable(ClientOutbound::LineArc(Arc::from(line)));
                         }
                     }
                     OutboundMessage::ToClientArc { client_id, line } => {
                         let clients = state.clients.read().await;
                         if let Some(c) = clients.iter().find(|c| c.id == client_id) {
-                            let _ = c.tx.send(ClientOutbound::LineArc(line));
+                            c.outbound.try_send_reliable(ClientOutbound::LineArc(line));
                         }
                     }
                     OutboundMessage::Broadcast { line } => {
@@ -517,7 +482,9 @@ pub async fn run_server(
                         let line: Arc<str> = Arc::from(line);
                         for c in clients.iter() {
                             if c.stream_observations {
-                                let _ = c.tx.send(ClientOutbound::LineArc(Arc::clone(&line)));
+                                c.outbound.publish_observation(ClientOutbound::LineArc(
+                                    Arc::clone(&line),
+                                ));
                             }
                         }
                     }
@@ -525,14 +492,17 @@ pub async fn run_server(
                         let clients = state.clients.read().await;
                         for c in clients.iter() {
                             if c.stream_observations {
-                                let _ = c.tx.send(ClientOutbound::LineArc(Arc::clone(&line)));
+                                c.outbound.publish_observation(ClientOutbound::LineArc(
+                                    Arc::clone(&line),
+                                ));
                             }
                         }
                     }
                     OutboundMessage::ToClientObservation { client_id, obs } => {
                         let clients = state.clients.read().await;
                         if let Some(c) = clients.iter().find(|c| c.id == client_id) {
-                            let _ = c.tx.send(ClientOutbound::Observation(obs));
+                            c.outbound
+                                .publish_observation(ClientOutbound::Observation(obs));
                         }
                     }
                     OutboundMessage::BroadcastObservation { obs } => {
@@ -540,34 +510,41 @@ pub async fn run_server(
                         let obs = Arc::new(obs);
                         for c in clients.iter() {
                             if c.stream_observations {
-                                let _ = c.tx.send(ClientOutbound::ObservationArc(Arc::clone(&obs)));
+                                c.outbound
+                                    .publish_observation(ClientOutbound::ObservationArc(
+                                        Arc::clone(&obs),
+                                    ));
                             }
                         }
                     }
                     OutboundMessage::ToClientObservationArc { client_id, obs } => {
                         let clients = state.clients.read().await;
                         if let Some(c) = clients.iter().find(|c| c.id == client_id) {
-                            let _ = c.tx.send(ClientOutbound::ObservationArc(obs));
+                            c.outbound
+                                .publish_observation(ClientOutbound::ObservationArc(obs));
                         }
                     }
                     OutboundMessage::BroadcastObservationArc { obs } => {
                         let clients = state.clients.read().await;
                         for c in clients.iter() {
                             if c.stream_observations {
-                                let _ = c.tx.send(ClientOutbound::ObservationArc(Arc::clone(&obs)));
+                                c.outbound
+                                    .publish_observation(ClientOutbound::ObservationArc(
+                                        Arc::clone(&obs),
+                                    ));
                             }
                         }
                     }
                     OutboundMessage::ToClientAck { client_id, ack } => {
                         let clients = state.clients.read().await;
                         if let Some(c) = clients.iter().find(|c| c.id == client_id) {
-                            let _ = c.tx.send(ClientOutbound::Ack(ack));
+                            c.outbound.try_send_reliable(ClientOutbound::Ack(ack));
                         }
                     }
                     OutboundMessage::ToClientError { client_id, err } => {
                         let clients = state.clients.read().await;
                         if let Some(c) = clients.iter().find(|c| c.id == client_id) {
-                            let _ = c.tx.send(ClientOutbound::Error(err));
+                            c.outbound.try_send_reliable(ClientOutbound::Error(err));
                         }
                     }
                 }
@@ -612,14 +589,14 @@ async fn handle_client(
     client_id: usize,
     state: Arc<ServerState>,
     command_tx: mpsc::Sender<InboundCommand>,
-    wire_log_tx: Option<mpsc::UnboundedSender<WireRecord>>,
+    wire_log_tx: Option<mpsc::Sender<WireRecord>>,
 ) -> anyhow::Result<()> {
     let (reader, writer) = tokio::io::split(socket);
     let mut writer = BufWriter::with_capacity(16 * 1024, writer);
     let mut reader = BufReader::new(reader);
 
-    // Channel to send messages to this client
-    let (tx, mut rx) = mpsc::unbounded_channel::<ClientOutbound>();
+    let (outbound, mut reliable_rx, mut observation_rx, mut shutdown_rx) =
+        client_outbound_channel(CLIENT_RELIABLE_QUEUE_CAPACITY);
 
     // Add client to list
     let client_handle = ClientHandle {
@@ -631,7 +608,7 @@ async fn handle_client(
         stream_observations: false,
         handshaken: false,
         last_seq: None,
-        tx: tx.clone(),
+        outbound: outbound.clone(),
     };
 
     {
@@ -652,7 +629,15 @@ async fn handle_client(
 
         loop {
             let msg = tokio::select! {
-                msg = rx.recv() => msg,
+                biased;
+                msg = reliable_rx.recv() => msg,
+                changed = observation_rx.changed() => {
+                    if changed.is_err() {
+                        None
+                    } else {
+                        observation_rx.borrow_and_update().clone()
+                    }
+                }
                 _ = flush_tick.tick(), if dirty => {
                     if writer.flush().await.is_err() {
                         break;
@@ -764,7 +749,17 @@ async fn handle_client(
     let mut line = Vec::with_capacity(4096);
 
     loop {
-        let read = match read_bounded_line(&mut reader, &mut line).await {
+        let read_result = tokio::select! {
+            read = read_bounded_line(&mut reader, &mut line) => Some(read),
+            changed = shutdown_rx.changed() => {
+                let _ = changed;
+                None
+            }
+        };
+        let Some(read_result) = read_result else {
+            break;
+        };
+        let read = match read_result {
             Ok(read) => read,
             Err(_) => {
                 // Treat I/O errors the same as a disconnect for lifecycle cleanup purposes.
@@ -787,9 +782,10 @@ async fn handle_client(
             continue;
         }
 
-        if let Some(tx) = wire_log_tx.as_ref() {
-            let _ = tx.send(WireRecord::LineArc(Arc::from(raw_line)));
-        }
+        log_wire_record(
+            wire_log_tx.as_ref(),
+            WireRecord::LineArc(Arc::from(raw_line)),
+        );
 
         // Parse the message
         match parse_message(trimmed) {
@@ -797,7 +793,7 @@ async fn handle_client(
                 // Require hello to start the per-sender sequence at 1.
                 if hello.seq != 1 {
                     send_client_error(
-                        &tx,
+                        &outbound,
                         hello.seq,
                         ErrorCode::InvalidCommand,
                         "hello seq must be 1",
@@ -807,7 +803,7 @@ async fn handle_client(
 
                 // Sequencing: enforce monotonic seq per sender.
                 if is_handshaken(&state, client_id).await
-                    && !enforce_strict_seq(&state, &tx, client_id, hello.seq).await
+                    && !enforce_strict_seq(&state, &outbound, client_id, hello.seq).await
                 {
                     continue;
                 }
@@ -819,7 +815,7 @@ async fn handle_client(
                         ErrorCode::ProtocolMismatch,
                         &format!("Protocol version {} not supported", hello.protocol_version),
                     );
-                    let _ = tx.send(ClientOutbound::Error(error));
+                    outbound.try_send_reliable(ClientOutbound::Error(error));
                     break;
                 }
 
@@ -829,7 +825,7 @@ async fn handle_client(
                         ErrorCode::InvalidCommand,
                         "formats must include json",
                     );
-                    let _ = tx.send(ClientOutbound::Error(error));
+                    outbound.try_send_reliable(ClientOutbound::Error(error));
                     continue;
                 }
 
@@ -883,7 +879,7 @@ async fn handle_client(
                     assigned_role,
                     controller_id.map(|id| id as u64),
                 );
-                let _ = tx.send(ClientOutbound::Welcome(welcome));
+                outbound.try_send_reliable(ClientOutbound::Welcome(welcome));
 
                 // Request an immediate snapshot for this client if desired.
                 if hello.requested.stream_observations {
@@ -899,7 +895,9 @@ async fn handle_client(
 
             Ok(ParsedMessage::Command(cmd)) => {
                 // Handshake required.
-                if !enforce_handshake_and_seq(&state, &tx, client_id, cmd.seq, "command").await {
+                if !enforce_handshake_and_seq(&state, &outbound, client_id, cmd.seq, "command")
+                    .await
+                {
                     continue;
                 }
 
@@ -915,7 +913,7 @@ async fn handle_client(
 
                 if !is_controller {
                     send_client_error(
-                        &tx,
+                        &outbound,
                         cmd.seq,
                         ErrorCode::NotController,
                         "Only controller may send commands",
@@ -927,7 +925,7 @@ async fn handle_client(
                 let mapped = match map_command(&cmd) {
                     Ok(c) => c,
                     Err((code, message)) => {
-                        send_client_error(&tx, cmd.seq, code, message);
+                        send_client_error(&outbound, cmd.seq, code, message);
                         continue;
                     }
                 };
@@ -942,18 +940,21 @@ async fn handle_client(
                         // Ack will be sent by the game loop after the command is applied.
                     }
                     Err(_) => {
-                        let _ = tx.send(ClientOutbound::Error(create_backpressure_error(
-                            cmd.seq,
-                            "Command queue is full",
-                            BACKPRESSURE_RETRY_AFTER_MS,
-                        )));
+                        outbound.try_send_reliable(ClientOutbound::Error(
+                            create_backpressure_error(
+                                cmd.seq,
+                                "Command queue is full",
+                                BACKPRESSURE_RETRY_AFTER_MS,
+                            ),
+                        ));
                     }
                 }
             }
 
             Ok(ParsedMessage::Control(ctrl)) => match ctrl.action {
                 ControlAction::Claim => {
-                    if !enforce_handshake_and_seq(&state, &tx, client_id, ctrl.seq, "control").await
+                    if !enforce_handshake_and_seq(&state, &outbound, client_id, ctrl.seq, "control")
+                        .await
                     {
                         continue;
                     }
@@ -968,18 +969,18 @@ async fn handle_client(
                             let mut clients = state.clients.write().await;
                             sync_controller_flags(&mut clients, Some(client_id));
                             let ack = create_ack(ctrl.seq, ctrl.seq);
-                            let _ = tx.send(ClientOutbound::Ack(ack));
+                            outbound.try_send_reliable(ClientOutbound::Ack(ack));
                             should_emit_status = true;
                         } else if controller.is_none() {
                             *controller = Some(client_id);
                             let mut clients = state.clients.write().await;
                             sync_controller_flags(&mut clients, Some(client_id));
                             let ack = create_ack(ctrl.seq, ctrl.seq);
-                            let _ = tx.send(ClientOutbound::Ack(ack));
+                            outbound.try_send_reliable(ClientOutbound::Ack(ack));
                             should_emit_status = true;
                         } else {
                             send_client_error(
-                                &tx,
+                                &outbound,
                                 ctrl.seq,
                                 ErrorCode::ControllerActive,
                                 "Controller already assigned",
@@ -991,7 +992,8 @@ async fn handle_client(
                     }
                 }
                 ControlAction::Release => {
-                    if !enforce_handshake_and_seq(&state, &tx, client_id, ctrl.seq, "control").await
+                    if !enforce_handshake_and_seq(&state, &outbound, client_id, ctrl.seq, "control")
+                        .await
                     {
                         continue;
                     }
@@ -1006,11 +1008,11 @@ async fn handle_client(
                                 client.is_controller = false;
                             }
                             let ack = create_ack(ctrl.seq, ctrl.seq);
-                            let _ = tx.send(ClientOutbound::Ack(ack));
+                            outbound.try_send_reliable(ClientOutbound::Ack(ack));
                             should_emit_status = true;
                         } else {
                             send_client_error(
-                                &tx,
+                                &outbound,
                                 ctrl.seq,
                                 ErrorCode::NotController,
                                 "Only controller may release",
@@ -1030,17 +1032,22 @@ async fn handle_client(
                     ErrorCode::InvalidCommand,
                     &format!("JSON parse error: {}", e),
                 );
-                let _ = tx.send(ClientOutbound::Error(error));
+                outbound.try_send_reliable(ClientOutbound::Error(error));
             }
 
             Ok(ParsedMessage::Unknown(unknown)) => {
                 let seq = unknown.seq;
                 if is_handshaken(&state, client_id).await
-                    && !enforce_strict_seq(&state, &tx, client_id, seq).await
+                    && !enforce_strict_seq(&state, &outbound, client_id, seq).await
                 {
                     continue;
                 }
-                send_client_error(&tx, seq, ErrorCode::InvalidCommand, "Unknown message type");
+                send_client_error(
+                    &outbound,
+                    seq,
+                    ErrorCode::InvalidCommand,
+                    "Unknown message type",
+                );
             }
         }
     }
@@ -1057,7 +1064,7 @@ async fn handle_client(
             // Promote the next available client (lowest id) to controller.
             let next_id = clients
                 .iter()
-                .filter(|c| !c.tx.is_closed() && c.requested_role != RequestedRole::Observer)
+                .filter(|c| c.outbound.is_live() && c.requested_role != RequestedRole::Observer)
                 .map(|c| c.id)
                 .min();
             *controller = next_id;
@@ -1068,8 +1075,15 @@ async fn handle_client(
     emit_status(&state).await;
 
     // Cancel write task
-    drop(tx);
-    let _ = write_task.await;
+    drop(outbound);
+    let mut write_task = write_task;
+    if tokio::time::timeout(CLIENT_WRITER_SHUTDOWN_TIMEOUT, &mut write_task)
+        .await
+        .is_err()
+    {
+        write_task.abort();
+        let _ = write_task.await;
+    }
 
     Ok(())
 }

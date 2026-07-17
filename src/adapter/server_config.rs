@@ -4,15 +4,6 @@ use std::net::SocketAddr;
 
 use crate::adapter::protocol::PROTOCOL_VERSION;
 
-pub fn check_tcp_listen_available(host: &str, port: u16) -> std::io::Result<()> {
-    if port == 0 {
-        return Ok(());
-    }
-    let listener = std::net::TcpListener::bind((host, port))?;
-    drop(listener);
-    Ok(())
-}
-
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub host: String,

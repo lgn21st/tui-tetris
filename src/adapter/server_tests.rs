@@ -98,8 +98,8 @@ fn test_encode_json_into_buf_ack() {
 #[test]
 fn test_sync_controller_flags_sets_single_controller() {
     let addr = "127.0.0.1:9999".parse().unwrap();
-    let (tx1, _) = mpsc::unbounded_channel();
-    let (tx2, _) = mpsc::unbounded_channel();
+    let (tx1, _, _, _) = client_outbound_channel(1);
+    let (tx2, _, _, _) = client_outbound_channel(1);
     let mut clients = vec![
         ClientHandle {
             id: 1,
@@ -110,7 +110,7 @@ fn test_sync_controller_flags_sets_single_controller() {
             stream_observations: false,
             handshaken: true,
             last_seq: Some(1),
-            tx: tx1,
+            outbound: tx1,
         },
         ClientHandle {
             id: 2,
@@ -121,7 +121,7 @@ fn test_sync_controller_flags_sets_single_controller() {
             stream_observations: false,
             handshaken: true,
             last_seq: Some(1),
-            tx: tx2,
+            outbound: tx2,
         },
     ];
 

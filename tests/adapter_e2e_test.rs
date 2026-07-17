@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use tui_tetris::adapter::protocol::LastEvent;
 use tui_tetris::adapter::protocol::{create_ack, create_hello};
@@ -15,7 +15,7 @@ use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{
     build_observation, run_server, ServerConfig, MAX_INBOUND_LINE_BYTES,
 };
-use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
+use tui_tetris::adapter::{Adapter, ClientCommand, InboundCommand, OutboundMessage};
 use tui_tetris::core::GameSnapshot;
 use tui_tetris::core::GameState;
 use tui_tetris::types::{CoreLastEvent, GameAction, TSpinKind};
@@ -27,6 +27,36 @@ async fn recv_next_command(rx: &mut mpsc::Receiver<InboundCommand>) -> InboundCo
             return inbound;
         }
     }
+}
+
+#[test]
+fn adapter_start_reports_the_authoritative_bind_failure() {
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = occupied.local_addr().unwrap().port();
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port,
+        ..ServerConfig::default()
+    };
+
+    let error = match Adapter::start(config) {
+        Ok(_) => panic!("adapter unexpectedly bound an occupied port"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("failed to bind AI adapter"));
+}
+
+#[test]
+fn adapter_start_returns_the_actual_ephemeral_address() {
+    let adapter = Adapter::start(ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        ..ServerConfig::default()
+    })
+    .unwrap();
+
+    let address = adapter.listen_addr();
+    assert_ne!(address.port(), 0);
 }
 
 #[test]
@@ -558,10 +588,16 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
     let (ready_tx, ready_rx) = oneshot::channel();
-    let (status_tx, mut status_rx) = mpsc::unbounded_channel::<AdapterStatus>();
+    let (status_tx, mut status_rx) = watch::channel(AdapterStatus {
+        client_count: 0,
+        controller_id: None,
+        streaming_count: 0,
+    });
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), Some(status_tx)).await;
+        run_server(config, cmd_tx, out_rx, Some(ready_tx), Some(status_tx))
+            .await
+            .expect("adapter status test server failed");
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -570,10 +606,11 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
         .unwrap();
 
     // Initial status (0 clients).
-    let st0 = tokio::time::timeout(Duration::from_secs(2), status_rx.recv())
+    tokio::time::timeout(Duration::from_secs(2), status_rx.changed())
         .await
         .unwrap()
         .expect("status channel closed");
+    let st0 = *status_rx.borrow_and_update();
     assert_eq!(st0.client_count, 0);
     assert_eq!(st0.streaming_count, 0);
 
@@ -584,9 +621,10 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
     // Wait until we see client_count >= 1.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
-        if let Ok(Some(st)) =
-            tokio::time::timeout(Duration::from_millis(50), status_rx.recv()).await
+        if let Ok(Ok(())) =
+            tokio::time::timeout(Duration::from_millis(50), status_rx.changed()).await
         {
+            let st = *status_rx.borrow_and_update();
             if st.client_count >= 1 {
                 break;
             }
@@ -614,9 +652,10 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
     // Status should eventually show controller_id set and stream_observations enabled.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
-        if let Ok(Some(st)) =
-            tokio::time::timeout(Duration::from_millis(50), status_rx.recv()).await
+        if let Ok(Ok(())) =
+            tokio::time::timeout(Duration::from_millis(50), status_rx.changed()).await
         {
+            let st = *status_rx.borrow_and_update();
             if st.controller_id.is_some() && st.streaming_count >= 1 {
                 break;
             }
