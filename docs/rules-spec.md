@@ -113,6 +113,9 @@ This document is the source of truth for gameplay rules/timing constants.
 ### Fixed-Step Semantics
 
 - The simulation runs at a fixed timestep of `TICK_MS` (16ms).
+- Interactive and headless runners preserve accumulated wall time. After a stall,
+  they process up to 8 catch-up steps per outer-loop iteration and retain any
+  remaining backlog instead of resetting the clock and slowing the simulation.
 - `step_in_piece` increments once per fixed step while an active piece exists, including while `LINE_CLEAR_PAUSE_MS` is counting down.
 - When `line_clear_ms` reaches `0` during a tick, gameplay resumes in the **same** `tick()` call (gravity/lock may advance immediately).
 - Gravity uses an accumulator (while-loop): if `elapsed_ms` spans multiple drop intervals, multiple row drops may occur in one tick.
@@ -199,6 +202,9 @@ A T-Spin is detected when:
 2. Last action was a rotation
 3. Piece is locked (cannot move down)
 4. At least 3 of 4 corners around T-center are filled
+
+Corner occupancy is evaluated after the T piece locks but before completed rows
+are removed; line-clear shifting must not change the classification.
 
 **Corners** (relative to piece center):
 - North: NW, NE, SW, SE

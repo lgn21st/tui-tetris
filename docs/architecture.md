@@ -43,6 +43,10 @@ logic step:
 5. Capture critical events and publish observations when due.
 6. Render from `GameSnapshot` when interactive.
 
+Both runners preserve fixed-step backlog across outer-loop iterations and process
+at most eight catch-up steps per iteration. This bounds one burst of work without
+discarding elapsed simulation time.
+
 Changing this order can change deterministic AI trajectories and therefore
 requires tests plus updates to `rules-spec.md` or `adapter.md`.
 
@@ -54,6 +58,8 @@ requires tests plus updates to `rules-spec.md` or `adapter.md`.
   a reusable snapshot.
 - Adapter observations use `Arc` fanout and are not built without streaming
   subscribers.
+- Adapter input framing is incrementally bounded at 64 KiB per JSON line, so a
+  client cannot force unbounded allocation by withholding a newline.
 - Terminal output uses framebuffer diffs and explicit invalidation after resize.
 
 Run `cargo test` for correctness and allocation gates. Run `cargo bench` followed

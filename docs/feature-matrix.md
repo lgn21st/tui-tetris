@@ -39,6 +39,7 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 
 - TCP server (tokio) ✅
 - JSON line framing ✅
+- Bounded inbound frames (64 KiB, incremental enforcement) ✅
 - hello/welcome handshake ✅
 - Welcome advertises `features_always` / `features_optional` ✅
 - Controller/observer enforcement ✅
@@ -47,6 +48,7 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Best-effort seq echo on parse errors ✅
 - Wire logging (`TETRIS_AI_LOG_PATH`) ✅
 - Immediate snapshot on hello ✅
+- Drift-free fixed-step observation cadence ✅
 - Closed-loop stability tests ✅
 
 ## Performance

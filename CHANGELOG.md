@@ -13,8 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Observation streaming with full game state
   - Protocol version 2.1.0 compliance
 - Professional DAS/ARR input handling
-  - Delayed Auto Shift: 167ms
-  - Auto Repeat Rate: 33ms
+  - Delayed Auto Shift: 150ms
+  - Auto Repeat Rate: 50ms
   - Ghost key elimination for rapid alternation
 - Aspect ratio correction (2:1 character ratio for square blocks)
 - Terminal-first renderer (framebuffer + diff/dirty-cell flush)
@@ -26,6 +26,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - Locked pieces not displaying after landing
 - Line clear row shifting algorithm (now clears from top to bottom)
+- T-Spin classification now occurs before cleared rows shift corner occupancy
+- Failed place commands no longer retain partial movement, rotation, or hold state
+- Observation cadence preserves the configured long-run frequency
+- Fixed-step runners retain and process elapsed backlog after temporary stalls
+- Drop and scoring helpers saturate instead of overflowing at numeric limits
+- Zero ARR configuration is clamped to a safe one-millisecond minimum
 - Terminal compatibility for Ghostty (no key release events)
 - "Device not configured" error by removing TTY check
 
@@ -39,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Criterion regression gates for game logic, adapter serialization, and renderer pipelines
 - Clippy clean with warnings treated as errors
 - Shared deterministic adapter command draining and observation scheduling
+- Incrementally bounded 64 KiB adapter input framing
 
 ## [0.1.0] - 2025-02-02
 

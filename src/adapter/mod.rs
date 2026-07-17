@@ -9,7 +9,7 @@
 //!
 //! 1. **Connection**: Client connects to TCP socket (default: 127.0.0.1:7777)
 //! 2. **Handshake**: Client sends `hello`, server responds with `welcome`
-//! 3. **Controller Assignment**: First client to hello becomes the controller
+//! 3. **Controller Assignment**: First eligible client becomes controller; explicit observers do not
 //! 4. **Observation Streaming**: Server periodically sends game state observations
 //! 5. **Commanding**: Controller sends commands to execute game actions
 //!
@@ -42,6 +42,7 @@
 //! - `TETRIS_AI_HOST`: Bind address (default: "127.0.0.1")
 //! - `TETRIS_AI_PORT`: Port number (default: 7777)
 //! - `TETRIS_AI_DISABLED`: Set to "1" or "true" to disable adapter entirely
+//! - See `docs/adapter.md` for queue, observation, and wire-log settings
 //!
 //! # Example Protocol Flow
 //!
@@ -50,7 +51,7 @@
 //! Server -> Client: {"type":"welcome","seq":1,"ts":1234567890,"protocol_version":"2.1.0",...}
 //! Server -> Client: {"type":"observation","seq":2,"ts":1234567891,"board":{...},"active":{...},...}
 //! Client -> Server: {"type":"command","seq":2,"ts":1234567892,"mode":"action","actions":["moveLeft","rotateCw","hardDrop"]}
-//! Server -> Client: {"type":"ack","seq":3,"ts":1234567892,"status":"ok"}
+//! Server -> Client: {"type":"ack","seq":2,"ts":1234567892,"status":"ok"}
 //! ```
 //!
 //! # Implementation

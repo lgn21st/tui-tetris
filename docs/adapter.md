@@ -106,6 +106,9 @@ acknowledgements or errors.
 ### 3.1 Framing
 - Every message is a single JSON object encoded as UTF-8, terminated with `\n`.
 - Empty lines MUST be ignored or rejected as `invalid_command` (implementation-defined), but MUST NOT be treated as a valid message.
+- tui-tetris accepts at most 65,536 payload bytes per inbound line (excluding the
+  newline terminator). It closes connections that exceed this limit, preventing
+  an unterminated frame from growing server memory without bound.
 
 ### 3.2 `seq` rules
 - `hello.seq` MUST be `1`.
@@ -223,6 +226,8 @@ Place mode:
 
 `place.x` is the tetromino origin, not necessarily the leftmost occupied mino.
 Geometrically invalid or unreachable placements return `invalid_place`.
+Place application is atomic: an unsuccessful command leaves board, active piece,
+hold/queue state, timers, and score unchanged.
 
 ### 4.5 control (client → game)
 ```json
@@ -318,7 +323,9 @@ commands directly to authoritative core state and does not emit this code.
 The tui-tetris adapter uses `TETRIS_AI_OBS_HZ` (default `20`, clamped to `1..60`).
 It emits observations only to clients that requested streaming and skips periodic
 observation construction when no streaming subscribers exist. A streaming hello
-requests an immediate full snapshot.
+requests an immediate full snapshot. Periodic scheduling uses a fixed-step phase
+accumulator, preserving the requested long-run frequency without integer-period
+drift (for example, 20Hz does not degrade to one frame every four 16ms steps).
 
 ### 7.1 Runtime configuration (tui-tetris)
 
