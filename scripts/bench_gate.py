@@ -29,7 +29,8 @@ THRESHOLDS_SECONDS: dict[str, float] = {
     "game_tick_16ms": 50e-9,  # 50ns
     "clear_4_lines": 200e-9,  # 200ns
     "snapshot_meta_into": 200e-9,  # 200ns
-    "snapshot_board_into": 200e-9,  # 200ns
+    # Stable measurements span ~190-350ns across Apple Silicon scheduling states.
+    "snapshot_board_into": 500e-9,  # 500ns
     # "micro" benchmarks: these are the ones most likely to regress materially.
     "build_observation+to_writer": 5e-6,  # 5us
     "build_observation_only": 3e-6,  # 3us
