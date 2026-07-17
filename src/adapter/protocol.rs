@@ -10,7 +10,7 @@ use crate::types::{CoreLastEvent, PieceKind, Rotation, TSpinKind};
 use arrayvec::ArrayVec;
 
 /// Protocol version implemented by both the adapter server and bundled clients.
-pub const PROTOCOL_VERSION: &str = "2.1.0";
+pub const PROTOCOL_VERSION: &str = "2.1.1";
 
 // ============== Client -> Game Messages ==============
 
@@ -940,7 +940,7 @@ mod tests {
 
     #[test]
     fn protocol_version_matches_adapter_spec() {
-        assert_eq!(PROTOCOL_VERSION, "2.1.0");
+        assert_eq!(PROTOCOL_VERSION, "2.1.1");
     }
     use crate::types::CoreLastEvent;
 
@@ -993,10 +993,10 @@ mod tests {
 
     #[test]
     fn test_create_welcome() {
-        let welcome = create_welcome(1, "2.1.0", 7, AssignedRole::Controller, Some(7));
+        let welcome = create_welcome(1, PROTOCOL_VERSION, 7, AssignedRole::Controller, Some(7));
         assert_eq!(welcome.msg_type, WelcomeType::Welcome);
         assert_eq!(welcome.seq, 1);
-        assert_eq!(welcome.protocol_version, "2.1.0");
+        assert_eq!(welcome.protocol_version, PROTOCOL_VERSION);
         assert_eq!(welcome.client_id, 7);
         assert_eq!(welcome.role, AssignedRole::Controller);
         assert_eq!(welcome.controller_id, Some(7));

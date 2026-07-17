@@ -1,4 +1,4 @@
-# Tetris AI Adapter Standard (v2.1.0)
+# Tetris AI Adapter Standard (v2.1.1)
 
 This is the **single source of truth** for:
 - the wire protocol between a Tetris game adapter (server) and `tetris-ai` (client)
@@ -13,11 +13,16 @@ normative. Sections explicitly marked non-normative provide client guidance only
 ## 0) Defaults (MUST)
 - Address: `127.0.0.1:7777`
 - Framing: **line-delimited JSON** (exactly one JSON object per line)
-- Protocol version: `2.1.0` (semver)
+- Protocol version: `2.1.1` (semver)
 - Observation frequency: 20Hz by default, configurable from 1–60Hz
 - Maximum accepted actions in one action-mode command: 32
 
 ## 1) Compatibility Scope
+
+Version `2.1.1` is a backward-compatible maintenance revision of `2.1.0`. It
+tightens validation, framing, cadence, and bounded-delivery guarantees without
+changing message shapes or error codes; clients declaring a valid `2.x` version
+remain compatible.
 
 ### MUST support
 - `hello → welcome` handshake with version checking (major version compatible with `2.x`)
@@ -141,7 +146,7 @@ preferred command mode; capabilities in `welcome` remain authoritative.
 
 Example:
 ```json
-{"type":"hello","seq":1,"ts":1738291200000,"client":{"name":"tetris-ai","version":"0.1.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":true,"command_mode":"place","role":"auto"}}
+{"type":"hello","seq":1,"ts":1738291200000,"client":{"name":"tetris-ai","version":"0.1.0"},"protocol_version":"2.1.1","formats":["json"],"requested":{"stream_observations":true,"command_mode":"place","role":"auto"}}
 ```
 
 ### 4.2 welcome (game → client)
@@ -157,7 +162,7 @@ Deterministic control fields (MUST):
 
 Example:
 ```json
-{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.1.0","client_id":1,"role":"controller","controller_id":1,"game_id":"your-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"],"features_always":["next","next_queue","can_hold","board_id","state_hash","score","timers"],"features_optional":["hold","ghost_y","last_event"],"control_policy":{"auto_promote_on_disconnect":true,"promotion_order":"lowest_client_id"}}}
+{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"2.1.1","client_id":1,"role":"controller","controller_id":1,"game_id":"your-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"],"features_always":["next","next_queue","can_hold","board_id","state_hash","score","timers"],"features_optional":["hold","ghost_y","last_event"],"control_policy":{"auto_promote_on_disconnect":true,"promotion_order":"lowest_client_id"}}}
 ```
 
 ### 4.3 observation (game → client)

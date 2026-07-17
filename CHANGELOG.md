@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Controller/Observer pattern for multiplayer AI
   - Action and Place command modes
   - Observation streaming with full game state
-  - Protocol version 2.1.0 compliance
+  - Protocol version 2.1.1 compliance
 - Professional DAS/ARR input handling
   - Delayed Auto Shift: 150ms
   - Auto Repeat Rate: 50ms
@@ -28,6 +28,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Line clear row shifting algorithm (now clears from top to bottom)
 - T-Spin classification now occurs before cleared rows shift corner occupancy
 - Failed place commands no longer retain partial movement, rotation, or hold state
+- Adapter protocol 2.1.1 incorporates backward-compatible framing, validation,
+  cadence, backpressure, and startup hardening
 - Observation cadence preserves the configured long-run frequency
 - Fixed-step runners retain and process elapsed backlog after temporary stalls
 - Drop and scoring helpers saturate instead of overflowing at numeric limits

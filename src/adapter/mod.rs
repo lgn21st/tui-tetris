@@ -48,7 +48,7 @@
 //!
 //! ```text
 //! Client -> Server: {"type":"hello","seq":1,"ts":1234567890,"client":{"name":"my-ai","version":"1.0.0"},...}
-//! Server -> Client: {"type":"welcome","seq":1,"ts":1234567890,"protocol_version":"2.1.0",...}
+//! Server -> Client: {"type":"welcome","seq":1,"ts":1234567890,"protocol_version":"2.1.1",...}
 //! Server -> Client: {"type":"observation","seq":2,"ts":1234567891,"board":{...},"active":{...},...}
 //! Client -> Server: {"type":"command","seq":2,"ts":1234567892,"mode":"action","actions":["moveLeft","rotateCw","hardDrop"]}
 //! Server -> Client: {"type":"ack","seq":2,"ts":1234567892,"status":"ok"}
@@ -70,7 +70,7 @@
 //!
 //! ```bash
 //! nc 127.0.0.1 7777
-//! {"type":"hello","seq":1,"ts":1234567890,"client":{"name":"test","version":"1.0.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":true,"command_mode":"action"}}
+//! {"type":"hello","seq":1,"ts":1234567890,"client":{"name":"test","version":"1.0.0"},"protocol_version":"2.1.1","formats":["json"],"requested":{"stream_observations":true,"command_mode":"action"}}
 //! ```
 
 mod client_mailbox;

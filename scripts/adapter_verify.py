@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-PROTOCOL_VERSION = "2.1.0"
+PROTOCOL_VERSION = "2.1.1"
 
 
 class AdapterClient:
