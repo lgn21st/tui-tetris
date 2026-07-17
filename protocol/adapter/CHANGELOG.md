@@ -2,6 +2,8 @@
 
 ## 2.1.1
 
+- Published the protocol as a single current package at `protocol/adapter/`;
+  future upgrades update this path in place and notify dependent projects.
 - Clarified strict semantic-version validation while preserving compatibility
   with valid `2.x` clients.
 - Defined bounded TCP framing in the TCP JSON-lines profile.

@@ -9,8 +9,8 @@
 - `docs/rules-spec.md`: authoritative rules/timing constants
 - `docs/feature-matrix.md`: feature checklist
 - `docs/roadmap.md`: goals and validation checklist
-- `protocol/adapter/v2.1.1/SPEC.md`: pinned, implementation-neutral AI protocol
-- `protocol/adapter/v2.1.1/schema.json`: machine-readable protocol schema
+- `protocol/adapter/SPEC.md`: current, implementation-neutral AI protocol
+- `protocol/adapter/schema.json`: machine-readable protocol schema
 - `docs/adapter.md`: adapter documentation index
 - `docs/adapter-tui-tetris.md`: tui-tetris implementation profile
 
@@ -40,6 +40,6 @@
 - Terminal: crossterm (I/O), custom framebuffer renderer (no ratatui)
 
 ## Protocol Compatibility
-- AI protocol 100% compatible with `protocol/adapter/v2.1.1/SPEC.md` and its selected TCP profile
+- AI protocol 100% compatible with `protocol/adapter/SPEC.md` and its selected TCP profile
 - Same environment variables: `TETRIS_AI_HOST`, `TETRIS_AI_PORT`, `TETRIS_AI_DISABLED`
 - Same JSON message format and error codes

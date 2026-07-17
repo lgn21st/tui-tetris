@@ -2,7 +2,7 @@
 //!
 //! This module enables external AI agents to control the game through a
 //! TCP socket connection. The shared protocol is defined in
-//! `protocol/adapter/v2.1.1/SPEC.md`; project-specific behavior is documented in
+//! `protocol/adapter/SPEC.md`; project-specific behavior is documented in
 //! `docs/adapter-tui-tetris.md`.
 //!
 //! # Protocol Overview

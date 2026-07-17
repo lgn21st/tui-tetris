@@ -2,16 +2,18 @@
 
 tui-tetris implements Tetris AI Adapter Protocol 2.1.1.
 
-## Shared, versioned protocol release
+## Shared current protocol
 
-- Protocol specification: `protocol/adapter/v2.1.1/SPEC.md`
-- JSON Schema: `protocol/adapter/v2.1.1/schema.json`
-- TCP profile: `protocol/adapter/v2.1.1/profiles/tcp-json-lines.md`
+- Protocol specification: `protocol/adapter/SPEC.md`
+- JSON Schema: `protocol/adapter/schema.json`
+- TCP profile: `protocol/adapter/profiles/tcp-json-lines.md`
 - Conformance client:
-  `protocol/adapter/v2.1.1/conformance/adapter_verify.py`
-- Protocol changelog: `protocol/adapter/v2.1.1/CHANGELOG.md`
+  `protocol/adapter/conformance/adapter_verify.py`
+- Current version: `protocol/adapter/VERSION`
+- Protocol changelog: `protocol/adapter/CHANGELOG.md`
 
-External projects should pin the release directory and repository commit SHA.
+Only the latest protocol is maintained. When its version changes, dependent
+projects are notified to review the changelog and align their implementations.
 They should not copy tui-tetris implementation details into the shared contract.
 
 ## tui-tetris implementation
@@ -20,5 +22,5 @@ Project-specific lifecycle choices, queue capacities, scheduling, environment
 variables, logging, startup behavior, and local validation commands are in
 `docs/adapter-tui-tetris.md`.
 
-The shared release is the compatibility contract. The local profile documents
+The shared protocol package is the compatibility contract. The local profile documents
 how this repository satisfies it.

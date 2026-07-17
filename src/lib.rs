@@ -14,7 +14,7 @@
 //!   - Deterministic and testable
 //!
 //! - [`adapter`]: AI protocol handling via TCP socket
-//!   - JSON line protocol per `protocol/adapter/v2.1.1/SPEC.md`
+//!   - JSON line protocol per `protocol/adapter/SPEC.md`
 //!   - Supports both "action" and "place" command modes
 //!   - Allows external AI agents to control the game
 //!

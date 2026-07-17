@@ -1,12 +1,12 @@
 # tui-tetris Adapter Implementation Profile
 
-This profile documents tui-tetris behavior for the shared protocol release at
-`protocol/adapter/v2.1.1/SPEC.md`. It is not a portable implementation mandate.
+This profile documents tui-tetris behavior for the shared current protocol at
+`protocol/adapter/SPEC.md`. It is not a portable implementation mandate.
 
 ## Protocol and transport
 
 - Protocol version: `2.1.1`.
-- TCP profile: `protocol/adapter/v2.1.1/profiles/tcp-json-lines.md`.
+- TCP profile: `protocol/adapter/profiles/tcp-json-lines.md`.
 - Default endpoint: `127.0.0.1:7777`.
 - Maximum inbound payload: 65,536 bytes, excluding newline.
 - Invalid UTF-8 and oversized frames close the connection.
@@ -69,7 +69,7 @@ This profile documents tui-tetris behavior for the shared protocol release at
 
 ## Local verification
 
-The stable local entry point delegates to the versioned conformance client:
+The stable local entry point delegates to the current conformance client:
 
 ```bash
 python3 scripts/adapter_verify.py all

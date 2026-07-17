@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use tui_tetris::adapter::protocol::PROTOCOL_VERSION;
 use tui_tetris::adapter::server::{CLIENT_RELIABLE_QUEUE_CAPACITY, WIRE_LOG_QUEUE_CAPACITY};
 
-const RELEASE_ROOT: &str = "protocol/adapter/v2.1.1";
+const PROTOCOL_ROOT: &str = "protocol/adapter";
 
 fn project_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
@@ -16,20 +16,22 @@ fn read(relative: &str) -> String {
 }
 
 #[test]
-fn versioned_protocol_release_matches_runtime_version() {
-    let version = read(&format!("{RELEASE_ROOT}/VERSION"));
-    let spec = read(&format!("{RELEASE_ROOT}/SPEC.md"));
-    let readme = read(&format!("{RELEASE_ROOT}/README.md"));
+fn current_protocol_package_matches_runtime_version() {
+    let version = read(&format!("{PROTOCOL_ROOT}/VERSION"));
+    let spec = read(&format!("{PROTOCOL_ROOT}/SPEC.md"));
+    let readme = read(&format!("{PROTOCOL_ROOT}/README.md"));
 
     assert_eq!(version.trim(), PROTOCOL_VERSION);
     assert!(spec.contains(&format!("Protocol {PROTOCOL_VERSION}")));
-    assert!(readme.contains("immutable release directory"));
+    assert!(readme.contains("single current protocol package"));
+    assert!(readme.contains("notify dependent projects"));
+    assert!(!project_path("protocol/adapter/v2.1.1").exists());
 }
 
 #[test]
 fn protocol_schema_is_standalone_and_matches_core_contract() {
     let schema: serde_json::Value =
-        serde_json::from_str(&read(&format!("{RELEASE_ROOT}/schema.json")))
+        serde_json::from_str(&read(&format!("{PROTOCOL_ROOT}/schema.json")))
             .expect("protocol schema must be valid JSON");
 
     let required = schema["definitions"]["capabilities"]["required"]
@@ -96,8 +98,8 @@ fn protocol_schema_is_standalone_and_matches_core_contract() {
 
 #[test]
 fn shared_release_excludes_tui_tetris_implementation_details() {
-    let spec = read(&format!("{RELEASE_ROOT}/SPEC.md"));
-    let tcp_profile = read(&format!("{RELEASE_ROOT}/profiles/tcp-json-lines.md"));
+    let spec = read(&format!("{PROTOCOL_ROOT}/SPEC.md"));
+    let tcp_profile = read(&format!("{PROTOCOL_ROOT}/profiles/tcp-json-lines.md"));
     let shared = format!("{spec}\n{tcp_profile}");
 
     for forbidden in [
@@ -127,7 +129,7 @@ fn tui_tetris_index_and_profile_are_separate_from_shared_spec() {
     let index = read("docs/adapter.md");
     let profile = read("docs/adapter-tui-tetris.md");
 
-    assert!(index.contains("protocol/adapter/v2.1.1/SPEC.md"));
+    assert!(index.contains("protocol/adapter/SPEC.md"));
     assert!(index.contains("docs/adapter-tui-tetris.md"));
     assert!(profile.contains("fixed-step phase accumulator"));
     assert!(profile.contains(&format!(
@@ -138,22 +140,24 @@ fn tui_tetris_index_and_profile_are_separate_from_shared_spec() {
 }
 
 #[test]
-fn versioned_conformance_client_and_local_wrapper_exist() {
-    let conformance = project_path(&format!("{RELEASE_ROOT}/conformance/adapter_verify.py"));
+fn current_conformance_client_and_local_wrapper_exist() {
+    let conformance = project_path(&format!("{PROTOCOL_ROOT}/conformance/adapter_verify.py"));
     assert!(conformance.is_file());
     assert!(project_path("scripts/adapter_verify.py").is_file());
 
-    let source = read(&format!("{RELEASE_ROOT}/conformance/adapter_verify.py"));
+    let source = read(&format!("{PROTOCOL_ROOT}/conformance/adapter_verify.py"));
     assert!(source.contains(&format!("PROTOCOL_VERSION = \"{PROTOCOL_VERSION}\"")));
 }
 
 #[test]
-fn release_package_contains_upgrade_and_pinning_guidance() {
-    let changelog = read(&format!("{RELEASE_ROOT}/CHANGELOG.md"));
-    let readme = read(&format!("{RELEASE_ROOT}/README.md"));
+fn protocol_package_contains_upgrade_and_notification_guidance() {
+    let changelog = read(&format!("{PROTOCOL_ROOT}/CHANGELOG.md"));
+    let readme = read(&format!("{PROTOCOL_ROOT}/README.md"));
 
     assert!(changelog.contains("## 2.1.1"));
-    assert!(readme.contains("commit SHA"));
+    assert!(changelog.contains("single current package"));
+    assert!(readme.contains("update the existing files in place"));
+    assert!(readme.contains("notify dependent projects"));
     assert!(readme.contains("conformance/adapter_verify.py"));
     assert!(readme.contains("implementation profile"));
     assert!(readme.contains("https://github.com/lgn21st/tui-tetris"));

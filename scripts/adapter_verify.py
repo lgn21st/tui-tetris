@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the conformance client pinned by this repository."""
+"""Run the current conformance client maintained by this repository."""
 
 from pathlib import Path
 import runpy
@@ -9,7 +9,6 @@ CLIENT = (
     Path(__file__).resolve().parents[1]
     / "protocol"
     / "adapter"
-    / "v2.1.1"
     / "conformance"
     / "adapter_verify.py"
 )

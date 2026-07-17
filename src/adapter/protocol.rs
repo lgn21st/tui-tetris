@@ -1,6 +1,6 @@
 //! Protocol module - JSON message types for AI adapter
 //!
-//! Implements the protocol defined in `protocol/adapter/v2.1.1/SPEC.md`.
+//! Implements the protocol defined in `protocol/adapter/SPEC.md`.
 //! All messages have: type, seq (sequence number), ts (timestamp in ms)
 
 use serde::{Deserialize, Serialize};
