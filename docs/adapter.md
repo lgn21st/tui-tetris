@@ -7,10 +7,15 @@ This is the **single source of truth** for:
 
 Transport is intentionally thin: the protocol is defined in terms of **JSON messages**; the only supported transport in this project is **TCP localhost**.
 
+The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
+normative. Sections explicitly marked non-normative provide client guidance only.
+
 ## 0) Defaults (MUST)
 - Address: `127.0.0.1:7777`
 - Framing: **line-delimited JSON** (exactly one JSON object per line)
 - Protocol version: `2.1.0` (semver)
+- Observation frequency: 20Hz by default, configurable from 1–60Hz
+- Maximum accepted actions in one action-mode command: 32
 
 ## 1) Compatibility Scope
 
@@ -30,7 +35,8 @@ Transport is intentionally thin: the protocol is defined in terms of **JSON mess
 
 ## 2) Roles & Control (Deterministic, Normative)
 
-The adapter maintains **exactly one controller** at a time.
+The adapter maintains **at most one controller** at a time. There MAY be no
+controller before the first eligible handshake or after an explicit release.
 - Only the controller may send `command`.
 - Observers may receive `observation` but any `command` from an observer MUST be rejected with `error.code="not_controller"`.
 
@@ -42,6 +48,10 @@ The client MAY include `requested.role` in `hello`:
 - `"observer"`: client must not become controller as a side-effect of `hello`.
 
 If the adapter does not implement role negotiation, it MUST ignore `requested.role` (backward compatible).
+
+The tui-tetris adapter implements role negotiation. With no active controller,
+the first handshaken client whose requested role is `"auto"` or `"controller"`
+becomes controller; a client requesting `"observer"` remains observer.
 
 The adapter SHOULD include in `welcome`:
 - `client_id` (stable per connection)
@@ -55,7 +65,7 @@ The adapter SHOULD include in `welcome`:
 The adapter MUST implement:
 - If the caller is already controller: reply `ack(status="ok")`.
 - If there is no controller assigned: assign caller as controller and reply `ack(status="ok")`.
-- If a different controller is active: reply `error(code="controller_active")` and SHOULD include `controller_id`.
+- If a different controller is active: reply `error(code="controller_active")`.
 
 ### 2.3 `control(action="release")`
 - Only the controller may release; otherwise `error(code="not_controller")`.
@@ -63,6 +73,10 @@ The adapter MUST implement:
 - After release:
   - the adapter MAY immediately auto-promote an eligible connected client OR require an explicit claim
   - whichever policy is chosen MUST be stable and documented (capability flag recommended)
+
+The tui-tetris policy leaves the controller unassigned after `release`; a client
+must explicitly `claim`. Automatic promotion applies only when a controller
+disconnects.
 
 ### 2.4 Controller promotion on disconnect (RECOMMENDED)
 If the current controller disconnects, the adapter SHOULD promote the next eligible connected client to controller.
@@ -82,6 +96,11 @@ Eligibility rule (MUST):
 - Such clients may still become controller via explicit `control(action="claim")`.
 - `Eligible` in this section means connected clients that are not observer-locked by `requested.role="observer"`.
 
+`welcome.role` and `welcome.controller_id` describe assignment at handshake time.
+Protocol v2.1 has no separate role-change event; after a disconnect promotion, a
+client observes its effective authorization through subsequent command/control
+acknowledgements or errors.
+
 ## 3) Sequencing & Framing (MUST)
 
 ### 3.1 Framing
@@ -90,8 +109,16 @@ Eligibility rule (MUST):
 
 ### 3.2 `seq` rules
 - `hello.seq` MUST be `1`.
-- After a successful `hello → welcome`, each sender MUST use strictly increasing `seq` values.
-- Duplicate or decreasing `seq` MUST return `error.code="invalid_command"` and MUST NOT enqueue/apply the message.
+- After a successful `hello → welcome`, the client MUST use strictly increasing
+  `seq` values for every subsequent `command` or `control` on that connection.
+- Duplicate or decreasing client `seq` MUST return `error.code="invalid_command"`
+  and MUST NOT enqueue/apply the message.
+- Server message sequences use message-specific correlation:
+  - `welcome.seq` echoes `hello.seq`.
+  - `ack.seq` and `error.seq` echo the triggering client message when available;
+    an unparseable message may produce `error.seq=0`.
+  - `observation.seq` belongs to an independent, monotonically increasing
+    observation stream and MUST NOT be compared with ack/error sequences.
 - Backpressure retry rule:
   - If a `command` is rejected with `error.code="backpressure"`, treat it as **not enqueued** and retry using a **new, larger `seq`**.
   - Server SHOULD include `error.retry_after_ms` to guide client retry pacing.
@@ -106,6 +133,9 @@ All messages include:
 ### 4.1 hello (client → game)
 Required fields: `type, seq, ts, client, protocol_version, formats, requested`
 
+`formats` MUST contain `"json"`. `requested.command_mode` declares the client's
+preferred command mode; capabilities in `welcome` remain authoritative.
+
 Example:
 ```json
 {"type":"hello","seq":1,"ts":1738291200000,"client":{"name":"tetris-ai","version":"0.1.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":true,"command_mode":"place","role":"auto"}}
@@ -118,6 +148,9 @@ Deterministic control fields (MUST):
 - `client_id` (stable per connection; unique among concurrently connected clients)
 - `role` (`"controller"` or `"observer"`) as assigned to this connection
 - `controller_id` (the currently active controller’s id; MAY equal `client_id`; MUST be `null` if no controller exists)
+
+`capabilities.features` is the compatibility union of `features_always` and
+`features_optional`. New clients SHOULD use the two explicit lists.
 
 Example:
 ```json
@@ -149,9 +182,15 @@ Required fields in every observation:
 Optional fields:
 - `ghost_y`, `hold`, `last_event`
 
+The tui-tetris serializer omits an optional field when its value is unavailable;
+clients SHOULD also tolerate explicit `null` for forward-compatible decoding.
+`board_id` changes only when locked board cells change. `state_hash` is an opaque,
+16-character lowercase hexadecimal digest of the documented snapshot state and
+MUST NOT be assumed stable across protocol/ruleset versions.
+
 Example:
 ```json
-{"type":"observation","seq":42,"ts":1730000001200,"playable":true,"paused":false,"game_over":false,"episode_id":0,"seed":1,"piece_id":12,"step_in_piece":0,"board":{"width":10,"height":20,"cells":[[0,0,0,0,0,0,0,0,0,0]]},"board_id":123,"active":{"kind":"t","rotation":"north","x":4,"y":0},"ghost_y":17,"next":"i","next_queue":["i","o","t","s","z"],"hold":null,"can_hold":true,"last_event":{"locked":true,"lines_cleared":2,"line_clear_score":1200,"tspin":"full","combo":1,"back_to_back":true},"state_hash":"e1bca4d1b673b8c2","score":1200,"level":2,"lines":17,"timers":{"drop_ms":320,"lock_ms":120,"line_clear_ms":0}}
+{"type":"observation","seq":42,"ts":1730000001200,"playable":true,"paused":false,"game_over":false,"episode_id":0,"seed":1,"piece_id":12,"step_in_piece":0,"board":{"width":10,"height":20,"cells":[[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0]]},"board_id":123,"active":{"kind":"t","rotation":"north","x":4,"y":0},"ghost_y":17,"next":"i","next_queue":["i","o","t","s","z"],"can_hold":true,"last_event":{"locked":true,"lines_cleared":2,"line_clear_score":1200,"tspin":"full","combo":1,"back_to_back":true},"state_hash":"e1bca4d1b673b8c2","score":1200,"level":2,"lines":17,"timers":{"drop_ms":320,"lock_ms":120,"line_clear_ms":0}}
 ```
 
 #### last_event semantics (recommended)
@@ -167,6 +206,11 @@ Action mode:
 {"type":"command","seq":7,"ts":1730000001300,"mode":"action","actions":["rotateCw","moveLeft","hardDrop"]}
 ```
 
+`actions` MAY be empty and MUST contain no more than 32 entries. If `restart` is
+present, `actions` MUST include `"restart"`; `restart.seed` is an unsigned 32-bit
+integer. The adapter acknowledges only after the fixed-step game loop applies the
+command.
+
 Restart with fixed seed (for deterministic evaluation/training):
 ```json
 {"type":"command","seq":7,"ts":1730000001300,"mode":"action","actions":["restart"],"restart":{"seed":123}}
@@ -176,6 +220,9 @@ Place mode:
 ```json
 {"type":"command","seq":8,"ts":1730000001300,"mode":"place","place":{"x":3,"rotation":"east","useHold":false}}
 ```
+
+`place.x` is the tetromino origin, not necessarily the leftmost occupied mino.
+Geometrically invalid or unreachable placements return `invalid_place`.
 
 ### 4.5 control (client → game)
 ```json
@@ -200,7 +247,13 @@ Backpressure hint (optional):
 ## 5) Lifecycle & Playability (MUST)
 
 ### 5.1 `playable`
-`playable=true` MUST mean: the controller can send commands and the game will progress.
+`playable` describes game lifecycle, not client authorization:
+
+- `playable=true` means the game is neither paused nor game-over and gameplay can
+  progress for an authorized controller.
+- A client MUST still be the active controller before sending commands.
+- Observers may therefore receive `playable=true` observations but remain unable
+  to command the game.
 
 If `paused=true` and the game is not accepting commands that advance the game:
 - `playable` SHOULD be `false`.
@@ -250,6 +303,10 @@ If `pause` exists:
 - `backpressure`: command queue full
   - Optional field: `retry_after_ms` (integer, `>=1`) for client retry pacing.
 
+`snapshot_required` is reserved for adapters that need a fresh snapshot before
+mapping a high-level placement. The current tui-tetris adapter applies place
+commands directly to authoritative core state and does not emit this code.
+
 ## 7) Observation Frequency (SHOULD)
 - Adapters may emit observations every fixed step or at a throttled interval (e.g. 20Hz).
 - If throttled, these transitions SHOULD trigger an immediate observation:
@@ -257,6 +314,26 @@ If `pause` exists:
   - `last_event.locked=true`
   - `paused` changes
   - `game_over` changes
+
+The tui-tetris adapter uses `TETRIS_AI_OBS_HZ` (default `20`, clamped to `1..60`).
+It emits observations only to clients that requested streaming and skips periodic
+observation construction when no streaming subscribers exist. A streaming hello
+requests an immediate full snapshot.
+
+### 7.1 Runtime configuration (tui-tetris)
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TETRIS_AI_HOST` | `127.0.0.1` | TCP bind host |
+| `TETRIS_AI_PORT` | `7777` | TCP bind port; `0` selects an ephemeral port in tests |
+| `TETRIS_AI_DISABLED` | unset | `1` or `true` disables the adapter |
+| `TETRIS_AI_MAX_PENDING` | `10` | Bounded inbound command queue capacity |
+| `TETRIS_AI_OBS_HZ` | `20` | Observation frequency, clamped to `1..60` |
+| `TETRIS_AI_LOG_PATH` | unset | Optional newline-delimited wire log path |
+| `TETRIS_AI_LOG_EVERY_N` | `1` | Log every Nth wire record; values below 1 use the default |
+| `TETRIS_AI_LOG_MAX_LINES` | unlimited | Optional maximum number of written log lines |
+
+Wire logging is diagnostic and MUST NOT change protocol ordering or game state.
 
 ## 8) Acceptance / Release Gate (MUST)
 
@@ -285,7 +362,7 @@ An adapter is **ACCEPTED** only if it passes all items below.
 - the adapter can run repeated rounds and the runner can exit cleanly (no hang)
 - reconnect works without restarting the game process
 
-## 8.5) Client Consumption Best Practices (Non-Normative)
+### 8.5 Client Consumption Best Practices (Non-Normative)
 
 The following guidance is for robust client implementations. It does not change
 wire compatibility requirements.
@@ -307,173 +384,25 @@ causing false commands, while keeping protocol semantics unchanged.
 
 ## 9) Self-contained Verification (python3 stdlib only)
 
-All examples assume `127.0.0.1:7777`.
+The maintained verification client is `scripts/adapter_verify.py`. Keeping socket
+buffering and lifecycle assertions in an executable script prevents documentation
+examples from silently diverging from the acceptance suite. It uses only the
+Python standard library.
 
-### 9.1 Ready probe (welcome + first observation)
+Start tui-tetris in another terminal, then run:
+
 ```bash
-python3 - <<'PY'
-import json, socket, time, sys
-host, port = "127.0.0.1", 7777
-timeout_s = 2.0
+# Run ready/full-snapshot, idempotent claim, restart, and fixed-seed checks
+python3 scripts/adapter_verify.py all
 
-def read_line(sock):
-    sock.settimeout(timeout_s)
-    buf = b""
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk:
-            return None
-        buf += chunk
-        if b"\n" in buf:
-            line, buf = buf.split(b"\n", 1)
-            return json.loads(line.decode("utf-8", errors="replace"))
-
-sock = socket.create_connection((host, port), timeout=timeout_s)
-hello = {
-  "type":"hello","seq":1,"ts":int(time.time()*1000),
-  "client":{"name":"acceptance","version":"0.1.0"},
-  "protocol_version":"2.1.0","formats":["json"],
-  "requested":{"stream_observations":True,"command_mode":"place","role":"observer"},
-}
-sock.sendall((json.dumps(hello)+"\n").encode())
-welcome = read_line(sock)
-if not isinstance(welcome, dict) or welcome.get("type") != "welcome":
-    print("FAIL: no welcome")
-    sys.exit(2)
-obs = read_line(sock)
-if not isinstance(obs, dict) or obs.get("type") != "observation":
-    print("FAIL: no observation")
-    sys.exit(2)
-print("OK: ready", f"tcp://{host}:{port}", "playable=" + str(bool(obs.get("playable"))))
-PY
+# Run one check or target a non-default endpoint
+python3 scripts/adapter_verify.py ready
+python3 scripts/adapter_verify.py determinism --host 127.0.0.1 --port 7777 --seed 123 --pieces 8
 ```
 
-### 9.2 claim idempotence (self-claim must ack)
-```bash
-python3 - <<'PY'
-import json, socket, time, sys
-host, port = "127.0.0.1", 7777
-timeout_s = 2.0
-
-def send(sock, obj):
-    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
-
-def recv(sock):
-    sock.settimeout(timeout_s)
-    buf = b""
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk:
-            return None
-        buf += chunk
-        if b"\n" in buf:
-            line, _ = buf.split(b"\n", 1)
-            return json.loads(line.decode("utf-8", errors="replace"))
-
-sock = socket.create_connection((host, port), timeout=timeout_s)
-send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
-_ = recv(sock)  # welcome
-send(sock, {"type":"control","seq":2,"ts":int(time.time()*1000),"action":"claim"})
-resp = recv(sock)
-if not isinstance(resp, dict):
-    print("FAIL: no response")
-    sys.exit(2)
-if resp.get("type") == "ack":
-    print("OK: claim is idempotent")
-    sys.exit(0)
-print("FAIL:", resp)
-sys.exit(2)
-PY
-```
-
-### 9.3 Restart (controller only)
-```bash
-python3 - <<'PY'
-import json, socket, time
-host, port = "127.0.0.1", 7777
-timeout_s = 2.0
-
-def send(sock, obj):
-    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
-
-sock = socket.create_connection((host, port), timeout=timeout_s)
-send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
-send(sock, {"type":"control","seq":2,"ts":int(time.time()*1000),"action":"claim"})
-send(sock, {"type":"command","seq":3,"ts":int(time.time()*1000),"mode":"action","actions":["restart"]})
-print("sent restart")
-PY
-```
-
-### 9.4 Restart With Seed (determinism)
-The adapter MUST produce the exact same piece sequence for the same `restart.seed`.
-
-This check is intentionally lightweight: it compares the first few `next_queue` snapshots after restart.
-```bash
-python3 - <<'PY'
-import json, socket, time
-
-host, port = "127.0.0.1", 7777
-timeout_s = 2.0
-
-def send(sock, obj):
-    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
-
-def recv_json(sock):
-    buf = b""
-    while b"\n" not in buf:
-        buf += sock.recv(65536)
-    line, rest = buf.split(b"\n", 1)
-    return json.loads(line.decode("utf-8")), rest
-
-def collect_signature(seed: int, n: int = 8):
-    sock = socket.create_connection((host, port), timeout=timeout_s)
-    sock.settimeout(timeout_s)
-    send(sock, {"type":"hello","seq":1,"ts":int(time.time()*1000),"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.1.0","formats":["json"],"requested":{"stream_observations":True,"command_mode":"action","role":"controller"}})
-
-    # Establish baseline episode id from the first observation (pre-restart).
-    baseline_episode_id = None
-    baseline_seen = False
-    while not baseline_seen:
-        msg, _ = recv_json(sock)
-        if msg.get("type") == "observation":
-            baseline_episode_id = msg.get("episode_id")
-            baseline_seen = True
-
-    send(sock, {"type":"control","seq":2,"ts":int(time.time()*1000),"action":"claim"})
-    send(sock, {"type":"command","seq":3,"ts":int(time.time()*1000),"mode":"action","actions":["restart"],"restart":{"seed":seed}})
-    # Depending on timing, the adapter may emit one or more observations that
-    # were "in flight" from the pre-restart episode. For determinism checks,
-    # wait for a new episode id and the first step of the new piece.
-    sig = []
-    active_episode_id = None
-    while True:
-        msg, _ = recv_json(sock)
-        if msg.get("type") != "observation":
-            continue
-
-        ep = msg.get("episode_id")
-        if active_episode_id is None:
-            if ep is not None and ep != baseline_episode_id and msg.get("step_in_piece") == 1 and msg.get("seed") == seed:
-                active_episode_id = ep
-            continue
-
-        if ep != active_episode_id:
-            continue
-
-        q = msg.get("next_queue") or []
-        sig.append(tuple(q))
-        if len(sig) >= n:
-            break
-    sock.close()
-    return sig
-
-seed = 123
-a = collect_signature(seed)
-b = collect_signature(seed)
-assert a == b, {"seed": seed, "a": a, "b": b}
-print("ok: deterministic restart.seed")
-PY
-```
+Checks fail with exit status `2` and a diagnostic. The determinism check restarts
+two independent connections with the same seed, advances pieces with `hardDrop`,
+and compares the resulting `next_queue` sequence.
 
 ## 10) JSON Schema (Appendix)
 
@@ -497,11 +426,11 @@ The schema below is included inline to avoid external file dependencies.
     "capabilities": {
       "type": "object",
       "properties": {
-        "formats": { "type": "array", "items": { "type": "string" } },
-        "command_modes": { "type": "array", "items": { "type": "string" } },
-        "features": { "type": "array", "items": { "type": "string" } },
-        "features_always": { "type": "array", "items": { "type": "string" } },
-        "features_optional": { "type": "array", "items": { "type": "string" } },
+        "formats": { "type": "array", "items": { "type": "string", "enum": ["json"] } },
+        "command_modes": { "type": "array", "items": { "type": "string", "enum": ["action", "place"] } },
+        "features": { "type": "array", "items": { "$ref": "#/definitions/capability_feature" } },
+        "features_always": { "type": "array", "items": { "$ref": "#/definitions/capability_feature" } },
+        "features_optional": { "type": "array", "items": { "$ref": "#/definitions/capability_feature" } },
         "control_policy": {
           "type": "object",
           "properties": {
@@ -511,8 +440,9 @@ The schema below is included inline to avoid external file dependencies.
           "required": ["auto_promote_on_disconnect", "promotion_order"]
         }
       },
-      "required": ["formats", "command_modes", "features", "control_policy"]
+      "required": ["formats", "command_modes", "features", "features_always", "features_optional", "control_policy"]
     },
+    "capability_feature": { "type": "string", "enum": ["hold","next","next_queue","can_hold","ghost_y","board_id","last_event","state_hash","score","timers"] },
     "piece_kind": { "type": "string", "enum": ["i","o","t","s","z","j","l"] },
     "rotation": { "type": "string", "enum": ["north","east","south","west"] },
     "action_name": { "type": "string", "enum": ["moveLeft","moveRight","softDrop","hardDrop","rotateCw","rotateCcw","hold","pause","restart"] },
@@ -521,7 +451,7 @@ The schema below is included inline to avoid external file dependencies.
     "place": {
       "type": "object",
       "properties": {
-        "x": { "type": "integer", "minimum": 0, "maximum": 9 },
+        "x": { "type": "integer", "minimum": -128, "maximum": 127 },
         "rotation": { "$ref": "#/definitions/rotation" },
         "useHold": { "type": "boolean" }
       },
@@ -551,8 +481,8 @@ The schema below is included inline to avoid external file dependencies.
       "properties": {
         "kind": { "$ref": "#/definitions/piece_kind" },
         "rotation": { "$ref": "#/definitions/rotation" },
-        "x": { "type": "integer", "minimum": 0, "maximum": 9 },
-        "y": { "type": "integer", "minimum": -4, "maximum": 23 }
+        "x": { "type": "integer", "minimum": -128, "maximum": 127 },
+        "y": { "type": "integer", "minimum": -128, "maximum": 127 }
       },
       "required": ["kind", "rotation", "x", "y"]
     },
@@ -591,8 +521,8 @@ The schema below is included inline to avoid external file dependencies.
           },
           "required": ["name", "version"]
         },
-        "protocol_version": { "type": "string" },
-        "formats": { "type": "array", "items": { "type": "string" } },
+        "protocol_version": { "type": "string", "pattern": "^2\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+        "formats": { "type": "array", "minItems": 1, "contains": { "const": "json" }, "items": { "type": "string" } },
         "requested": {
           "type": "object",
           "properties": {
@@ -611,7 +541,7 @@ The schema below is included inline to avoid external file dependencies.
         "type": { "const": "welcome" },
         "seq": { "const": 1 },
         "ts": { "type": "integer" },
-        "protocol_version": { "type": "string" },
+        "protocol_version": { "type": "string", "pattern": "^2\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
         "client_id": { "type": "integer" },
         "role": { "type": "string", "enum": ["controller","observer"] },
         "controller_id": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
@@ -629,11 +559,11 @@ The schema below is included inline to avoid external file dependencies.
             "seq": { "type": "integer" },
             "ts": { "type": "integer" },
             "mode": { "const": "action" },
-            "actions": { "type": "array", "items": { "$ref": "#/definitions/action_name" } },
+            "actions": { "type": "array", "maxItems": 32, "items": { "$ref": "#/definitions/action_name" } },
             "restart": {
               "type": "object",
               "properties": {
-                "seed": { "type": "integer", "minimum": 0 }
+                "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
               },
               "required": ["seed"],
               "additionalProperties": false
@@ -688,7 +618,7 @@ The schema below is included inline to avoid external file dependencies.
         "hold": { "anyOf": [ { "$ref": "#/definitions/piece_kind" }, { "type": "null" } ] },
         "can_hold": { "type": "boolean" },
         "last_event": { "anyOf": [ { "$ref": "#/definitions/last_event" }, { "type": "null" } ] },
-        "state_hash": { "type": "string" },
+        "state_hash": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
         "score": { "type": "integer", "minimum": 0 },
         "level": { "type": "integer", "minimum": 0 },
         "lines": { "type": "integer", "minimum": 0 },
@@ -707,7 +637,7 @@ The schema below is included inline to avoid external file dependencies.
         "type": { "const": "ack" },
         "seq": { "type": "integer" },
         "ts": { "type": "integer" },
-        "status": { "type": "string" }
+        "status": { "type": "string", "enum": ["ok"] }
       },
       "required": ["type", "seq", "ts", "status"]
     },

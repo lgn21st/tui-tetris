@@ -230,13 +230,15 @@ AI panel metrics (runtime HUD):
 
 ## Compatibility
 
-AI protocol: see `docs/adapter.md`.
+AI protocol, complete runtime configuration, JSON Schema, and release checks: see
+`docs/adapter.md`. With a local adapter running, execute the maintained stdlib-only
+probe with `python3 scripts/adapter_verify.py all`.
 
 Environment variables:
 - `TETRIS_AI_HOST` (default: `127.0.0.1`)
 - `TETRIS_AI_PORT` (default: `7777`)
 - `TETRIS_AI_DISABLED` (set to `1`/`true` to disable)
-- `TETRIS_AI_OBS_HZ` (headless only; observation frequency in Hz; default: `20`; range: `1..60`)
+- `TETRIS_AI_OBS_HZ` (observation frequency in Hz; default: `20`; range: `1..60`)
 - `TUI_TETRIS_HEADLESS` (set to `1`/`true`/`yes` to run without the terminal UI)
 - `TUI_TETRIS_ANCHOR_Y` (optional; board vertical anchor: `top` or `center`; default: `center`)
 - `TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS` (input auto-release timeout for terminals without key release events; default: `150`)
