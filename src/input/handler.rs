@@ -60,7 +60,7 @@ impl InputHandler {
             horizontal_arr_accumulator: 0,
             down_arr_accumulator: 0,
             das_delay,
-            arr_rate,
+            arr_rate: arr_rate.max(1),
             key_release_timeout_ms: DEFAULT_KEY_RELEASE_TIMEOUT_MS,
             saw_repeat_event: false,
             last_repeat_time: None,
@@ -89,8 +89,7 @@ impl InputHandler {
         };
         self.repeat_release_timeout_min_ms = min_ms;
         self.repeat_release_timeout_max_ms = max_ms;
-        self.repeat_release_timeout_ms =
-            self.repeat_release_timeout_ms.clamp(min_ms, max_ms);
+        self.repeat_release_timeout_ms = self.repeat_release_timeout_ms.clamp(min_ms, max_ms);
         self
     }
 
@@ -206,8 +205,10 @@ impl InputHandler {
             if let Some(prev) = self.last_repeat_time {
                 let interval_ms = now.saturating_duration_since(prev).as_millis() as u32;
                 let target = interval_ms.saturating_mul(2);
-                self.repeat_release_timeout_ms = target
-                    .clamp(self.repeat_release_timeout_min_ms, self.repeat_release_timeout_max_ms);
+                self.repeat_release_timeout_ms = target.clamp(
+                    self.repeat_release_timeout_min_ms,
+                    self.repeat_release_timeout_max_ms,
+                );
             }
             self.last_repeat_time = Some(now);
         }
@@ -263,7 +264,8 @@ impl InputHandler {
         // Auto-release when terminal does not emit release events.
         let time_since_last_key = self.last_key_time.elapsed().as_millis() as u32;
         let timeout_ms = if self.saw_repeat_event {
-            self.key_release_timeout_ms.min(self.repeat_release_timeout_ms)
+            self.key_release_timeout_ms
+                .min(self.repeat_release_timeout_ms)
         } else {
             self.key_release_timeout_ms
         };
@@ -356,7 +358,10 @@ mod tests {
     fn test_horizontal_das_arr_repeats_after_delay() {
         let mut ih = InputHandler::with_config(100, 25);
 
-        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Left),
+            Some(GameAction::MoveLeft)
+        );
 
         // Before DAS expires: no repeats.
         let actions = ih.update(99);
@@ -376,11 +381,21 @@ mod tests {
     }
 
     #[test]
+    fn zero_arr_rate_is_clamped_to_one_millisecond() {
+        let handler = InputHandler::with_config(100, 0);
+
+        assert_eq!(handler.arr_rate, 1);
+    }
+
+    #[test]
     fn test_auto_release_triggers_after_timeout_without_key_release_events() {
         let mut ih = InputHandler::with_config(100, 25);
         ih.key_release_timeout_ms = 50;
 
-        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Left),
+            Some(GameAction::MoveLeft)
+        );
         assert_eq!(ih.horizontal, HorizontalDirection::Left);
 
         // Simulate no key-release events by moving the last key time into the past.
@@ -396,7 +411,10 @@ mod tests {
         let mut ih = InputHandler::with_config(100, 25);
         ih.key_release_timeout_ms = 50;
 
-        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Left),
+            Some(GameAction::MoveLeft)
+        );
         assert_eq!(ih.horizontal, HorizontalDirection::Left);
 
         // Simulate a stuck key (no release event) and then press a non-movement key.
@@ -419,7 +437,10 @@ mod tests {
     fn test_repeat_driven_auto_release_is_shorter_after_repeat_stops() {
         let mut ih = InputHandler::with_config(100, 25).with_key_release_timeout_ms(500);
 
-        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Left),
+            Some(GameAction::MoveLeft)
+        );
         assert_eq!(ih.horizontal, HorizontalDirection::Left);
 
         // Observing repeat events enables the shorter repeat-driven release timeout.
@@ -430,8 +451,7 @@ mod tests {
         ih.repeat_release_timeout_ms = 120;
 
         // Simulate repeats stopping (no release event): key should auto-release quickly.
-        ih.last_key_time =
-            std::time::Instant::now() - std::time::Duration::from_millis(121);
+        ih.last_key_time = std::time::Instant::now() - std::time::Duration::from_millis(121);
 
         let actions = ih.update(0);
         assert!(actions.is_empty());
@@ -442,7 +462,10 @@ mod tests {
     fn test_terminals_that_report_repeat_as_press_enable_repeat_driven_release() {
         let mut ih = InputHandler::with_config(100, 25).with_key_release_timeout_ms(500);
 
-        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Left),
+            Some(GameAction::MoveLeft)
+        );
         assert!(!ih.saw_repeat_event);
 
         // Simulate a terminal reporting repeats as press events while the key is already held.
@@ -460,7 +483,10 @@ mod tests {
     #[test]
     fn test_repeat_driven_timeout_does_not_break_slow_repeat_cadence() {
         let mut ih = InputHandler::with_config(100, 25).with_key_release_timeout_ms(500);
-        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Left),
+            Some(GameAction::MoveLeft)
+        );
         assert_eq!(ih.horizontal, HorizontalDirection::Left);
 
         ih.saw_repeat_event = true;
@@ -489,7 +515,10 @@ mod tests {
     fn test_soft_drop_repeats_use_zero_das_and_50ms_arr() {
         let mut ih = InputHandler::new().with_key_release_timeout_ms(10_000);
 
-        assert_eq!(ih.handle_key_press(KeyCode::Down), Some(GameAction::SoftDrop));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Down),
+            Some(GameAction::SoftDrop)
+        );
 
         // Before 50ms: no repeats.
         let actions = ih.update(49);
@@ -511,18 +540,30 @@ mod tests {
     fn test_vim_keys_map_to_movement_and_soft_drop() {
         let mut ih = InputHandler::new();
 
-        assert_eq!(ih.handle_key_press(KeyCode::Char('h')), Some(GameAction::MoveLeft));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Char('h')),
+            Some(GameAction::MoveLeft)
+        );
         ih.reset();
-        assert_eq!(ih.handle_key_press(KeyCode::Char('l')), Some(GameAction::MoveRight));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Char('l')),
+            Some(GameAction::MoveRight)
+        );
         ih.reset();
-        assert_eq!(ih.handle_key_press(KeyCode::Char('j')), Some(GameAction::SoftDrop));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Char('j')),
+            Some(GameAction::SoftDrop)
+        );
     }
 
     #[test]
     fn test_reset_clears_held_state_and_stops_repeats() {
         let mut ih = InputHandler::with_config(100, 25).with_key_release_timeout_ms(10_000);
 
-        assert_eq!(ih.handle_key_press(KeyCode::Left), Some(GameAction::MoveLeft));
+        assert_eq!(
+            ih.handle_key_press(KeyCode::Left),
+            Some(GameAction::MoveLeft)
+        );
         assert!(!ih.update(200).is_empty(), "expected repeats before reset");
 
         ih.reset();

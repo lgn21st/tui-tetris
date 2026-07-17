@@ -26,6 +26,15 @@ use tui_tetris::term::{
 };
 use tui_tetris::types::{GameAction, TICK_MS};
 
+const MAX_CATCH_UP_STEPS: u32 = 8;
+
+fn fixed_steps_due(elapsed: Duration, tick: Duration) -> u32 {
+    if tick.is_zero() {
+        return 0;
+    }
+    (elapsed.as_nanos() / tick.as_nanos()).min(MAX_CATCH_UP_STEPS as u128) as u32
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Some(config) = parse_observe_args(&args)? {
@@ -174,35 +183,40 @@ fn run_headless() -> Result<()> {
             }
         }
 
-        // Apply AI commands before tick (determinism).
-        drain_commands(
-            &mut adapter,
-            &mut game_state,
-            &mut observations,
-            &mut snap,
-            &mut last_board_id,
-        );
-
-        if last_tick.elapsed() < tick_duration {
+        let steps = fixed_steps_due(last_tick.elapsed(), tick_duration);
+        if steps == 0 {
             thread::sleep(tick_duration.saturating_sub(last_tick.elapsed()));
             continue;
         }
-        last_tick = Instant::now();
 
-        game_state.tick(TICK_MS, false);
+        for _ in 0..steps {
+            last_tick += tick_duration;
 
-        if let Some((seq, last_event)) = observations.after_tick(&mut game_state) {
-            if let Some(ad) = adapter.as_ref() {
-                if adapter_streaming_count == 0 {
-                    continue;
+            // Apply AI commands at the fixed-step boundary (determinism).
+            drain_commands(
+                &mut adapter,
+                &mut game_state,
+                &mut observations,
+                &mut snap,
+                &mut last_board_id,
+            );
+
+            game_state.tick(TICK_MS, false);
+
+            if let Some((seq, last_event)) = observations.after_tick(&mut game_state) {
+                if let Some(ad) = adapter.as_ref() {
+                    if adapter_streaming_count == 0 {
+                        continue;
+                    }
+                    if game_state.board_id() != last_board_id {
+                        last_board_id = game_state.board_id();
+                        game_state.snapshot_board_into(&mut snap);
+                    }
+                    game_state.snapshot_meta_into(&mut snap);
+                    let obs =
+                        tui_tetris::adapter::server::build_observation(seq, &snap, last_event);
+                    ad.send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) });
                 }
-                if game_state.board_id() != last_board_id {
-                    last_board_id = game_state.board_id();
-                    game_state.snapshot_board_into(&mut snap);
-                }
-                game_state.snapshot_meta_into(&mut snap);
-                let obs = tui_tetris::adapter::server::build_observation(seq, &snap, last_event);
-                ad.send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) });
             }
         }
     }
@@ -394,9 +408,11 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             }
         }
 
-        // Tick.
-        if last_tick.elapsed() >= tick_duration {
-            last_tick = Instant::now();
+        // Tick. Preserve accumulated wall time and cap work per loop so a
+        // temporary stall does not permanently slow the deterministic simulation.
+        let steps = fixed_steps_due(last_tick.elapsed(), tick_duration);
+        for _ in 0..steps {
+            last_tick += tick_duration;
 
             // Apply AI commands before tick (determinism).
             drain_commands(
@@ -556,6 +572,17 @@ mod tests {
         assert_ne!(
             render_fingerprint(&game, &adapter, Viewport::new(100, 30)),
             baseline
+        );
+    }
+
+    #[test]
+    fn fixed_step_catch_up_is_calculated_and_bounded_per_loop() {
+        let tick = Duration::from_millis(TICK_MS as u64);
+
+        assert_eq!(fixed_steps_due(Duration::from_millis(48), tick), 3);
+        assert_eq!(
+            fixed_steps_due(Duration::from_secs(1), tick),
+            MAX_CATCH_UP_STEPS
         );
     }
 }
