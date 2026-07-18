@@ -5,24 +5,24 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use tui_tetris::adapter::game_loop::step_session;
-use tui_tetris::adapter::observation_schedule::ObservationSchedule;
-use tui_tetris::adapter::protocol::create_hello;
-use tui_tetris::adapter::protocol::TransitionEvent;
-use tui_tetris::adapter::runtime::AdapterStatus;
-use tui_tetris::adapter::runtime::InboundPayload;
-use tui_tetris::adapter::server::{
-    build_observation, run_server, ServerConfig, MAX_INBOUND_LINE_BYTES,
+use tetris_adapter::adapter::game_loop::step_session;
+use tetris_adapter::adapter::observation_schedule::ObservationSchedule;
+use tetris_adapter::adapter::runtime::AdapterStatus;
+use tetris_adapter::adapter::runtime::InboundPayload;
+use tetris_adapter::adapter::server::{
+    MAX_INBOUND_LINE_BYTES, ServerConfig, build_observation, run_server,
 };
-use tui_tetris::adapter::{Adapter, ClientCommand, InboundCommand, OutboundMessage};
-use tui_tetris::core::GameSnapshot;
-use tui_tetris::core::GameState;
-use tui_tetris::engine::session::SessionRuntime;
-use tui_tetris::types::{CoreLastEvent, GameAction, TSpinKind};
+use tetris_adapter::adapter::{Adapter, ClientCommand, InboundCommand, OutboundMessage};
+use tetris_adapter_protocol::protocol::TransitionEvent;
+use tetris_adapter_protocol::protocol::create_hello;
+use tetris_core::core::GameSnapshot;
+use tetris_core::core::GameState;
+use tetris_core::types::{CoreLastEvent, GameAction, TSpinKind};
+use tetris_session::engine::session::SessionRuntime;
 
 mod support;
 use support::{read_json_line, spawn_server};
@@ -180,16 +180,12 @@ async fn adapter_wire_logging_writes_raw_frames() {
         .expect("server did not signal ready")
         .expect("ready channel dropped");
 
-    let stream = TcpStream::connect(addr).await.expect("connect failed");
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
+    let (mut lines, mut write_half) = support::connect(addr).await;
 
     // hello
     let hello = create_hello(1, "wire-log-test", "3.0.0");
     let hello_line = serde_json::to_string(&hello).unwrap();
-    write_half.write_all(hello_line.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_raw_line(&mut write_half, hello_line).await;
 
     let welcome_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
@@ -205,19 +201,19 @@ async fn adapter_wire_logging_writes_raw_frames() {
     // Wait until the wire log contains both frames.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
-        if let Ok(contents) = tokio::fs::read_to_string(&log_path).await {
-            if contents.contains("\"type\":\"hello\"") && contents.contains("\"type\":\"welcome\"")
-            {
-                // Ensure raw JSON lines only (no prefixes).
-                for line in contents.lines() {
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    assert!(line.starts_with('{'));
-                    assert!(line.ends_with('}'));
+        if let Ok(contents) = tokio::fs::read_to_string(&log_path).await
+            && contents.contains("\"type\":\"hello\"")
+            && contents.contains("\"type\":\"welcome\"")
+        {
+            // Ensure raw JSON lines only (no prefixes).
+            for line in contents.lines() {
+                if line.trim().is_empty() {
+                    continue;
                 }
-                break;
+                assert!(line.starts_with('{'));
+                assert!(line.ends_with('}'));
             }
+            break;
         }
 
         if tokio::time::Instant::now() >= deadline {
@@ -235,14 +231,7 @@ async fn adapter_wire_logging_writes_raw_frames() {
 
 #[tokio::test]
 async fn adapter_hello_command_ack_and_observation() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -257,16 +246,12 @@ async fn adapter_hello_command_ack_and_observation() {
         .expect("server did not signal ready")
         .expect("ready channel dropped");
 
-    let stream = TcpStream::connect(addr).await.expect("connect failed");
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
+    let (mut lines, mut write_half) = support::connect(addr).await;
 
     // hello
     let hello = create_hello(1, "e2e-test", "3.0.0");
     let hello_line = serde_json::to_string(&hello).unwrap();
-    write_half.write_all(hello_line.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_raw_line(&mut write_half, hello_line).await;
 
     let welcome_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
@@ -279,9 +264,7 @@ async fn adapter_hello_command_ack_and_observation() {
 
     // command
     let cmd_line = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
-    write_half.write_all(cmd_line.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_raw_line(&mut write_half, cmd_line).await;
 
     let inbound = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
         .await
@@ -299,7 +282,7 @@ async fn adapter_hello_command_ack_and_observation() {
     }
 
     // Apply through the production protocol/session driver.
-    let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20);
+    let mut driver = tetris_adapter::adapter::game_loop::SessionProtocolDriver::new(1, 20);
     driver.handle(inbound);
 
     let ack_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
@@ -325,13 +308,7 @@ async fn adapter_hello_command_ack_and_observation() {
 
 #[tokio::test]
 async fn adapter_broadcast_observation_arc_fanout() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -353,15 +330,11 @@ async fn adapter_broadcast_observation_arc_fanout() {
         tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>,
         tokio::net::tcp::OwnedWriteHalf,
     ) {
-        let stream = TcpStream::connect(addr).await.expect("connect failed");
-        let (read_half, mut write_half) = stream.into_split();
-        let mut lines = BufReader::new(read_half).lines();
+        let (mut lines, mut write_half) = support::connect(addr).await;
 
         let hello = create_hello(1, name, "3.0.0");
         let hello_line = serde_json::to_string(&hello).unwrap();
-        write_half.write_all(hello_line.as_bytes()).await.unwrap();
-        write_half.write_all(b"\n").await.unwrap();
-        write_half.flush().await.unwrap();
+        support::write_raw_line(&mut write_half, hello_line).await;
 
         // welcome
         let welcome_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
@@ -408,14 +381,7 @@ async fn adapter_broadcast_observation_arc_fanout() {
 
 #[tokio::test]
 async fn adapter_does_not_ack_until_game_loop_applies() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -430,19 +396,12 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
         .unwrap()
         .unwrap();
 
-    let stream = TcpStream::connect(addr).await.expect("connect failed");
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
+    let (mut lines, mut write_half) = support::connect(addr).await;
 
     // hello (disable snapshot request to keep cmd_rx predictable)
     let mut hello = create_hello(1, "ack-test", "3.0.0");
     hello.requested.stream_observations = false;
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_json_line(&mut write_half, &hello).await;
 
     let _welcome = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
@@ -452,9 +411,7 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
 
     // command
     let cmd_line = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
-    write_half.write_all(cmd_line.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_raw_line(&mut write_half, cmd_line).await;
 
     let inbound = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
         .await
@@ -468,7 +425,7 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
             .is_err()
     );
 
-    let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20);
+    let mut driver = tetris_adapter::adapter::game_loop::SessionProtocolDriver::new(1, 20);
     driver.handle(inbound);
 
     let ack_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
@@ -485,14 +442,7 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
 
 #[tokio::test]
 async fn adapter_emits_status_updates_on_connect_and_controller() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -523,9 +473,7 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
     assert_eq!(st0.client_count, 0);
     assert_eq!(st0.streaming_count, 0);
 
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
+    let (mut lines, mut write_half) = support::connect(addr).await;
 
     // Wait until we see client_count >= 1.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
@@ -545,12 +493,7 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
 
     // hello makes this client controller.
     let hello = create_hello(1, "status-test", "3.0.0");
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_json_line(&mut write_half, &hello).await;
 
     let _welcome_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
@@ -579,14 +522,7 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
 
 #[tokio::test]
 async fn adapter_hello_enqueues_snapshot_request() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -605,12 +541,7 @@ async fn adapter_hello_enqueues_snapshot_request() {
     let (_read_half, mut write_half) = stream.into_split();
 
     let hello = create_hello(1, "snapshot-test", "3.0.0");
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_json_line(&mut write_half, &hello).await;
 
     let inbound = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
         .await
@@ -624,29 +555,14 @@ async fn adapter_hello_enqueues_snapshot_request() {
 
 #[tokio::test]
 async fn adapter_hello_snapshot_request_waits_for_bounded_queue_capacity() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 1,
-        log_path: None,
-        log_every_n: 1,
-        log_max_lines: None,
-    };
+    let config = support::server_config_with_capacity(1);
     let (server, addr, mut cmd_rx, _out_tx) = spawn_server(config, 1).await;
 
     let mut clients = Vec::new();
     for name in ["snapshot-a", "snapshot-b"] {
-        let stream = TcpStream::connect(addr).await.unwrap();
-        let (read_half, mut write_half) = stream.into_split();
-        let mut lines = BufReader::new(read_half).lines();
+        let (mut lines, mut write_half) = support::connect(addr).await;
         let hello = create_hello(1, name, "3.0.0");
-        write_half
-            .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-            .await
-            .unwrap();
-        write_half.write_all(b"\n").await.unwrap();
-        write_half.flush().await.unwrap();
+        support::write_json_line(&mut write_half, &hello).await;
         let welcome = read_json_line(&mut lines).await;
         assert_eq!(welcome["type"], "welcome");
         clients.push((write_half, lines));
@@ -670,15 +586,7 @@ async fn adapter_hello_snapshot_request_waits_for_bounded_queue_capacity() {
 
 #[test]
 fn production_session_replies_through_the_originating_client_mailbox() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        log_every_n: 1,
-        log_max_lines: None,
-    };
+    let config = support::server_config_with_capacity(8);
     let mut adapter = Some(Adapter::start(config).unwrap());
     let addr = adapter.as_ref().unwrap().listen_addr();
     let mut stream = std::net::TcpStream::connect(addr).unwrap();
@@ -716,15 +624,7 @@ fn production_session_replies_through_the_originating_client_mailbox() {
 
 #[tokio::test]
 async fn adapter_place_maps_to_place_command() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        log_every_n: 1,
-        log_max_lines: None,
-    };
+    let config = support::server_config_with_capacity(8);
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -739,25 +639,16 @@ async fn adapter_place_maps_to_place_command() {
         .unwrap()
         .unwrap();
 
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
+    let (mut lines, mut write_half) = support::connect(addr).await;
 
     let hello = create_hello(1, "place-test", "3.0.0");
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_json_line(&mut write_half, &hello).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
         .unwrap();
 
     let cmd = r#"{"type":"command","seq":2,"ts":1,"mode":"place","place":{"x":3,"rotation":"east","useHold":false}}"#;
-    write_half.write_all(cmd.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_raw_line(&mut write_half, cmd).await;
 
     let inbound = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
         .await
@@ -770,7 +661,7 @@ async fn adapter_place_maps_to_place_command() {
             use_hold,
         }) => {
             assert_eq!(x, 3);
-            assert_eq!(rotation, tui_tetris::types::Rotation::East);
+            assert_eq!(rotation, tetris_core::types::Rotation::East);
             assert!(!use_hold);
         }
         _ => panic!("expected place command"),
@@ -780,73 +671,8 @@ async fn adapter_place_maps_to_place_command() {
 }
 
 #[tokio::test]
-async fn adapter_place_invalid_rotation_returns_error() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        log_every_n: 1,
-        log_max_lines: None,
-    };
-
-    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
-    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
-    let (ready_tx, ready_rx) = oneshot::channel();
-
-    let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
-    });
-
-    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
-        .await
-        .unwrap()
-        .unwrap();
-
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
-
-    let hello = create_hello(1, "place-test", "3.0.0");
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-        .await
-        .unwrap();
-
-    let cmd = r#"{"type":"command","seq":2,"ts":1,"mode":"place","place":{"x":3,"rotation":"nope","useHold":false}}"#;
-    write_half.write_all(cmd.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
-
-    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(v["type"], "error");
-    assert_eq!(v["seq"], 2);
-    assert_eq!(v["code"], "invalid_place");
-
-    server_handle.abort();
-}
-
-#[tokio::test]
 async fn adapter_backpressure_returns_error() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 1,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config_with_capacity(1);
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(1);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -861,19 +687,12 @@ async fn adapter_backpressure_returns_error() {
         .unwrap()
         .unwrap();
 
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
+    let (mut lines, mut write_half) = support::connect(addr).await;
 
     let mut hello = create_hello(1, "e2e-test", "3.0.0");
     // Keep the inbound command queue empty (hello snapshot would fill it).
     hello.requested.stream_observations = false;
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_json_line(&mut write_half, &hello).await;
     // welcome
     let _ = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
@@ -885,15 +704,9 @@ async fn adapter_backpressure_returns_error() {
     let cmd2 = r#"{"type":"command","seq":3,"ts":1,"mode":"action","actions":["moveRight"]}"#;
     write_half.write_all(cmd1.as_bytes()).await.unwrap();
     write_half.write_all(b"\n").await.unwrap();
-    write_half.write_all(cmd2.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_raw_line(&mut write_half, cmd2).await;
 
-    // Allow the server to process both commands while the bounded queue is still full.
-    // If we drain `cmd_rx` too early, `cmd2` may be enqueued instead of backpressured.
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    // Expect an error for seq=3.
+    // Read the error before draining the queue, keeping the backpressure state deterministic.
     let mut got_backpressure = false;
     let mut got_retry_after = false;
     for _ in 0..10 {
@@ -929,9 +742,7 @@ async fn adapter_backpressure_returns_error() {
 
     // Retry with a new, larger seq after draining the queue should succeed.
     let cmd3 = r#"{"type":"command","seq":4,"ts":1,"mode":"action","actions":["moveRight"]}"#;
-    write_half.write_all(cmd3.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_raw_line(&mut write_half, cmd3).await;
 
     let retried = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
         .await
@@ -943,13 +754,7 @@ async fn adapter_backpressure_returns_error() {
 
 #[tokio::test]
 async fn adapter_observation_timers_roundtrip_over_tcp() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -964,17 +769,10 @@ async fn adapter_observation_timers_roundtrip_over_tcp() {
         .expect("server did not signal ready")
         .expect("ready channel dropped");
 
-    let stream = TcpStream::connect(addr).await.expect("connect failed");
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
+    let (mut lines, mut write_half) = support::connect(addr).await;
 
     let hello = create_hello(1, "timers-roundtrip", "3.0.0");
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_json_line(&mut write_half, &hello).await;
 
     // welcome
     let welcome_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
@@ -1011,64 +809,8 @@ async fn adapter_observation_timers_roundtrip_over_tcp() {
 }
 
 #[tokio::test]
-async fn adapter_requires_hello_before_command() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        log_every_n: 1,
-        log_max_lines: None,
-    };
-
-    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
-    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
-    let (ready_tx, ready_rx) = oneshot::channel();
-
-    let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
-    });
-
-    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
-        .await
-        .unwrap()
-        .unwrap();
-
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
-
-    // command before hello
-    let cmd = r#"{"type":"command","seq":1,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
-    write_half.write_all(cmd.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
-
-    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(v["type"], "error");
-    assert_eq!(v["seq"], 1);
-    assert_eq!(v["code"], "handshake_required");
-
-    server_handle.abort();
-}
-
-#[tokio::test]
 async fn adapter_parse_error_echoes_seq_best_effort() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        log_every_n: 1,
-        log_max_lines: None,
-    };
+    let config = support::server_config_with_capacity(8);
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -1083,15 +825,11 @@ async fn adapter_parse_error_echoes_seq_best_effort() {
         .unwrap()
         .unwrap();
 
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
+    let (mut lines, mut write_half) = support::connect(addr).await;
 
     // Invalid JSON but includes seq=9.
     let bad = r#"{"type":"command","seq":9,"ts":1,"mode":"action","actions":["moveLeft"]"#;
-    write_half.write_all(bad.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_raw_line(&mut write_half, bad).await;
 
     let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
@@ -1107,159 +845,20 @@ async fn adapter_parse_error_echoes_seq_best_effort() {
 }
 
 #[tokio::test]
-async fn adapter_rejects_out_of_order_seq_after_hello() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        log_every_n: 1,
-        log_max_lines: None,
-    };
-
-    let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
-    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
-    let (ready_tx, ready_rx) = oneshot::channel();
-
-    let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
-    });
-
-    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
-        .await
-        .unwrap()
-        .unwrap();
-
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
-
-    // hello with seq=1
-    let hello = create_hello(1, "seq-test", "3.0.0");
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
-
-    let _welcome = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-
-    // Drain the hello-triggered snapshot request.
-    let inbound = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
-        .await
-        .unwrap()
-        .expect("expected inbound message");
-    assert_eq!(inbound.seq, 1);
-    assert!(matches!(inbound.payload, InboundPayload::SnapshotRequest));
-
-    // command with seq=1 (out of order)
-    let cmd = r#"{"type":"command","seq":1,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
-    write_half.write_all(cmd.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
-
-    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(v["type"], "error");
-    assert_eq!(v["seq"], 1);
-    assert_eq!(v["code"], "invalid_command");
-
-    // Ensure it was not enqueued.
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), recv_next_command(&mut cmd_rx))
-            .await
-            .is_err()
-    );
-
-    server_handle.abort();
-}
-
-#[tokio::test]
-async fn adapter_rejects_hello_seq_not_one() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        log_every_n: 1,
-        log_max_lines: None,
-    };
-
-    let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
-    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
-    let (ready_tx, ready_rx) = oneshot::channel();
-
-    let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
-    });
-
-    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
-        .await
-        .unwrap()
-        .unwrap();
-
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
-
-    // hello with seq!=1 must be rejected.
-    let hello = create_hello(2, "seq-test", "3.0.0");
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
-
-    let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(v["type"], "error");
-    assert_eq!(v["seq"], 2);
-    assert_eq!(v["code"], "invalid_command");
-
-    // Ensure it did not trigger snapshot request.
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), cmd_rx.recv())
-            .await
-            .is_err()
-    );
-
-    server_handle.abort();
-}
-
-#[tokio::test]
 async fn controller_disconnect_promotes_next_client() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        log_every_n: 1,
-        log_max_lines: None,
-    };
+    let config = support::server_config();
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
     let (ready_tx, ready_rx) = oneshot::channel();
+    let (status_tx, mut status_rx) = watch::channel(AdapterStatus {
+        client_count: 0,
+        controller_id: None,
+        streaming_count: 0,
+    });
 
     let server_handle = tokio::spawn(async move {
-        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), Some(status_tx)).await;
     });
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
@@ -1268,45 +867,41 @@ async fn controller_disconnect_promotes_next_client() {
         .unwrap();
 
     // Client 1 (becomes controller)
-    let s1 = TcpStream::connect(addr).await.unwrap();
-    let (r1, mut w1) = s1.into_split();
-    let mut l1 = BufReader::new(r1).lines();
+    let (mut l1, mut w1) = support::connect(addr).await;
     let hello1 = create_hello(1, "c1", "3.0.0");
-    w1.write_all(serde_json::to_string(&hello1).unwrap().as_bytes())
-        .await
-        .unwrap();
-    w1.write_all(b"\n").await.unwrap();
-    w1.flush().await.unwrap();
+    support::write_json_line(&mut w1, &hello1).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), l1.next_line())
         .await
         .unwrap();
 
     // Client 2 (observer initially)
-    let s2 = TcpStream::connect(addr).await.unwrap();
-    let (r2, mut w2) = s2.into_split();
-    let mut l2 = BufReader::new(r2).lines();
+    let (mut l2, mut w2) = support::connect(addr).await;
     let hello2 = create_hello(1, "c2", "3.0.0");
-    w2.write_all(serde_json::to_string(&hello2).unwrap().as_bytes())
-        .await
-        .unwrap();
-    w2.write_all(b"\n").await.unwrap();
-    w2.flush().await.unwrap();
+    support::write_json_line(&mut w2, &hello2).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), l2.next_line())
         .await
         .unwrap();
 
-    // Drop client1 connection to trigger promotion.
+    // Invalid UTF-8 exercises the error cleanup path, not only clean EOF.
+    w1.write_all(&[0xff, b'\n']).await.unwrap();
+    w1.flush().await.unwrap();
     drop(w1);
     drop(l1);
 
-    // Give server a moment to process disconnect.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if status_rx.borrow().controller_id == Some(2) {
+                break;
+            }
+            status_rx.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("controller promotion timed out");
 
     // Client2 sends a command; should now be accepted and queued.
     let cmd = r#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#;
-    w2.write_all(cmd.as_bytes()).await.unwrap();
-    w2.write_all(b"\n").await.unwrap();
-    w2.flush().await.unwrap();
+    support::write_raw_line(&mut w2, cmd).await;
 
     let inbound = tokio::time::timeout(Duration::from_secs(2), recv_next_command(&mut cmd_rx))
         .await
@@ -1318,14 +913,7 @@ async fn controller_disconnect_promotes_next_client() {
 
 #[tokio::test]
 async fn adapter_unknown_message_type_echoes_seq() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
 
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -1340,26 +928,17 @@ async fn adapter_unknown_message_type_echoes_seq() {
         .unwrap()
         .unwrap();
 
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (read_half, mut write_half) = stream.into_split();
-    let mut lines = BufReader::new(read_half).lines();
+    let (mut lines, mut write_half) = support::connect(addr).await;
 
     let hello = create_hello(1, "unknown-test", "3.0.0");
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_json_line(&mut write_half, &hello).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
         .unwrap();
 
     // Unknown type with seq=9 should return invalid_command and echo seq.
     let msg = r#"{"type":"wat","seq":9,"ts":1}"#;
-    write_half.write_all(msg.as_bytes()).await.unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_raw_line(&mut write_half, msg).await;
 
     let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
@@ -1376,14 +955,7 @@ async fn adapter_unknown_message_type_echoes_seq() {
 
 #[tokio::test]
 async fn adapter_disconnects_frames_that_exceed_the_inbound_limit() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 8,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
     let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
     let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
     let (ready_tx, ready_rx) = oneshot::channel();

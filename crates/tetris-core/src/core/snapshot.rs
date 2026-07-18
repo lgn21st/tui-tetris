@@ -1,5 +1,5 @@
 use crate::core::Tetromino;
-use crate::types::{PieceKind, Rotation, BOARD_HEIGHT, BOARD_WIDTH};
+use crate::types::{BOARD_HEIGHT, BOARD_WIDTH, PieceKind, Rotation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ActiveSnapshot {

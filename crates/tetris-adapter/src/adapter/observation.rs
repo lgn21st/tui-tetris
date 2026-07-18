@@ -8,9 +8,9 @@ use crate::adapter::protocol::{
     ActivePieceSnapshot, BoardSnapshot, EventList, ObservationMessage, ObservationType,
     PieceKindLower, RotationLower, StateHash, TSpinLower, TimersSnapshot, TransitionEvent,
 };
-use crate::core::GameSnapshot;
-use crate::engine::replay::transition_hash;
-use crate::types::{CoreLastEvent, TSpinKind};
+use tetris_core::core::GameSnapshot;
+use tetris_core::types::{CoreLastEvent, TSpinKind};
+use tetris_session::engine::replay::transition_hash;
 
 /// Build an adapter observation from an immutable core snapshot.
 pub fn build_observation(

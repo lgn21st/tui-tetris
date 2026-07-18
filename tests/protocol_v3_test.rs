@@ -1,9 +1,9 @@
-use tui_tetris::adapter::observation::build_observation;
-use tui_tetris::adapter::protocol::{
-    create_applied_ack, StateHash, TransitionEvent, PROTOCOL_VERSION,
+use tetris_adapter::adapter::observation::build_observation;
+use tetris_adapter_protocol::protocol::{
+    PROTOCOL_VERSION, StateHash, TransitionEvent, create_applied_ack,
 };
-use tui_tetris::core::GameState;
-use tui_tetris::types::{CoreLastEvent, TSpinKind};
+use tetris_core::core::GameState;
+use tetris_core::types::{CoreLastEvent, TSpinKind};
 
 fn event(lines: u32) -> TransitionEvent {
     CoreLastEvent {

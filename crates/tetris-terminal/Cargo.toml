@@ -1,10 +1,10 @@
 [package]
 name = "tetris-terminal"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-anyhow = "1.0"
-arrayvec = "0.7"
-crossterm = { version = "0.28", features = ["use-dev-tty"] }
-tetris-core = { path = "../tetris-core" }
+anyhow.workspace = true
+arrayvec.workspace = true
+crossterm.workspace = true
+tetris-core.workspace = true

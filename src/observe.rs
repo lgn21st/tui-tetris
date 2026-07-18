@@ -4,14 +4,14 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
-use crate::adapter::protocol::{
-    create_hello, CommandMode, ObservationMessage, PieceKindLower, RequestedRole, RotationLower,
-    PROTOCOL_VERSION,
+use tetris_adapter_protocol::protocol::{
+    CommandMode, ObservationMessage, PROTOCOL_VERSION, PieceKindLower, RequestedRole,
+    RotationLower, create_hello,
 };
-use crate::core::snapshot::{ActiveSnapshot, GameSnapshot, TimersSnapshot};
-use crate::types::{PieceKind, Rotation, BOARD_HEIGHT, BOARD_WIDTH};
+use tetris_core::core::snapshot::{ActiveSnapshot, GameSnapshot, TimersSnapshot};
+use tetris_core::types::{BOARD_HEIGHT, BOARD_WIDTH, PieceKind, Rotation};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObserveConfig {
@@ -335,7 +335,7 @@ fn parse_server_line(line: &str) -> Option<ObserveEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::protocol::{
+    use tetris_adapter_protocol::protocol::{
         ActivePieceSnapshot, BoardSnapshot, ObservationType, PieceKindLower, StateHash,
     };
 
@@ -408,12 +408,12 @@ mod tests {
             hold: Some(PieceKindLower::L),
             can_hold: true,
             logical_step: 0,
-            events: crate::adapter::protocol::EventList::default(),
+            events: tetris_adapter_protocol::protocol::EventList::default(),
             state_hash: StateHash(1),
             score: 300,
             level: 2,
             lines: 4,
-            timers: crate::adapter::protocol::TimersSnapshot {
+            timers: tetris_adapter_protocol::protocol::TimersSnapshot {
                 drop_ms: 1000,
                 lock_ms: 500,
                 line_clear_ms: 0,
@@ -488,12 +488,12 @@ mod tests {
             hold: None,
             can_hold: true,
             logical_step: 0,
-            events: crate::adapter::protocol::EventList::default(),
+            events: tetris_adapter_protocol::protocol::EventList::default(),
             state_hash: StateHash(1),
             score: 0,
             level: 0,
             lines: 0,
-            timers: crate::adapter::protocol::TimersSnapshot {
+            timers: tetris_adapter_protocol::protocol::TimersSnapshot {
                 drop_ms: 1000,
                 lock_ms: 500,
                 line_clear_ms: 0,

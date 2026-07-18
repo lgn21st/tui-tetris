@@ -7,12 +7,26 @@ members = [
     "crates/tetris-adapter",
     "crates/tetris-terminal",
 ]
-resolver = "2"
+resolver = "3"
+
+[workspace.dependencies]
+anyhow = "1.0"
+arrayvec = "0.7"
+criterion = { version = "0.5", features = ["html_reports"] }
+crossterm = { version = "0.28", features = ["use-dev-tty"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = "1.42"
+tetris-adapter = { path = "crates/tetris-adapter" }
+tetris-adapter-protocol = { path = "crates/tetris-adapter-protocol" }
+tetris-core = { path = "crates/tetris-core" }
+tetris-session = { path = "crates/tetris-session" }
+tetris-terminal = { path = "crates/tetris-terminal" }
 
 [package]
 name = "tui-tetris"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["AI Assistant"]
 description = "High-performance TUI Tetris with AI control support"
 default-run = "tui-tetris"
@@ -21,31 +35,26 @@ default-run = "tui-tetris"
 name = "tui-tetris"
 path = "src/main.rs"
 
-[[bin]]
+[[example]]
 name = "input-test"
-path = "src/bin/input_test.rs"
+path = "examples/input_test.rs"
 
 [dependencies]
-tetris-core = { path = "crates/tetris-core" }
-tetris-session = { path = "crates/tetris-session" }
-tetris-adapter-protocol = { path = "crates/tetris-adapter-protocol" }
-tetris-adapter = { path = "crates/tetris-adapter" }
-tetris-terminal = { path = "crates/tetris-terminal" }
-crossterm = { version = "0.28", features = ["use-dev-tty"] }
-
-# Async networking for AI adapter
-tokio = { version = "1.42", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-# Utilities
-anyhow = "1.0"
-arrayvec = "0.7"
+tetris-core.workspace = true
+tetris-session.workspace = true
+tetris-adapter-protocol.workspace = true
+tetris-adapter.workspace = true
+tetris-terminal.workspace = true
+crossterm.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+arrayvec.workspace = true
 
 [dev-dependencies]
 tetris-core = { path = "crates/tetris-core", features = ["test-support"] }
-tokio-test = "0.4"
-criterion = { version = "0.5", features = ["html_reports"] }
+serde.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+criterion.workspace = true
 
 [[bench]]
 name = "game_logic"

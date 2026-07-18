@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use crate::adapter::client_mailbox::{ClientOutbound, ClientOutboundSender};
 use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage};
-use crate::adapter::server::{run_server_with_startup, ServerConfig, ServerState};
-pub use crate::engine::session::GameCommand as ClientCommand;
+use crate::adapter::server::{ServerConfig, ServerState, run_server_with_startup};
+pub use tetris_session::engine::session::GameCommand as ClientCommand;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AdapterStatus {

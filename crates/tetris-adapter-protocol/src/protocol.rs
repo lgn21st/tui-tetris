@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{CoreLastEvent, PieceKind, Rotation, TSpinKind};
+use tetris_core::types::{CoreLastEvent, PieceKind, Rotation, TSpinKind};
 
 use arrayvec::ArrayVec;
 
@@ -1018,7 +1018,7 @@ mod tests {
     fn protocol_version_matches_adapter_spec() {
         assert_eq!(PROTOCOL_VERSION, "3.0.0");
     }
-    use crate::types::CoreLastEvent;
+    use tetris_core::types::CoreLastEvent;
 
     #[test]
     fn test_parse_hello() {
@@ -1116,7 +1116,7 @@ mod tests {
             locked: true,
             lines_cleared: 2,
             line_clear_score: 1200,
-            tspin: Some(crate::types::TSpinKind::Full),
+            tspin: Some(tetris_core::types::TSpinKind::Full),
             combo: 1,
             back_to_back: true,
         };
@@ -1133,7 +1133,7 @@ mod tests {
             locked: true,
             lines_cleared: 1,
             line_clear_score: 200,
-            tspin: Some(crate::types::TSpinKind::Mini),
+            tspin: Some(tetris_core::types::TSpinKind::Mini),
             combo: 0,
             back_to_back: false,
         };

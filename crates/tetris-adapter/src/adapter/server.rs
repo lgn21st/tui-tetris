@@ -8,18 +8,18 @@ use std::sync::Arc;
 use tokio::io::BufWriter;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, oneshot, watch, RwLock};
+use tokio::sync::{RwLock, mpsc, oneshot, watch};
 use tokio::time::{Duration, MissedTickBehavior};
 
 use crate::adapter::client_mailbox::{
-    client_outbound_channel, ClientOutbound, ClientOutboundSender,
+    ClientOutbound, ClientOutboundSender, client_outbound_channel,
 };
 use crate::adapter::protocol::*;
 use crate::adapter::runtime::{
     AdapterStatus, ClientCommand, ClientResponder, InboundCommand, InboundPayload, OutboundMessage,
 };
-use crate::adapter::wire_log::{spawn_wire_logger, try_log as log_wire_record, WireRecord};
-use crate::types::{GameAction, Rotation};
+use crate::adapter::wire_log::{WireRecord, spawn_wire_logger, try_log as log_wire_record};
+use tetris_core::types::{GameAction, Rotation};
 
 pub use crate::adapter::client_mailbox::CLIENT_RELIABLE_QUEUE_CAPACITY;
 pub use crate::adapter::observation::build_observation;
@@ -89,10 +89,10 @@ fn is_compatible_protocol_version(version: &str) -> bool {
 
     let mut build_parts = version.split('+');
     let base = build_parts.next().unwrap_or_default();
-    if let Some(build) = build_parts.next() {
-        if !valid_identifiers(build, false) || build_parts.next().is_some() {
-            return false;
-        }
+    if let Some(build) = build_parts.next()
+        && (!valid_identifiers(build, false) || build_parts.next().is_some())
+    {
+        return false;
     }
 
     let core = match base.split_once('-') {
@@ -147,10 +147,10 @@ fn clear_stale_controller_id<F>(controller: &mut Option<usize>, is_live: F)
 where
     F: Fn(usize) -> bool,
 {
-    if let Some(stale_id) = *controller {
-        if !is_live(stale_id) {
-            *controller = None;
-        }
+    if let Some(stale_id) = *controller
+        && !is_live(stale_id)
+    {
+        *controller = None;
     }
 }
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::core::GameState;
+use tetris_core::core::GameState;
 
 #[test]
 fn protocol_compatibility_requires_semver_with_major_three() {
@@ -40,7 +40,7 @@ fn test_map_command_action_mode() {
 
 #[test]
 fn test_build_observation_copies_timers_fields() {
-    let mut snap = crate::core::snapshot::GameSnapshot::default();
+    let mut snap = tetris_core::core::snapshot::GameSnapshot::default();
     snap.timers.drop_ms = 12;
     snap.timers.lock_ms = 34;
     snap.timers.line_clear_ms = 56;

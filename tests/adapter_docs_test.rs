@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use tui_tetris::adapter::protocol::PROTOCOL_VERSION;
-use tui_tetris::adapter::server::{CLIENT_RELIABLE_QUEUE_CAPACITY, WIRE_LOG_QUEUE_CAPACITY};
+use tetris_adapter::adapter::server::{CLIENT_RELIABLE_QUEUE_CAPACITY, WIRE_LOG_QUEUE_CAPACITY};
+use tetris_adapter_protocol::protocol::PROTOCOL_VERSION;
 
 const PROTOCOL_ROOT: &str = "protocol/adapter";
 
@@ -58,8 +58,8 @@ fn protocol_schema_is_standalone_and_matches_core_contract() {
         20
     );
 
-    let promotion_order = &schema["definitions"]["capabilities"]["properties"]["control_policy"]
-        ["properties"]["promotion_order"];
+    let promotion_order = &schema["definitions"]["capabilities"]["properties"]["control_policy"]["properties"]
+        ["promotion_order"];
     assert_eq!(promotion_order["type"], "string");
     assert_eq!(promotion_order["minLength"], 1);
     assert!(

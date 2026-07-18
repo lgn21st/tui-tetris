@@ -1,5 +1,5 @@
 use crate::adapter::protocol::ErrorCode;
-use crate::engine::place::PlaceError;
+use tetris_session::engine::place::PlaceError;
 
 pub fn map_place_error_code(err: PlaceError) -> ErrorCode {
     match err {

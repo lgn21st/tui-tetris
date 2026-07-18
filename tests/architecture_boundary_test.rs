@@ -45,6 +45,14 @@ fn composition_root_does_not_mutate_game_state_directly() {
 }
 
 #[test]
+fn composition_root_has_one_terminal_lifecycle_boundary() {
+    let main = fs::read_to_string("src/main.rs").unwrap();
+    assert_eq!(main.matches("term.enter()?").count(), 1);
+    assert_eq!(main.matches("term.exit()").count(), 1);
+    assert!(main.contains("with_terminal("));
+}
+
+#[test]
 fn production_adapter_has_no_unbounded_outbound_channel() {
     for path in rust_sources(Path::new("crates/tetris-adapter/src")) {
         let source = fs::read_to_string(&path).unwrap();
@@ -93,6 +101,32 @@ fn workspace_exposes_compiler_checked_core_session_and_protocol_packages() {
 }
 
 #[test]
+fn workspace_uses_edition_2024_with_matching_dependency_resolver() {
+    let root_manifest = fs::read_to_string("Cargo.toml").unwrap();
+    assert!(
+        root_manifest.contains("resolver = \"3\""),
+        "Edition 2024 workspace must use Cargo resolver 3"
+    );
+
+    let metadata = Command::new("cargo")
+        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .output()
+        .expect("cargo metadata");
+    assert!(metadata.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&metadata.stdout).unwrap();
+    let packages = value["packages"].as_array().unwrap();
+    assert!(!packages.is_empty());
+    for package in packages {
+        assert_eq!(
+            package["edition"].as_str(),
+            Some("2024"),
+            "package {} is not on Edition 2024",
+            package["name"].as_str().unwrap_or("<unknown>")
+        );
+    }
+}
+
+#[test]
 fn workspace_crates_own_their_sources_without_cross_tree_path_indirection() {
     for manifest_root in [
         "crates/tetris-core/src",
@@ -110,6 +144,54 @@ fn workspace_crates_own_their_sources_without_cross_tree_path_indirection() {
             );
         }
     }
+}
+
+#[test]
+fn workspace_members_do_not_reexport_dependency_layers() {
+    for manifest_root in [
+        "crates/tetris-session/src",
+        "crates/tetris-adapter-protocol/src",
+        "crates/tetris-adapter/src",
+        "crates/tetris-terminal/src",
+    ] {
+        for path in rust_sources(Path::new(manifest_root)) {
+            let source = fs::read_to_string(&path).unwrap();
+            for forbidden in [
+                "pub use tetris_core::{core, types};",
+                "pub use tetris_session::engine;",
+            ] {
+                assert!(
+                    !source.lines().any(|line| line.trim() == forbidden),
+                    "{} reexports dependency layer {forbidden}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    let app = fs::read_to_string("src/lib.rs").unwrap();
+    for forbidden in [
+        "pub use tetris_adapter::adapter;",
+        "pub use tetris_core::{core, types};",
+        "pub use tetris_session::engine;",
+        "pub use tetris_terminal::{input, term};",
+    ] {
+        assert!(!app.lines().any(|line| line.trim() == forbidden));
+    }
+}
+
+#[test]
+fn app_manifest_keeps_test_only_and_unused_dependencies_out_of_production() {
+    let manifest = fs::read_to_string("Cargo.toml").unwrap();
+    let dependencies = manifest
+        .split("[dependencies]")
+        .nth(1)
+        .and_then(|tail| tail.split("[dev-dependencies]").next())
+        .expect("root dependency section");
+
+    assert!(!dependencies.lines().any(|line| line.starts_with("tokio ")));
+    assert!(!dependencies.lines().any(|line| line.starts_with("serde ")));
+    assert!(!manifest.lines().any(|line| line.starts_with("tokio-test ")));
 }
 
 #[test]

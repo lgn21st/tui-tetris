@@ -1,17 +1,18 @@
 [package]
 name = "tetris-adapter"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-anyhow = "1.0"
-arrayvec = "0.7"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1.42", features = ["full"] }
-tetris-core = { path = "../tetris-core" }
-tetris-session = { path = "../tetris-session" }
-tetris-adapter-protocol = { path = "../tetris-adapter-protocol" }
+anyhow.workspace = true
+arrayvec.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "rt-multi-thread", "sync", "time"] }
+tetris-core.workspace = true
+tetris-session.workspace = true
+tetris-adapter-protocol.workspace = true
 
 [dev-dependencies]
 tetris-core = { path = "../tetris-core", features = ["test-support"] }
+tokio = { workspace = true, features = ["macros"] }

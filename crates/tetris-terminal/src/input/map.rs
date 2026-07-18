@@ -1,7 +1,7 @@
 //! Key mapping from terminal events to game actions.
 
-use crate::types::GameAction;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use tetris_core::types::GameAction;
 
 /// Platform-neutral intent produced by terminal input mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

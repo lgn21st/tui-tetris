@@ -1,5 +1,5 @@
-use crate::core::GameState;
-use crate::types::{GameAction, Rotation, BOARD_WIDTH};
+use tetris_core::core::GameState;
+use tetris_core::types::{BOARD_WIDTH, GameAction, Rotation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaceError {
@@ -159,7 +159,7 @@ fn apply_place_in_place(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{PieceKind, BOARD_HEIGHT};
+    use tetris_core::types::{BOARD_HEIGHT, PieceKind};
 
     #[test]
     fn place_rejected_when_paused() {

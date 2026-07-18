@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use tui_tetris::adapter::protocol::create_hello;
-use tui_tetris::adapter::server::{run_server, ServerConfig};
-use tui_tetris::adapter::{InboundCommand, OutboundMessage};
-use tui_tetris::core::get_shape;
-use tui_tetris::types::{PieceKind, Rotation};
+use tetris_adapter::adapter::server::run_server;
+use tetris_adapter::adapter::{InboundCommand, OutboundMessage};
+use tetris_adapter_protocol::protocol::create_hello;
+use tetris_core::core::get_shape;
+use tetris_core::types::{PieceKind, Rotation};
 
 mod support;
 use support::read_line;
@@ -23,7 +23,7 @@ async fn engine_loop(
     mut cmd_rx: mpsc::Receiver<InboundCommand>,
     _out_tx: mpsc::UnboundedSender<OutboundMessage>,
 ) {
-    let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20)
+    let mut driver = tetris_adapter::adapter::game_loop::SessionProtocolDriver::new(1, 20)
         .with_post_command_steps(64);
     while let Some(inbound) = cmd_rx.recv().await {
         driver.handle(inbound);
@@ -34,7 +34,7 @@ async fn engine_loop_without_settle(
     mut cmd_rx: mpsc::Receiver<InboundCommand>,
     _out_tx: mpsc::UnboundedSender<OutboundMessage>,
 ) {
-    let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20);
+    let mut driver = tetris_adapter::adapter::game_loop::SessionProtocolDriver::new(1, 20);
     while let Some(inbound) = cmd_rx.recv().await {
         driver.handle(inbound);
     }
@@ -57,14 +57,9 @@ async fn collect_next_queue_signature(addr: std::net::SocketAddr, seed: u32) -> 
     let mut seq: u64 = 1;
     let mut hello = create_hello(seq, "restart-seed", "3.0.0");
     hello.requested.stream_observations = true;
-    hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Action;
-    hello.requested.role = Some(tui_tetris::adapter::protocol::RequestedRole::Controller);
-    write_half
-        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    hello.requested.command_mode = tetris_adapter_protocol::protocol::CommandMode::Action;
+    hello.requested.role = Some(tetris_adapter_protocol::protocol::RequestedRole::Controller);
+    support::write_json_line(&mut write_half, &hello).await;
 
     // welcome + first observation (snapshot request)
     let welcome = read_next_json(&mut lines).await;
@@ -76,12 +71,7 @@ async fn collect_next_queue_signature(addr: std::net::SocketAddr, seed: u32) -> 
     // claim controller (idempotent if already controller)
     seq += 1;
     let claim = serde_json::json!({"type":"control","seq":seq,"ts":1,"action":"claim"});
-    write_half
-        .write_all(serde_json::to_string(&claim).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_json_line(&mut write_half, &claim).await;
     let claim_resp = read_next_json(&mut lines).await;
     assert!(claim_resp["type"] == "ack" || claim_resp["type"] == "error");
 
@@ -95,12 +85,7 @@ async fn collect_next_queue_signature(addr: std::net::SocketAddr, seed: u32) -> 
         "actions":["restart"],
         "restart":{"seed":seed}
     });
-    write_half
-        .write_all(serde_json::to_string(&restart).unwrap().as_bytes())
-        .await
-        .unwrap();
-    write_half.write_all(b"\n").await.unwrap();
-    write_half.flush().await.unwrap();
+    support::write_json_line(&mut write_half, &restart).await;
 
     // ack + observation after restart
     loop {
@@ -141,12 +126,7 @@ async fn collect_next_queue_signature(addr: std::net::SocketAddr, seed: u32) -> 
             "mode":"action",
             "actions":["hardDrop"]
         });
-        write_half
-            .write_all(serde_json::to_string(&cmd).unwrap().as_bytes())
-            .await
-            .unwrap();
-        write_half.write_all(b"\n").await.unwrap();
-        write_half.flush().await.unwrap();
+        support::write_json_line(&mut write_half, &cmd).await;
 
         // ack (or error if game isn't playable)
         loop {
@@ -177,14 +157,7 @@ async fn collect_next_queue_signature(addr: std::net::SocketAddr, seed: u32) -> 
 
 #[tokio::test]
 async fn closed_loop_stability_3x50_reconnects() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 64,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config_with_capacity(64);
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(128);
     let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -210,13 +183,8 @@ async fn closed_loop_stability_3x50_reconnects() {
             let mut seq: u64 = 1;
             let mut hello = create_hello(seq, "closed-loop", "3.0.0");
             hello.requested.stream_observations = true;
-            hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
-            write_half
-                .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-                .await
-                .unwrap();
-            write_half.write_all(b"\n").await.unwrap();
-            write_half.flush().await.unwrap();
+            hello.requested.command_mode = tetris_adapter_protocol::protocol::CommandMode::Place;
+            support::write_json_line(&mut write_half, &hello).await;
 
             // welcome
             let welcome: serde_json::Value =
@@ -260,12 +228,7 @@ async fn closed_loop_stability_3x50_reconnects() {
                     "mode": "place",
                     "place": {"x": x, "rotation": rot.as_str(), "useHold": false}
                 });
-                write_half
-                    .write_all(serde_json::to_string(&cmd).unwrap().as_bytes())
-                    .await
-                    .unwrap();
-                write_half.write_all(b"\n").await.unwrap();
-                write_half.flush().await.unwrap();
+                support::write_json_line(&mut write_half, &cmd).await;
 
                 // Expect ack or error for this seq.
                 loop {
@@ -294,14 +257,7 @@ async fn closed_loop_stability_3x50_reconnects() {
 
 #[tokio::test]
 async fn restart_with_seed_is_deterministic_for_next_queue() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 64,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config_with_capacity(64);
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(128);
     let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -329,14 +285,7 @@ async fn restart_with_seed_is_deterministic_for_next_queue() {
 #[tokio::test]
 #[ignore]
 async fn closed_loop_long_run_200_episodes() {
-    let config = ServerConfig {
-        host: "127.0.0.1".to_string(),
-        port: 0,
-        protocol_version: "3.0.0".to_string(),
-        max_pending_commands: 64,
-        log_path: None,
-        ..ServerConfig::default()
-    };
+    let config = support::server_config_with_capacity(64);
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<InboundCommand>(256);
     let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
@@ -360,13 +309,8 @@ async fn closed_loop_long_run_200_episodes() {
         let mut seq: u64 = 1;
         let mut hello = create_hello(seq, "closed-loop-long", "3.0.0");
         hello.requested.stream_observations = true;
-        hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
-        write_half
-            .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
-            .await
-            .unwrap();
-        write_half.write_all(b"\n").await.unwrap();
-        write_half.flush().await.unwrap();
+        hello.requested.command_mode = tetris_adapter_protocol::protocol::CommandMode::Place;
+        support::write_json_line(&mut write_half, &hello).await;
 
         let welcome: serde_json::Value =
             serde_json::from_str(&read_line(&mut lines).await).unwrap();
@@ -386,12 +330,7 @@ async fn closed_loop_long_run_200_episodes() {
             "mode": "action",
             "actions": ["restart"]
         });
-        write_half
-            .write_all(serde_json::to_string(&restart).unwrap().as_bytes())
-            .await
-            .unwrap();
-        write_half.write_all(b"\n").await.unwrap();
-        write_half.flush().await.unwrap();
+        support::write_json_line(&mut write_half, &restart).await;
 
         // Expect ack for restart.
         loop {
@@ -439,12 +378,7 @@ async fn closed_loop_long_run_200_episodes() {
                 "mode": "place",
                 "place": {"x": x, "rotation": rot.as_str(), "useHold": false}
             });
-            write_half
-                .write_all(serde_json::to_string(&cmd).unwrap().as_bytes())
-                .await
-                .unwrap();
-            write_half.write_all(b"\n").await.unwrap();
-            write_half.flush().await.unwrap();
+            support::write_json_line(&mut write_half, &cmd).await;
 
             // Expect ack or error for this seq.
             loop {

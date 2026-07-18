@@ -1,10 +1,10 @@
 //! Deterministic observation cadence shared by interactive and headless runners.
 
 use crate::adapter::protocol::TransitionEvent;
-use crate::core::GameState;
-use crate::types::CoreLastEvent;
-use crate::types::TICK_MS;
 use arrayvec::ArrayVec;
+use tetris_core::core::GameState;
+use tetris_core::types::CoreLastEvent;
+use tetris_core::types::TICK_MS;
 
 #[derive(Debug)]
 pub struct ObservationSchedule {
@@ -92,7 +92,7 @@ fn update_changed<T: Copy + PartialEq>(previous: &mut T, current: T) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::GameAction;
+    use tetris_core::types::GameAction;
 
     #[test]
     fn emits_at_configured_fixed_step_interval() {

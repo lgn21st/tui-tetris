@@ -1,5 +1,5 @@
-use tui_tetris::engine::session::{GameCommand, SessionRuntime, StepInput};
-use tui_tetris::types::{GameAction, TICK_MS};
+use tetris_core::types::{GameAction, TICK_MS};
+use tetris_session::engine::session::{GameCommand, SessionRuntime, StepInput};
 
 #[test]
 fn session_applies_remote_commands_before_local_actions_and_ticks_once() {
@@ -57,12 +57,14 @@ fn session_snapshot_store_keeps_board_and_metadata_coherent() {
     assert!(session.snapshot().piece_id > initial_piece_id);
     assert_eq!(session.snapshot().board_id, session.game().board_id());
     assert_eq!(session.snapshot().piece_id, session.game().piece_id());
-    assert!(session
-        .snapshot()
-        .board
-        .iter()
-        .flatten()
-        .any(|cell| *cell != 0));
+    assert!(
+        session
+            .snapshot()
+            .board
+            .iter()
+            .flatten()
+            .any(|cell| *cell != 0)
+    );
 }
 
 #[test]

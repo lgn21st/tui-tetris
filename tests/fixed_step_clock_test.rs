@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tui_tetris::engine::fixed_step::FixedStepClock;
+use tetris_session::engine::fixed_step::FixedStepClock;
 
 #[test]
 fn fixed_step_clock_retains_fractional_elapsed_time() {

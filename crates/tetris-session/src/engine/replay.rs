@@ -1,9 +1,9 @@
 //! Stable command recording and deterministic replay verification.
 
-use crate::core::{stable_state_hash, GameSnapshot};
 use crate::engine::session::{CommandOutcome, GameCommand, SessionRuntime, StepInput};
-use crate::types::{GameAction, Rotation};
 use arrayvec::ArrayVec;
+use tetris_core::core::{GameSnapshot, stable_state_hash};
+use tetris_core::types::{GameAction, Rotation};
 
 pub const REPLAY_FORMAT_VERSION: u16 = 2;
 pub const RULESET_VERSION: &str = "tui-guideline-2026.1";
@@ -21,7 +21,7 @@ fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
 pub fn transition_hash(
     snapshot: &GameSnapshot,
     logical_step: u64,
-    events: &[crate::types::CoreLastEvent],
+    events: &[tetris_core::types::CoreLastEvent],
     outcomes: &[CommandOutcome],
 ) -> u64 {
     let mut hash = stable_state_hash(snapshot, None);

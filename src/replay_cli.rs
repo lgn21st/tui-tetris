@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use crate::engine::replay::{replay_and_verify, ReplayTape};
-use crate::engine::session::StepInput;
+use tetris_session::engine::replay::{ReplayTape, replay_and_verify};
+use tetris_session::engine::session::StepInput;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReplayCommand {

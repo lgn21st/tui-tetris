@@ -1,8 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use tui_tetris::core::GameState;
-use tui_tetris::input::{map_input_command, InputCommand};
-use tui_tetris::term::{AdapterStatusView, GameViewModel};
-use tui_tetris::types::GameAction;
+use tetris_core::core::GameState;
+use tetris_core::types::GameAction;
+use tetris_terminal::input::{InputCommand, map_input_command};
+use tetris_terminal::term::{AdapterStatusView, GameViewModel};
 
 #[test]
 fn terminal_projection_owns_an_immutable_render_model() {

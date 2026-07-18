@@ -4,36 +4,14 @@
 //! designed with a clean architecture that separates game logic, rendering,
 //! and external AI control.
 //!
-//! # Architecture
-//!
-//! The codebase is organized into three main modules:
-//!
-//! - [`core`]: Pure game logic with no external dependencies
-//!   - Board state management, piece rotation, line clearing
-//!   - Scoring, levels, timing mechanics
-//!   - Deterministic and testable
-//!
-//! - [`adapter`]: AI protocol handling via TCP socket
-//!   - JSON line protocol per `protocol/adapter/SPEC.md`
-//!   - Supports both "action" and "place" command modes
-//!   - Allows external AI agents to control the game
-//!
-//! - [`term`]: Terminal game renderer and framebuffer pipeline
-//!   - Uses crossterm for terminal I/O (raw mode, alternate screen, input)
-//!   - Renders via a small framebuffer and renderer flush layer
-//!
-//! - [`input`]: Terminal input mapping and DAS/ARR handler
-//!   - Maps key events to game actions
-//!   - Implements DAS/ARR for responsive controls
-//!
-//! - [`types`]: Core types and constants shared across modules
-//!   - Game actions, piece kinds, rotation states
-//!   - Board dimensions, timing constants
+//! Gameplay, session, adapter, and terminal APIs live in their dedicated
+//! workspace crates. This root library owns only application commands, replay
+//! commands, and the observer client.
 //!
 //! # Quick Start
 //!
 //! ```no_run
-//! use tui_tetris::core::GameState;
+//! use tetris_core::core::GameState;
 //!
 //! // Create a new game with a specific seed
 //! let mut game = GameState::new(42);
@@ -62,7 +40,7 @@
 //! cargo run
 //! ```
 //!
-//! See [`adapter`] module documentation for protocol details.
+//! See `docs/adapter.md` and the `tetris-adapter` crate for protocol details.
 //!
 //! # Performance
 //!
@@ -73,8 +51,3 @@
 pub mod app_cli;
 pub mod observe;
 pub mod replay_cli;
-
-pub use tetris_adapter::adapter;
-pub use tetris_core::{core, types};
-pub use tetris_session::engine;
-pub use tetris_terminal::{input, term};

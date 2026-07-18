@@ -6,12 +6,12 @@ use arrayvec::ArrayVec;
 
 use crate::adapter::command_apply::map_place_error_code;
 use crate::adapter::observation_schedule::ObservationSchedule;
-use crate::adapter::protocol::{create_applied_ack, create_error, StateHash};
+use crate::adapter::protocol::{StateHash, create_applied_ack, create_error};
 use crate::adapter::runtime::{Adapter, InboundPayload, OutboundMessage};
 use crate::adapter::server::build_observation;
-use crate::engine::replay::transition_hash;
-use crate::engine::session::{GameCommand, SessionRuntime, StepInput, Transition};
-use crate::types::GameAction;
+use tetris_core::types::GameAction;
+use tetris_session::engine::replay::transition_hash;
+use tetris_session::engine::session::{GameCommand, SessionRuntime, StepInput, Transition};
 
 pub const MAX_COMMANDS_PER_STEP: usize = 32;
 
@@ -181,16 +181,15 @@ pub fn step_session(
     for &event in &transition.events {
         observations.capture_event(event);
     }
-    if let Some((seq, events)) = observations.after_tick(session.game()) {
-        if has_streaming_subscribers {
-            if let Some(adapter) = adapter.as_ref() {
-                let observation =
-                    build_observation(seq, session.logical_step(), session.snapshot(), &events);
-                let _ = adapter.send(OutboundMessage::BroadcastObservationArc {
-                    obs: Arc::new(observation),
-                });
-            }
-        }
+    if let Some((seq, events)) = observations.after_tick(session.game())
+        && has_streaming_subscribers
+        && let Some(adapter) = adapter.as_ref()
+    {
+        let observation =
+            build_observation(seq, session.logical_step(), session.snapshot(), &events);
+        let _ = adapter.send(OutboundMessage::BroadcastObservationArc {
+            obs: Arc::new(observation),
+        });
     }
 
     transition
@@ -199,8 +198,8 @@ pub fn step_session(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::session::SessionRuntime;
-    use crate::types::GameAction;
+    use tetris_core::types::GameAction;
+    use tetris_session::engine::session::SessionRuntime;
 
     #[test]
     fn shared_step_advances_session_without_an_adapter() {

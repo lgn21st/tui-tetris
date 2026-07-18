@@ -4,8 +4,8 @@
 //! It handles game timing, piece movement, rotation, line clears, and game lifecycle.
 
 use crate::core::{
-    calculate_drop_score, calculate_score, get_shape, scoring::get_drop_interval_ms, try_rotate,
-    Board, PieceQueue,
+    Board, PieceQueue, calculate_drop_score, calculate_score, get_shape,
+    scoring::get_drop_interval_ms, try_rotate,
 };
 use crate::types::*;
 
@@ -451,12 +451,12 @@ impl GameState {
                 self.step_in_piece = 0;
 
                 // Check if spawn is valid
-                if let Some(ref piece) = self.active {
-                    if !piece.is_valid(&self.board) {
-                        self.game_over = true;
-                        self.active = None;
-                        return false;
-                    }
+                if let Some(ref piece) = self.active
+                    && !piece.is_valid(&self.board)
+                {
+                    self.game_over = true;
+                    self.active = None;
+                    return false;
                 }
             }
             None => {

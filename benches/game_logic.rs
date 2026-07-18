@@ -1,12 +1,12 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use std::io::{self, Write};
-use tui_tetris::adapter::protocol::parse_message;
-use tui_tetris::adapter::server::build_observation;
-use tui_tetris::core::{Board, GameSnapshot, GameState};
-use tui_tetris::engine::replay::transition_hash;
-use tui_tetris::engine::session::{SessionRuntime, StepInput};
-use tui_tetris::term::{encode_diff_into, FrameBuffer, GameView, TerminalRenderer, Viewport};
-use tui_tetris::types::{GameAction, PieceKind};
+use tetris_adapter::adapter::server::build_observation;
+use tetris_adapter_protocol::protocol::parse_message;
+use tetris_core::core::{Board, GameSnapshot, GameState};
+use tetris_core::types::{GameAction, PieceKind};
+use tetris_session::engine::replay::transition_hash;
+use tetris_session::engine::session::{SessionRuntime, StepInput};
+use tetris_terminal::term::{FrameBuffer, GameView, TerminalRenderer, Viewport, encode_diff_into};
 
 #[derive(Default)]
 struct BenchmarkWriter {

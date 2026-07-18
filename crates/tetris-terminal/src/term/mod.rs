@@ -17,4 +17,4 @@ pub mod renderer;
 pub use fb::{Cell, CellStyle, FrameBuffer, Rgb};
 pub use game_view::{AdapterStatusView, AnchorY, GameView, GameViewModel, Viewport};
 pub use render_throttle::RenderThrottle;
-pub use renderer::{encode_diff_into, encode_full_into, TerminalRenderer};
+pub use renderer::{TerminalRenderer, encode_diff_into, encode_full_into};

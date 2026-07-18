@@ -1,4 +1,4 @@
-use tui_tetris::app_cli::{parse_app_args, run_batch_headless, AppCommand, HeadlessConfig};
+use tui_tetris::app_cli::{AppCommand, HeadlessConfig, parse_app_args, run_batch_headless};
 
 #[test]
 fn headless_and_diagnostic_commands_are_explicit() {

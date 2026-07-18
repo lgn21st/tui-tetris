@@ -1,5 +1,5 @@
-use tui_tetris::engine::session::{GameCommand, SessionRuntime, StepInput};
-use tui_tetris::types::GameAction;
+use tetris_core::types::GameAction;
+use tetris_session::engine::session::{GameCommand, SessionRuntime, StepInput};
 
 #[test]
 fn one_step_input_produces_one_transition_with_an_event_collection() {

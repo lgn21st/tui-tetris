@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use tui_tetris::replay_cli::{parse_replay_args, run_replay_command, ReplayCommand};
+use tui_tetris::replay_cli::{ReplayCommand, parse_replay_args, run_replay_command};
 
 fn temp_replay() -> PathBuf {
     std::env::temp_dir().join(format!("tui-tetris-replay-{}.ttr", std::process::id()))

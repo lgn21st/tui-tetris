@@ -1,7 +1,7 @@
 //! Pieces module tests - TDD for SRS rotation system
 
-use tui_tetris::core::pieces::{get_shape, get_spawn_shape, try_rotate, SPAWN_POSITION};
-use tui_tetris::types::{PieceKind, Rotation};
+use tetris_core::core::pieces::{SPAWN_POSITION, get_shape, get_spawn_shape, try_rotate};
+use tetris_core::types::{PieceKind, Rotation};
 
 // ============== Shape Tests ==============
 
@@ -189,7 +189,7 @@ fn test_ccw_rotation() {
 
 #[test]
 fn test_kick_table_consistency() {
-    use tui_tetris::core::pieces::get_kick_table;
+    use tetris_core::core::pieces::get_kick_table;
 
     // O piece kick table should be all zeros
     let o_kicks = get_kick_table(PieceKind::O);

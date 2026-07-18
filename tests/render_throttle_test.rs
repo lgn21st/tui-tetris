@@ -1,4 +1,4 @@
-use tui_tetris::term::RenderThrottle;
+use tetris_terminal::term::RenderThrottle;
 
 #[test]
 fn render_throttle_renders_first_frame() {

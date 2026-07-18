@@ -7,7 +7,7 @@
 
 use arrayvec::ArrayVec;
 
-use crate::types::{Cell, PieceKind, BOARD_HEIGHT, BOARD_WIDTH};
+use crate::types::{BOARD_HEIGHT, BOARD_WIDTH, Cell, PieceKind};
 
 /// Total number of cells on the board
 const BOARD_SIZE: usize = (BOARD_WIDTH * BOARD_HEIGHT) as usize;
@@ -343,5 +343,53 @@ mod tests {
         assert_eq!(Board::index(10, 0), None);
         assert_eq!(Board::index(0, -1), None);
         assert_eq!(Board::index(0, 20), None);
+    }
+
+    #[test]
+    fn clear_row_shifts_rows_above_down() {
+        let mut board = Board::new();
+        for x in 0..BOARD_WIDTH {
+            board.set(x as i8, 5, Some(PieceKind::T));
+        }
+        board.set(0, 3, Some(PieceKind::I));
+        board.set(1, 4, Some(PieceKind::O));
+
+        assert_eq!(board.clear_row(5), 1);
+        assert_eq!(board.get(1, 5), Some(Some(PieceKind::O)));
+        assert_eq!(board.get(0, 4), Some(Some(PieceKind::I)));
+        assert_eq!(board.get(0, 3), Some(None));
+    }
+
+    #[test]
+    fn clearing_separated_rows_preserves_relative_order() {
+        let mut board = Board::new();
+        for x in 0..BOARD_WIDTH {
+            board.set(x as i8, 5, Some(PieceKind::T));
+            board.set(x as i8, 10, Some(PieceKind::I));
+            board.set(x as i8, 15, Some(PieceKind::O));
+        }
+        board.set(0, 4, Some(PieceKind::J));
+        board.set(0, 9, Some(PieceKind::L));
+        board.set(0, 14, Some(PieceKind::S));
+
+        assert_eq!(board.clear_full_rows().as_slice(), &[5, 10, 15]);
+        assert_eq!(board.get(0, 7), Some(Some(PieceKind::J)));
+        assert_eq!(board.get(0, 11), Some(Some(PieceKind::L)));
+        assert_eq!(board.get(0, 15), Some(Some(PieceKind::S)));
+    }
+
+    #[test]
+    fn lock_piece_rejects_out_of_bounds_without_mutation() {
+        let mut board = Board::new();
+        assert!(!board.lock_piece(&[(0, 0), (1, 0), (2, 0)], 8, 5, PieceKind::I));
+        assert_eq!(board.filled_count(), 0);
+    }
+
+    #[test]
+    fn cells_exposes_the_complete_fixed_board() {
+        assert_eq!(
+            Board::new().cells().len(),
+            usize::from(BOARD_WIDTH) * usize::from(BOARD_HEIGHT)
+        );
     }
 }

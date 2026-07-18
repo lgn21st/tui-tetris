@@ -11,24 +11,24 @@ use anyhow::Result;
 use arrayvec::ArrayVec;
 use crossterm::event::{self, Event, KeyEventKind};
 
-use tui_tetris::adapter::game_loop::step_session;
-use tui_tetris::adapter::observation_schedule::ObservationSchedule;
-use tui_tetris::adapter::Adapter;
-use tui_tetris::app_cli::{diagnostic_report, parse_app_args, run_batch_headless, AppCommand};
-use tui_tetris::core::{GameSnapshot, GameState};
-use tui_tetris::engine::fixed_step::FixedStepClock;
-use tui_tetris::engine::session::SessionRuntime;
-use tui_tetris::input::{map_input_command, InputCommand, InputHandler};
-use tui_tetris::observe::{
-    connect_observer_with_retry, observe_status_lines, parse_observe_args,
-    snapshot_from_observation, ObserveEvent, ObserveReconnectPolicy,
-};
-use tui_tetris::replay_cli::{parse_replay_args, run_replay_command};
-use tui_tetris::term::AdapterStatusView;
-use tui_tetris::term::{
+use tetris_adapter::adapter::Adapter;
+use tetris_adapter::adapter::game_loop::step_session;
+use tetris_adapter::adapter::observation_schedule::ObservationSchedule;
+use tetris_core::core::{GameSnapshot, GameState};
+use tetris_core::types::{GameAction, TICK_MS};
+use tetris_session::engine::fixed_step::FixedStepClock;
+use tetris_session::engine::session::SessionRuntime;
+use tetris_terminal::input::{InputCommand, InputHandler, map_input_command};
+use tetris_terminal::term::AdapterStatusView;
+use tetris_terminal::term::{
     AnchorY, CellStyle, GameView, GameViewModel, RenderThrottle, Rgb, TerminalRenderer, Viewport,
 };
-use tui_tetris::types::{GameAction, TICK_MS};
+use tui_tetris::app_cli::{AppCommand, diagnostic_report, parse_app_args, run_batch_headless};
+use tui_tetris::observe::{
+    ObserveEvent, ObserveReconnectPolicy, connect_observer_with_retry, observe_status_lines,
+    parse_observe_args, snapshot_from_observation,
+};
+use tui_tetris::replay_cli::{parse_replay_args, run_replay_command};
 
 const MAX_CATCH_UP_STEPS: u32 = 8;
 
@@ -67,12 +67,13 @@ fn main() -> Result<()> {
         return run_headless(1);
     }
 
+    with_terminal(run)
+}
+
+fn with_terminal(run: impl FnOnce(&mut TerminalRenderer) -> Result<()>) -> Result<()> {
     let mut term = TerminalRenderer::new();
     term.enter()?;
-
     let result = run(&mut term);
-
-    // Always try to restore terminal state.
     let _ = term.exit();
     result
 }
@@ -81,12 +82,9 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
     let reconnect_policy = ObserveReconnectPolicy::default();
     let (mut rx, first_obs) = connect_observer_with_retry(&config, reconnect_policy)?;
 
-    let mut term = TerminalRenderer::new();
-    term.enter()?;
-
-    let result = (|| -> Result<()> {
+    with_terminal(|term| {
         let view = game_view_from_env();
-        let mut fb = tui_tetris::term::FrameBuffer::new(80, 24);
+        let mut fb = tetris_terminal::term::FrameBuffer::new(80, 24);
         let mut latest_obs = first_obs;
         let mut snap = latest_obs
             .as_ref()
@@ -169,10 +167,7 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
                 }
             }
         }
-    })();
-
-    let _ = term.exit();
-    result
+    })
 }
 
 fn headless_enabled() -> bool {
@@ -229,12 +224,12 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut session = SessionRuntime::new(1);
 
     let view = game_view_from_env();
-    let mut fb = tui_tetris::term::FrameBuffer::new(80, 24);
+    let mut fb = tetris_terminal::term::FrameBuffer::new(80, 24);
     let mut input_handler = InputHandler::new();
-    if let Ok(s) = std::env::var("TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS") {
-        if let Ok(ms) = s.parse::<u32>() {
-            input_handler = input_handler.with_key_release_timeout_ms(ms);
-        }
+    if let Ok(s) = std::env::var("TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS")
+        && let Ok(ms) = s.parse::<u32>()
+    {
+        input_handler = input_handler.with_key_release_timeout_ms(ms);
     }
     // Optional: tune repeat-driven release bounds for terminals that emit Repeat but not Release.
     // Useful for Ghostty-like terminals that have repeat events but no key-up events.

@@ -1,8 +1,8 @@
 //! Top-level non-interactive application commands.
 
-use crate::adapter::protocol::PROTOCOL_VERSION;
-use crate::engine::replay::{transition_hash, REPLAY_FORMAT_VERSION, RULESET_VERSION};
-use crate::engine::session::{SessionRuntime, StepInput};
+use tetris_adapter_protocol::protocol::PROTOCOL_VERSION;
+use tetris_session::engine::replay::{REPLAY_FORMAT_VERSION, RULESET_VERSION, transition_hash};
+use tetris_session::engine::session::{SessionRuntime, StepInput};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HeadlessConfig {

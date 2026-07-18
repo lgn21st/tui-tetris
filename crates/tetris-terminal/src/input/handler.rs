@@ -6,7 +6,7 @@ use crossterm::event::KeyCode;
 
 use arrayvec::ArrayVec;
 
-use crate::types::{GameAction, DEFAULT_ARR_MS, DEFAULT_DAS_MS, SOFT_DROP_ARR_MS};
+use tetris_core::types::{DEFAULT_ARR_MS, DEFAULT_DAS_MS, GameAction, SOFT_DROP_ARR_MS};
 
 /// Direction for horizontal movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

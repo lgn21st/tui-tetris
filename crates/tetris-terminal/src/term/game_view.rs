@@ -2,9 +2,9 @@
 //!
 //! This module is pure (no I/O). It can be unit-tested.
 
-use crate::core::{get_shape, GameSnapshot};
 use crate::term::fb::{CellStyle, FrameBuffer, Rgb};
-use crate::types::{PieceKind, BOARD_HEIGHT, BOARD_WIDTH};
+use tetris_core::core::{GameSnapshot, get_shape};
+use tetris_core::types::{BOARD_HEIGHT, BOARD_WIDTH, PieceKind};
 
 /// Terminal viewport dimensions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

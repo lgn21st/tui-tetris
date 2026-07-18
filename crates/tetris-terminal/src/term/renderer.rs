@@ -8,11 +8,11 @@ use std::io::{self, Write};
 use anyhow::Result;
 
 use crossterm::{
-    cursor,
+    QueueableCommand, cursor,
     style::{
         Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
     },
-    terminal, QueueableCommand,
+    terminal,
 };
 
 use crate::term::fb::{CellStyle, FrameBuffer, Rgb};

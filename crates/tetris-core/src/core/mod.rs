@@ -70,6 +70,6 @@ pub use board::Board;
 pub use game_state::{GameState, Tetromino};
 pub use pieces::{get_shape, try_rotate};
 pub use rng::{PieceQueue, SimpleRng};
-pub use scoring::{calculate_drop_score, calculate_score, ScoreResult};
+pub use scoring::{ScoreResult, calculate_drop_score, calculate_score};
 pub use snapshot::{ActiveSnapshot, GameSnapshot};
 pub use state_hash::stable_state_hash;

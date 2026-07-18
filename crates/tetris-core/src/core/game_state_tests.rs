@@ -1,6 +1,6 @@
 use super::*;
-use crate::core::scoring::qualifies_for_b2b;
 use crate::core::PieceQueue;
+use crate::core::scoring::qualifies_for_b2b;
 
 fn find_seed_with_first_piece(kind: PieceKind) -> u32 {
     // Brute force a small seed range to find a deterministic queue whose first draw is `kind`.

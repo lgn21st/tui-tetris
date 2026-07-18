@@ -1,9 +1,9 @@
-use tui_tetris::engine::replay::{
-    replay_and_verify, transition_hash, ReplayMismatch, ReplayTape, StepRecord,
-    REPLAY_FORMAT_VERSION, RULESET_VERSION,
+use tetris_core::types::{CoreLastEvent, GameAction, TSpinKind};
+use tetris_session::engine::replay::{
+    REPLAY_FORMAT_VERSION, RULESET_VERSION, ReplayMismatch, ReplayTape, StepRecord,
+    replay_and_verify, transition_hash,
 };
-use tui_tetris::engine::session::{GameCommand, SessionRuntime, StepInput};
-use tui_tetris::types::{CoreLastEvent, GameAction, TSpinKind};
+use tetris_session::engine::session::{GameCommand, SessionRuntime, StepInput};
 
 fn sample_batches() -> Vec<StepInput> {
     vec![
@@ -67,9 +67,11 @@ fn replay_header_versions_the_container_and_ruleset() {
     assert_eq!(tape.ruleset_version(), RULESET_VERSION);
 
     let incompatible = encoded.replacen(RULESET_VERSION, "incompatible-rules", 1);
-    assert!(ReplayTape::decode(incompatible.as_bytes())
-        .unwrap_err()
-        .contains("unsupported ruleset"));
+    assert!(
+        ReplayTape::decode(incompatible.as_bytes())
+            .unwrap_err()
+            .contains("unsupported ruleset")
+    );
 }
 
 #[test]

@@ -6,9 +6,9 @@
 
 use arrayvec::ArrayVec;
 
-use crate::core::{GameSnapshot, GameState};
-use crate::engine::place::{apply_place, PlaceError};
-use crate::types::{CoreLastEvent, GameAction, Rotation, TICK_MS};
+use crate::engine::place::{PlaceError, apply_place};
+use tetris_core::core::{GameSnapshot, GameState};
+use tetris_core::types::{CoreLastEvent, GameAction, Rotation, TICK_MS};
 
 pub const MAX_COMMANDS_PER_STEP: usize = 32;
 pub const MAX_LOCAL_ACTIONS_PER_STEP: usize = 64;
@@ -179,11 +179,11 @@ fn apply_game_command(game: &mut GameState, command: &GameCommand) -> CommandOut
         } => {
             let mut restart_seed = *restart_seed;
             for &action in actions {
-                if action == GameAction::Restart {
-                    if let Some(seed) = restart_seed.take() {
-                        let _ = game.restart_with_seed(seed);
-                        continue;
-                    }
+                if action == GameAction::Restart
+                    && let Some(seed) = restart_seed.take()
+                {
+                    let _ = game.restart_with_seed(seed);
+                    continue;
                 }
                 let _ = game.apply_action(action);
             }

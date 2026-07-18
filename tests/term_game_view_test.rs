@@ -1,6 +1,6 @@
-use tui_tetris::core::GameState;
-use tui_tetris::term::{AdapterStatusView, AnchorY, GameView, Viewport};
-use tui_tetris::types::PieceKind;
+use tetris_core::core::GameState;
+use tetris_core::types::PieceKind;
+use tetris_terminal::term::{AdapterStatusView, AnchorY, GameView, Viewport};
 
 #[test]
 fn term_view_renders_border_corners() {

@@ -1,5 +1,5 @@
-use tui_tetris::core::{GameSnapshot, GameState};
-use tui_tetris::types::GameAction;
+use tetris_core::core::{GameSnapshot, GameState};
+use tetris_core::types::GameAction;
 
 fn fnv1a64_bytes(bytes: impl Iterator<Item = u8>) -> u64 {
     // FNV-1a 64-bit.

@@ -81,7 +81,7 @@ mod tests {
     use super::*;
     use crate::adapter::observation::build_observation;
     use crate::adapter::protocol::create_ack;
-    use crate::core::GameSnapshot;
+    use tetris_core::core::GameSnapshot;
 
     #[test]
     fn reliable_queue_overflow_requests_disconnect() {

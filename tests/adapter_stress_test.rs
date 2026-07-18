@@ -3,10 +3,10 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
-use tui_tetris::adapter::protocol::{create_hello, RequestedRole};
-use tui_tetris::adapter::server::{build_observation, ServerConfig};
-use tui_tetris::adapter::OutboundMessage;
-use tui_tetris::core::GameState;
+use tetris_adapter::adapter::OutboundMessage;
+use tetris_adapter::adapter::server::build_observation;
+use tetris_adapter_protocol::protocol::{RequestedRole, create_hello};
+use tetris_core::core::GameState;
 
 mod support;
 use support::{read_json_line, spawn_server};
@@ -26,12 +26,7 @@ async fn hello(addr: std::net::SocketAddr, name: &str) -> TcpStream {
 
 #[tokio::test]
 async fn disconnect_storm_leaves_broker_responsive() {
-    let config = ServerConfig {
-        host: "127.0.0.1".into(),
-        port: 0,
-        protocol_version: "3.0.0".into(),
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
     let (server, addr, mut commands, _outbound) = spawn_server(config, 512).await;
     let drain = tokio::spawn(async move { while commands.recv().await.is_some() {} });
 
@@ -55,12 +50,7 @@ async fn disconnect_storm_leaves_broker_responsive() {
 
 #[tokio::test]
 async fn stalled_client_does_not_block_a_new_healthy_client() {
-    let config = ServerConfig {
-        host: "127.0.0.1".into(),
-        port: 0,
-        protocol_version: "3.0.0".into(),
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
     let (server, addr, mut commands, _outbound) = spawn_server(config, 512).await;
     let drain = tokio::spawn(async move { while commands.recv().await.is_some() {} });
 
@@ -93,12 +83,7 @@ async fn stalled_client_does_not_block_a_new_healthy_client() {
 
 #[tokio::test]
 async fn latest_observation_fans_out_to_32_observers() {
-    let config = ServerConfig {
-        host: "127.0.0.1".into(),
-        port: 0,
-        protocol_version: "3.0.0".into(),
-        ..ServerConfig::default()
-    };
+    let config = support::server_config();
     let (server, addr, mut commands, outbound) = spawn_server(config, 512).await;
     let drain = tokio::spawn(async move { while commands.recv().await.is_some() {} });
     let mut clients = Vec::new();

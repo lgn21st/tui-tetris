@@ -1,8 +1,8 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use tui_tetris::adapter::server::build_observation;
-use tui_tetris::core::GameState;
+use tetris_adapter::adapter::server::build_observation;
+use tetris_core::core::GameState;
 
 struct CountingAlloc;
 
@@ -14,23 +14,27 @@ static GLOBAL: CountingAlloc = CountingAlloc;
 
 unsafe impl GlobalAlloc for CountingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if COUNT_ENABLED.load(Ordering::Relaxed) {
-            let _ = layout;
-            ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+        unsafe {
+            if COUNT_ENABLED.load(Ordering::Relaxed) {
+                let _ = layout;
+                ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+            }
+            System.alloc(layout)
         }
-        System.alloc(layout)
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        System.dealloc(ptr, layout)
+        unsafe { System.dealloc(ptr, layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if COUNT_ENABLED.load(Ordering::Relaxed) {
-            let _ = (layout, new_size);
-            ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+        unsafe {
+            if COUNT_ENABLED.load(Ordering::Relaxed) {
+                let _ = (layout, new_size);
+                ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+            }
+            System.realloc(ptr, layout, new_size)
         }
-        System.realloc(ptr, layout, new_size)
     }
 }
 

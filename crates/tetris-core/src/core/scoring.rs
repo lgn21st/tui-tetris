@@ -7,7 +7,7 @@
 //! - B2B applies a 3/2 multiplier to the base clear points (before combo bonus).
 //! - Combo bonus is `combo_base * combo_index` with no level multiplier.
 
-use crate::types::{TSpinKind, B2B_DENOMINATOR, B2B_NUMERATOR, COMBO_BASE, LINE_SCORES};
+use crate::types::{B2B_DENOMINATOR, B2B_NUMERATOR, COMBO_BASE, LINE_SCORES, TSpinKind};
 
 /// Score calculation result
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
