@@ -8,11 +8,10 @@ anyhow.workspace = true
 arrayvec.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["io-util", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tetris-core.workspace = true
 tetris-session.workspace = true
 tetris-adapter-protocol.workspace = true
 
 [dev-dependencies]
 tetris-core = { path = "../tetris-core", features = ["test-support"] }
-tokio = { workspace = true, features = ["macros"] }

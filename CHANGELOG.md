@@ -36,6 +36,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Input test example (`cargo run --example input-test`)
 
 ### Fixed
+- Standalone production builds now enable the Tokio features used by Adapter
+  selection and wire logging
 - Local key presses now apply at the same fixed-step boundary as AI and DAS/ARR actions
 - Streaming hello snapshot requests wait for bounded queue capacity instead of
   being silently lost under backpressure

@@ -195,6 +195,27 @@ fn app_manifest_keeps_test_only_and_unused_dependencies_out_of_production() {
 }
 
 #[test]
+fn adapter_manifest_enables_tokio_features_used_in_production() {
+    let manifest = fs::read_to_string("crates/tetris-adapter/Cargo.toml").unwrap();
+    let dependencies = manifest
+        .split("[dependencies]")
+        .nth(1)
+        .and_then(|tail| tail.split("[dev-dependencies]").next())
+        .expect("adapter dependency section");
+    let tokio = dependencies
+        .lines()
+        .find(|line| line.starts_with("tokio "))
+        .expect("production Tokio dependency");
+
+    for feature in ["fs", "macros"] {
+        assert!(
+            tokio.contains(&format!("\"{feature}\"")),
+            "production Tokio dependency must enable {feature}"
+        );
+    }
+}
+
+#[test]
 fn development_workflow_preserves_dependency_order() {
     let workflow = fs::read_to_string("docs/development-workflow.md").unwrap();
     for stage in ["Rules", "Core", "Session and replay", "Adapter", "Terminal"] {
