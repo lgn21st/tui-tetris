@@ -33,11 +33,16 @@ app (`tui-tetris`)
   separate adapter-protocol crate.
 - `main` is only a composition root. Interactive and headless modes install
   different ports around the same `step_session` implementation.
+- Workspace crates import APIs from their owning crate directly. Member crates
+  and the root application do not reexport dependency layers as compatibility
+  facades.
 
 Architecture boundary tests prevent platform imports in `core`, direct game
 mutation from `main`, duplicate adapter outbound variants, and unbounded
 production adapter channels. Cargo compiles core, session, protocol, adapter,
-and terminal as independent source-owning workspace packages.
+and terminal as independent source-owning workspace packages. Adapter TCP
+tests share one bounded client/server fixture rather than duplicating socket,
+framing, and timeout setup.
 
 ## Authoritative Fixed Step
 

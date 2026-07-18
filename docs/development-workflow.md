@@ -3,6 +3,16 @@
 Every behavioral change moves through the dependency graph in this order. A
 later layer may project or transport behavior, but it may not redefine it.
 
+All workspace packages compile as Rust Edition 2024, and the workspace uses
+Cargo dependency resolver 3. Keep those settings aligned when adding packages;
+`tests/architecture_boundary_test.rs` enforces the invariant through Cargo
+metadata.
+
+Shared third-party and path dependency versions belong in
+`[workspace.dependencies]`; member manifests select only the dependencies and
+features they actually use. Import APIs from the crate that owns them rather
+than adding cross-layer reexports.
+
 1. **Rules** — change the written rule/timing contract and add a failing
    characterization test.
 2. **Core** — implement deterministic state transitions in `tetris-core`; no

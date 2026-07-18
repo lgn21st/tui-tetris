@@ -33,7 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Injectable renderer output backend with regression benchmarks for the full render pipeline
 - Engine-facing input module (key mapping + DAS/ARR)
 - Comprehensive rustdoc documentation with doc-test examples
-- Input test utility (`cargo run --bin input-test`)
+- Input test example (`cargo run --example input-test`)
 
 ### Fixed
 - Local key presses now apply at the same fixed-step boundary as AI and DAS/ARR actions
@@ -53,6 +53,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - "Device not configured" error by removing TTY check
 
 ### Changed
+- Migrated the root package and all workspace crates to Rust Edition 2024 with
+  Cargo dependency resolver 3
+- Centralized shared dependency versions, removed unused root dependencies,
+  and replaced cross-crate convenience reexports with direct owner-crate imports
+- Consolidated adapter TCP test setup, removed redundant smoke/E2E coverage,
+  and replaced disconnect sleeps with observable status synchronization
 - Acceptance and closed-loop harnesses execute commands through the production
   `SessionProtocolDriver` and `SessionRuntime`
 - Global adapter delivery now carries only latest-only Arc observations;
