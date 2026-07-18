@@ -70,10 +70,11 @@
 //! - 16ms fixed timestep for consistent gameplay
 //! - Diff-based terminal rendering (dirty-cell flush)
 
-pub mod adapter;
-pub mod core;
-pub mod engine;
-pub mod input;
+pub mod app_cli;
 pub mod observe;
-pub mod term;
-pub mod types;
+pub mod replay_cli;
+
+pub use tetris_adapter::adapter;
+pub use tetris_core::{core, types};
+pub use tetris_session::engine;
+pub use tetris_terminal::{input, term};

@@ -1,0 +1,14 @@
+[package]
+name = "tetris-session"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+doctest = false
+
+[dependencies]
+arrayvec = "0.7"
+tetris-core = { path = "../tetris-core" }
+
+[dev-dependencies]
+tetris-core = { path = "../tetris-core", features = ["test-support"] }

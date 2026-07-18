@@ -407,7 +407,8 @@ mod tests {
             ],
             hold: Some(PieceKindLower::L),
             can_hold: true,
-            last_event: None,
+            logical_step: 0,
+            events: crate::adapter::protocol::EventList::default(),
             state_hash: StateHash(1),
             score: 300,
             level: 2,
@@ -441,7 +442,7 @@ mod tests {
 
     #[test]
     fn parse_server_line_accepts_observation_rotation_strings() {
-        let line = r#"{"type":"observation","seq":1,"ts":1,"playable":true,"paused":false,"game_over":false,"episode_id":1,"seed":1,"piece_id":1,"step_in_piece":0,"board":{"width":10,"height":20,"cells":[[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0]]},"board_id":1,"active":{"kind":"t","rotation":"north","x":4,"y":0},"ghost_y":18,"next":"i","next_queue":["i","o","t","s","z"],"hold":null,"can_hold":true,"state_hash":"0000000000000001","score":0,"level":0,"lines":0,"timers":{"drop_ms":1000,"lock_ms":500,"line_clear_ms":0}}"#;
+        let line = r#"{"type":"observation","seq":1,"ts":1,"logical_step":1,"playable":true,"paused":false,"game_over":false,"episode_id":1,"seed":1,"piece_id":1,"step_in_piece":0,"board":{"width":10,"height":20,"cells":[[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0]]},"board_id":1,"active":{"kind":"t","rotation":"north","x":4,"y":0},"ghost_y":18,"next":"i","next_queue":["i","o","t","s","z"],"hold":null,"can_hold":true,"events":[],"state_hash":"0000000000000001","score":0,"level":0,"lines":0,"timers":{"drop_ms":1000,"lock_ms":500,"line_clear_ms":0}}"#;
         let event = parse_server_line(line).expect("event");
         match event {
             ObserveEvent::Observation(obs) => {
@@ -486,7 +487,8 @@ mod tests {
             ],
             hold: None,
             can_hold: true,
-            last_event: None,
+            logical_step: 0,
+            events: crate::adapter::protocol::EventList::default(),
             state_hash: StateHash(1),
             score: 0,
             level: 0,

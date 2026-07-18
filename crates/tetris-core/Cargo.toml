@@ -1,0 +1,13 @@
+[package]
+name = "tetris-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+doctest = false
+
+[features]
+test-support = []
+
+[dependencies]
+arrayvec = "0.7"

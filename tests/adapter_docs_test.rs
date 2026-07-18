@@ -67,19 +67,19 @@ fn protocol_schema_is_standalone_and_matches_core_contract() {
         "the portable schema must not prescribe a local promotion policy"
     );
 
-    let strict_v2_semver = concat!(
-        "^2\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)",
+    let strict_v3_semver = concat!(
+        "^3\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)",
         "(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)",
         "(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?",
         "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
     );
     assert_eq!(
         schema["definitions"]["hello"]["properties"]["protocol_version"]["pattern"],
-        strict_v2_semver
+        strict_v3_semver
     );
     assert_eq!(
         schema["definitions"]["welcome"]["properties"]["protocol_version"]["pattern"],
-        strict_v2_semver
+        strict_v3_semver
     );
 
     for command in schema["definitions"]["command"]["oneOf"]
@@ -147,6 +147,27 @@ fn current_conformance_client_and_local_wrapper_exist() {
 
     let source = read(&format!("{PROTOCOL_ROOT}/conformance/adapter_verify.py"));
     assert!(source.contains(&format!("PROTOCOL_VERSION = \"{PROTOCOL_VERSION}\"")));
+}
+
+#[test]
+fn protocol_v3_has_a_dependent_client_migration_notice() {
+    let migration = fs::read_to_string(project_path("docs/protocol-v3-migration.md"))
+        .expect("protocol v3 migration notice");
+    for required in [
+        "2.1.1",
+        "3.0.0",
+        "last_event",
+        "events",
+        "logical_step",
+        "correlation_seq",
+        "applied_step",
+        "state_hash",
+    ] {
+        assert!(
+            migration.contains(required),
+            "missing migration item {required}"
+        );
+    }
 }
 
 #[test]

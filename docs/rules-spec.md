@@ -116,6 +116,9 @@ This document is the source of truth for gameplay rules/timing constants.
 - Interactive and headless runners preserve accumulated wall time. After a stall,
   they process up to 8 catch-up steps per outer-loop iteration and retain any
   remaining backlog instead of resetting the clock and slowing the simulation.
+- Remote commands and local terminal actions are applied only at a fixed-step
+  boundary. Within a step, accepted remote commands are applied first, then
+  queued local press/DAS/ARR actions, then rule timing advances once.
 - `step_in_piece` increments once per fixed step while an active piece exists, including while `LINE_CLEAR_PAUSE_MS` is counting down.
 - When `line_clear_ms` reaches `0` during a tick, gameplay resumes in the **same** `tick()` call (gravity/lock may advance immediately).
 - Gravity uses an accumulator (while-loop): if `elapsed_ms` spans multiple drop intervals, multiple row drops may occur in one tick.
@@ -171,7 +174,7 @@ Notes:
 - Scoring uses the **pre-clear** level (i.e., level before adding the newly-cleared lines).
 - T-Spin with **0 lines cleared** awards points (Full: 400, Mini: 100, multiplied by `level+1`), but it does not count as a line clear:
   - Combo/B2B chains reset.
-  - Adapter `last_event` does not report a T-Spin for `lines_cleared=0`, and `line_clear_score` remains `0` (score still increases).
+  - Adapter `events[0]` does not report a T-Spin for `lines_cleared=0`, and `line_clear_score` remains `0` (score still increases).
 
 ### Combo Bonus
 
@@ -181,7 +184,7 @@ Where:
 - `combo_index` starts at `0` on the first clear in a chain (no bonus), then `1, 2, 3, ...` for consecutive clears.
 - When a piece locks with `lines_cleared = 0`, the combo chain resets (`combo_index = -1` for diagnostics/adapter event reporting).
 - Combo bonus is added **after** the base clear score (and after any B2B multiplier). It does not have a level multiplier.
-  - In adapter observations, `last_event.line_clear_score` refers to the base clear score (including any B2B multiplier) and explicitly excludes combo and drop points.
+  - In adapter observations, `events[].line_clear_score` refers to the base clear score (including any B2B multiplier) and explicitly excludes combo and drop points.
 
 ### Back-to-Back
 

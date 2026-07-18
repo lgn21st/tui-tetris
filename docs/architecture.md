@@ -1,84 +1,113 @@
 # Architecture
 
-This document describes the intended dependency boundaries and the current
-runtime flows. Rule details belong in `rules-spec.md`; wire compatibility belongs
-in `adapter.md`.
+This document describes the current dependency boundaries and runtime flows.
+Rule details belong in `rules-spec.md`; wire compatibility belongs in
+`adapter.md`. The completed redesign is recorded in
+`reimplementation-plan.md`.
 
 ## Dependency Boundaries
 
 ```text
-main / observe
-  |-- input ----> types
-  |-- term -----> core snapshots, types
-  |-- adapter --> core snapshots, types
-  |-- engine ---> core, types
-  `-- core -----> types
+app (`tui-tetris`)
+  |-- tetris-adapter ---------> tetris-session -> tetris-core
+  |                  `--------> tetris-adapter-protocol -> tetris-core
+  |-- tetris-terminal --------> tetris-core
+  `-- observe/replay CLI -----> immutable protocol/session APIs
 ```
 
-- `core` owns deterministic game state, rules, scoring, timing, RNG, and snapshots.
-  It must not depend on terminal or network code.
-- `input` translates terminal key state into `GameAction` values. DAS/ARR state
-  stays here rather than in the game rules.
-- `term` renders immutable snapshots through a framebuffer and diff flush. It must
-  not mutate `GameState`.
-- `adapter` owns JSON-line protocol types, TCP lifecycle, control policy, and
-  backpressure. `ObservationSchedule` owns cadence, critical-state detection, and
-  sequence generation shared by interactive and headless modes. Its `game_loop`
-  boundary owns bounded pre-tick command draining, snapshot requests, and
-  acknowledgements. `observation` owns snapshot-to-wire projection and stable
-  state hashing; `client_mailbox` owns per-client reliable queues, latest-only
-  observation slots, and slow-client cancellation; `wire_log` owns bounded
-  best-effort diagnostic persistence. `server_config` owns environment parsing
-  and listen-address construction, while `runtime` waits for the server's single
-  authoritative bind result. Game commands cross the boundary as typed messages.
-- `main` is the composition root. Interactive, headless, and observe modes select
-  which input/output edges are active.
+- `core` owns deterministic game state, rules, scoring, timing, RNG, and raw
+  snapshot projection. It has no terminal, network, serde, or async dependency.
+- `engine::session` is the authoritative application transition boundary. It
+  owns `GameState` and `SnapshotStore`, applies remote commands before local
+  actions, ticks core once, returns `Transition`, and refreshes one coherent
+  snapshot.
+- `engine::fixed_step` owns pure elapsed-time/backlog accounting. It retains
+  fractional and excess backlog while limiting one outer-loop burst to eight
+  steps.
+- `input` translates terminal key state into queued `GameAction` values. It never
+  mutates game state.
+- `term` renders immutable `GameViewModel` values through a framebuffer and
+  diff flush. It never mutates game rules.
+- `adapter` owns TCP framing, the client broker, per-client mailboxes,
+  observation scheduling, and the sync/async bridge; wire types live in the
+  separate adapter-protocol crate.
+- `main` is only a composition root. Interactive and headless modes install
+  different ports around the same `step_session` implementation.
 
-## Fixed-Step Runtime
+Architecture boundary tests prevent platform imports in `core`, direct game
+mutation from `main`, duplicate adapter outbound variants, and unbounded
+production adapter channels. Cargo compiles core, session, protocol, adapter,
+and terminal as independent source-owning workspace packages.
 
-Interactive and headless modes use the same ordering contract for each 16 ms
-logic step:
+## Authoritative Fixed Step
 
-1. Drain a bounded number of adapter commands.
-2. Apply commands and produce acknowledgements or protocol errors.
-3. Apply locally generated DAS/ARR actions when interactive.
-4. Tick `GameState` once with `TICK_MS`.
-5. Capture critical events and publish observations when due.
-6. Render from `GameSnapshot` when interactive.
+Every interactive and headless 16 ms step calls the same path:
 
-Both runners preserve fixed-step backlog across outer-loop iterations and process
-at most eight catch-up steps per iteration. This bounds one burst of work without
-discarding elapsed simulation time.
+1. Drain at most 32 accepted remote commands.
+2. Apply remote commands and record their outcomes.
+3. Apply queued local press and DAS/ARR actions.
+4. Tick `GameState` exactly once with `TICK_MS`.
+5. Capture zero to four ordered core events into `Transition` and observation
+   scheduling.
+6. Refresh `SnapshotStore` (board only on `board_id` change, metadata always).
+7. Deliver correlated replies and publish an observation when due.
 
-Changing this order can change deterministic AI trajectories and therefore
-requires tests plus updates to `rules-spec.md` or `adapter.md`.
+Initial key presses are queued until this boundary; terminal event handling no
+longer mutates `GameState` between ticks. `FixedStepClock` retains elapsed
+backlog and returns at most eight steps per outer-loop iteration.
+
+## Snapshot and Event Ownership
+
+`SessionRuntime` is the only production owner of mutable game state.
+`SnapshotStore` guarantees that consumers cannot combine current metadata with
+an obsolete board. `Transition.changed` compares coherent before/after snapshots
+and therefore includes timer and step-counter-only changes.
+
+Core lock/line-clear events are captured once at the session boundary and
+copied into `Transition`. Adapter scheduling consumes that result rather than
+reaching into `GameState`, so additional replay or diagnostic consumers can use
+the same transition.
+
+## Adapter Concurrency and Backpressure
+
+- `BrokerState` contains the client registry and the single authoritative
+  `controller_id` under one lock. There is no per-client controller flag.
+- Disconnect removal and lowest-id eligible promotion are one broker write
+  transaction.
+- Accepted commands carry a responder for their originating per-client mailbox.
+  Ack, error, and targeted snapshot delivery bypass the global dispatcher;
+  reliable overflow closes only that slow client.
+- A streaming hello awaits bounded command-queue capacity for its required
+  initial snapshot request. It cannot silently lose that request.
+- There is no global reliable reply channel; correlated replies go directly to
+  the originating client's bounded mailbox.
+- Broadcast observations use one latest-only watch slot and one typed
+  `Arc<ObservationMessage>` representation.
+- Each client has a 32-message reliable queue and one replaceable observation.
+- Adapter status is latest-only; wire logging has a bounded 1,024-record
+  best-effort queue.
+- Socket and disk I/O are never awaited while broker state is locked.
+- Writer shutdown and authoritative startup bind remain bounded.
+
+## State Hashing
+
+Adapter `state_hash` uses canonical field-by-field FNV-1a encoding with explicit
+integer byte order and enum codes. It does not depend on Rust's `Hash`
+implementation or platform layout. Board bytes remain cached in the core
+snapshot and are recomputed only when the board revision changes.
+
+Protocol v3 observations include the authoritative logical step and all events.
+Successful command ack messages include their correlation sequence, applied
+step, and resulting state hash.
 
 ## Performance Contracts
 
-- `GameState::tick`, input updates, snapshot projection, and framebuffer rendering
-  are covered by allocation-gate tests.
-- Board cells are copied only when `board_id` changes; metadata is refreshed into
-  a reusable snapshot.
-- Adapter observations use `Arc` fanout and are not built without streaming
-  subscribers.
-- Adapter input framing is incrementally bounded at 64 KiB per JSON line, so a
-  client cannot force unbounded allocation by withholding a newline.
-- Each client has a 32-message reliable output queue plus one replaceable
-  observation slot. Reliable overflow disconnects only that client; stale
-  observations are coalesced instead of accumulated.
-- Adapter status is a latest-value channel, and wire logging uses a bounded 1,024
-  record queue with best-effort drops, so connection churn and slow storage cannot
-  create unbounded internal backlogs.
-- Adapter startup reports the result of the actual async TCP bind; it does not
-  probe and release the address before starting the server.
-- Terminal output uses framebuffer diffs and explicit invalidation after resize.
+- Core tick, unified session/input/observation/render no-I/O flow, adapter
+  observation build/serialization, and terminal rendering have allocation gates.
+- Framebuffer output remains diff-based and skips unchanged writes/flushes.
+- Observation construction is skipped when no streaming subscriber exists.
+- Criterion covers active tick, snapshot paths, observation serialization,
+  command parsing, diff encoding, render pipelines, and injected writer dispatch.
 
 Run `cargo test` for correctness and allocation gates. Run `cargo bench` followed
-by `python3 scripts/bench_gate.py` for performance regression checks.
-Renderer pipeline gates measure snapshot-to-framebuffer rendering, diff encoding,
-and framebuffer swapping. Backend gates also exercise `TerminalRenderer` write and
-flush dispatch through an injected writer; terminal device I/O remains outside the
-reproducible gate.
-
-Future structural work is tracked only in `roadmap.md`; this document describes
-the architecture that exists today.
+by `python3 scripts/bench_gate.py` for absolute performance regression checks.

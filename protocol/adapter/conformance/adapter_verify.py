@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stdlib-only conformance client for Tetris AI Adapter Protocol 2.1.1."""
+"""Stdlib-only conformance client for Tetris AI Adapter Protocol 3.0.0."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-PROTOCOL_VERSION = "2.1.1"
+PROTOCOL_VERSION = "3.0.0"
 
 
 class AdapterClient:
@@ -92,7 +92,8 @@ def validate_observation(message: dict[str, Any]) -> None:
     required = {
         "type", "seq", "ts", "playable", "paused", "game_over", "episode_id",
         "seed", "piece_id", "step_in_piece", "board", "board_id", "next",
-        "next_queue", "can_hold", "state_hash", "score", "level", "lines", "timers",
+        "next_queue", "can_hold", "logical_step", "events", "state_hash",
+        "score", "level", "lines", "timers",
     }
     missing = sorted(required.difference(message))
     if missing:
@@ -108,6 +109,9 @@ def validate_observation(message: dict[str, Any]) -> None:
     queue = message["next_queue"]
     if not isinstance(queue, list) or len(queue) != 5 or message["next"] != queue[0]:
         raise RuntimeError("next/next_queue invariant failed")
+    events = message["events"]
+    if not isinstance(events, list) or len(events) > 4:
+        raise RuntimeError("events is not a bounded array")
 
 
 def verify_ready(args: argparse.Namespace) -> None:
@@ -144,6 +148,10 @@ def restart_episode(client: AdapterClient, baseline: dict[str, Any], seed: int) 
         if message.get("type") == "error":
             raise RuntimeError(f"restart failed: {message}")
         if message.get("type") == "ack" and message.get("seq") == 2:
+            if message.get("correlation_seq") != 2:
+                raise RuntimeError(f"ack correlation failed: {message}")
+            if "applied_step" not in message or "state_hash" not in message:
+                raise RuntimeError(f"command ack lacks applied state: {message}")
             ack_seen = True
         if (
             message.get("type") == "observation"

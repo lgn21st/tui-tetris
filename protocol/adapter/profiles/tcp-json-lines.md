@@ -1,6 +1,6 @@
 # TCP JSON-Lines Profile 1
 
-This profile binds Tetris AI Adapter Protocol 2.1.1 to a localhost TCP stream.
+This profile binds Tetris AI Adapter Protocol 3.0.0 to a localhost TCP stream.
 The protocol specification remains authoritative for message and lifecycle
 semantics.
 

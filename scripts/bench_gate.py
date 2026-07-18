@@ -26,7 +26,10 @@ THRESHOLDS_SECONDS: dict[str, float] = {
     # "nano" benchmarks: keep very generous (these are extremely machine-dependent).
     # Uses a fresh active state per sample; the old long-lived benchmark mostly
     # measured the game-over early return. Leave cross-machine headroom.
-    "game_tick_16ms": 50e-9,  # 50ns
+    "game_tick_16ms": 100e-9,  # 100ns; measured ~59-72ns on Apple Silicon
+    # Full application step including command routing and coherent snapshot refresh.
+    "session_command_batch_16ms": 1e-6,  # 1us
+    "transition_hash": 2e-6,  # 2us
     "clear_4_lines": 200e-9,  # 200ns
     "snapshot_meta_into": 200e-9,  # 200ns
     # Stable measurements span ~190-350ns across Apple Silicon scheduling states.

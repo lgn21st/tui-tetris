@@ -4,45 +4,67 @@
 //! It uses crossterm for input and a custom framebuffer-based renderer
 //! (no ratatui widgets/layout).
 
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use arrayvec::ArrayVec;
 use crossterm::event::{self, Event, KeyEventKind};
 
-use tui_tetris::adapter::game_loop::drain_commands;
+use tui_tetris::adapter::game_loop::step_session;
 use tui_tetris::adapter::observation_schedule::ObservationSchedule;
-use tui_tetris::adapter::{Adapter, OutboundMessage};
+use tui_tetris::adapter::Adapter;
+use tui_tetris::app_cli::{diagnostic_report, parse_app_args, run_batch_headless, AppCommand};
 use tui_tetris::core::{GameSnapshot, GameState};
-use tui_tetris::input::{handle_key_event, should_quit, InputHandler};
+use tui_tetris::engine::fixed_step::FixedStepClock;
+use tui_tetris::engine::session::SessionRuntime;
+use tui_tetris::input::{map_input_command, InputCommand, InputHandler};
 use tui_tetris::observe::{
     connect_observer_with_retry, observe_status_lines, parse_observe_args,
     snapshot_from_observation, ObserveEvent, ObserveReconnectPolicy,
 };
+use tui_tetris::replay_cli::{parse_replay_args, run_replay_command};
 use tui_tetris::term::AdapterStatusView;
 use tui_tetris::term::{
-    AnchorY, CellStyle, GameView, RenderThrottle, Rgb, TerminalRenderer, Viewport,
+    AnchorY, CellStyle, GameView, GameViewModel, RenderThrottle, Rgb, TerminalRenderer, Viewport,
 };
 use tui_tetris::types::{GameAction, TICK_MS};
 
 const MAX_CATCH_UP_STEPS: u32 = 8;
 
-fn fixed_steps_due(elapsed: Duration, tick: Duration) -> u32 {
-    if tick.is_zero() {
-        return 0;
-    }
-    (elapsed.as_nanos() / tick.as_nanos()).min(MAX_CATCH_UP_STEPS as u128) as u32
-}
-
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(command) = parse_replay_args(&args).map_err(anyhow::Error::msg)? {
+        println!(
+            "{}",
+            run_replay_command(command).map_err(anyhow::Error::msg)?
+        );
+        return Ok(());
+    }
+    if let Some(command) = parse_app_args(&args).map_err(anyhow::Error::msg)? {
+        match command {
+            AppCommand::Diagnostic => {
+                println!("{}", diagnostic_report());
+                return Ok(());
+            }
+            AppCommand::Headless(config) => {
+                if config.steps.is_some() {
+                    println!(
+                        "{}",
+                        run_batch_headless(config).map_err(anyhow::Error::msg)?
+                    );
+                    return Ok(());
+                }
+                return run_headless(config.seed);
+            }
+        }
+    }
     if let Some(config) = parse_observe_args(&args)? {
         return run_observe(config);
     }
 
     if headless_enabled() {
-        return run_headless();
+        return run_headless(1);
     }
 
     let mut term = TerminalRenderer::new();
@@ -109,7 +131,8 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
             }
 
             if dirty {
-                view.render_into(&snap, Viewport::new(w, h), &mut fb);
+                let model = GameViewModel::new(snap, None);
+                view.render_model_into(&model, Viewport::new(w, h), &mut fb);
                 let observe_label = CellStyle {
                     fg: Rgb::new(220, 220, 220),
                     bg: Rgb::new(0, 0, 0),
@@ -136,7 +159,10 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
                         term.invalidate();
                         dirty = true;
                     }
-                    Event::Key(key) if key.kind == KeyEventKind::Press && should_quit(key) => {
+                    Event::Key(key)
+                        if key.kind == KeyEventKind::Press
+                            && map_input_command(key) == Some(InputCommand::Quit) =>
+                    {
                         return Ok(());
                     }
                     _ => {}
@@ -159,21 +185,17 @@ fn headless_enabled() -> bool {
         .unwrap_or(false)
 }
 
-fn run_headless() -> Result<()> {
-    let mut game_state = GameState::new(1);
-    game_state.start();
-
-    let mut snap = GameSnapshot::default();
-    let mut last_board_id = game_state.board_id();
-    game_state.snapshot_board_into(&mut snap);
+fn run_headless(seed: u32) -> Result<()> {
+    let mut session = SessionRuntime::new(seed);
 
     let mut adapter = Adapter::start_from_env()?;
     let mut adapter_streaming_count: u16 = 0;
 
-    let mut observations = ObservationSchedule::from_env(&game_state);
+    let mut observations = ObservationSchedule::from_env(session.game());
 
-    let mut last_tick = Instant::now();
     let tick_duration = Duration::from_millis(TICK_MS as u64);
+    let mut clock = FixedStepClock::new(tick_duration, MAX_CATCH_UP_STEPS);
+    let mut last_sample = Instant::now();
 
     loop {
         // Consume the latest coalesced adapter status update.
@@ -183,48 +205,28 @@ fn run_headless() -> Result<()> {
             }
         }
 
-        let steps = fixed_steps_due(last_tick.elapsed(), tick_duration);
+        let now = Instant::now();
+        let steps = clock.advance(now.saturating_duration_since(last_sample));
+        last_sample = now;
         if steps == 0 {
-            thread::sleep(tick_duration.saturating_sub(last_tick.elapsed()));
+            thread::sleep(clock.until_next_step());
             continue;
         }
 
         for _ in 0..steps {
-            last_tick += tick_duration;
-
-            // Apply AI commands at the fixed-step boundary (determinism).
-            drain_commands(
+            step_session(
                 &mut adapter,
-                &mut game_state,
+                &mut session,
                 &mut observations,
-                &mut snap,
-                &mut last_board_id,
+                &[],
+                adapter_streaming_count > 0,
             );
-
-            game_state.tick(TICK_MS, false);
-
-            if let Some((seq, last_event)) = observations.after_tick(&mut game_state) {
-                if let Some(ad) = adapter.as_ref() {
-                    if adapter_streaming_count == 0 {
-                        continue;
-                    }
-                    if game_state.board_id() != last_board_id {
-                        last_board_id = game_state.board_id();
-                        game_state.snapshot_board_into(&mut snap);
-                    }
-                    game_state.snapshot_meta_into(&mut snap);
-                    let obs =
-                        tui_tetris::adapter::server::build_observation(seq, &snap, last_event);
-                    ad.send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) });
-                }
-            }
         }
     }
 }
 
 fn run(term: &mut TerminalRenderer) -> Result<()> {
-    let mut game_state = GameState::new(1);
-    game_state.start();
+    let mut session = SessionRuntime::new(1);
 
     let view = game_view_from_env();
     let mut fb = tui_tetris::term::FrameBuffer::new(80, 24);
@@ -245,9 +247,6 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     if let (Some(min_ms), Some(max_ms)) = (repeat_min, repeat_max) {
         input_handler = input_handler.with_repeat_release_timeout_bounds_ms(min_ms, max_ms);
     }
-    let mut snap = GameSnapshot::default();
-    let mut last_board_id = game_state.board_id();
-    game_state.snapshot_board_into(&mut snap);
     let mut last_term_size: (u16, u16) = (0, 0);
     let render_epoch = Instant::now();
     let mut render_throttle = RenderThrottle::new(250);
@@ -280,10 +279,12 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
         pid: std::process::id(),
         listen_addr,
     };
-    let mut observations = ObservationSchedule::from_env(&game_state);
+    let mut observations = ObservationSchedule::from_env(session.game());
+    let mut pending_local_actions = ArrayVec::<GameAction, 64>::new();
 
-    let mut last_tick = Instant::now();
     let tick_duration = Duration::from_millis(TICK_MS as u64);
+    let mut clock = FixedStepClock::new(tick_duration, MAX_CATCH_UP_STEPS);
+    let mut last_sample = Instant::now();
 
     loop {
         // Drain adapter status updates.
@@ -304,23 +305,19 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
         }
 
         let now_ms = render_epoch.elapsed().as_millis() as u64;
-        let is_static = game_state.paused() || game_state.game_over();
-        let fingerprint = render_fingerprint(&game_state, &adapter_view, Viewport::new(w, h));
+        let is_static = session.game().paused() || session.game().game_over();
+        let fingerprint = render_fingerprint(session.game(), &adapter_view, Viewport::new(w, h));
 
         if render_throttle.should_render(now_ms, fingerprint, is_static) {
-            if game_state.board_id() != last_board_id {
-                last_board_id = game_state.board_id();
-                game_state.snapshot_board_into(&mut snap);
-            }
-            game_state.snapshot_meta_into(&mut snap);
-            view.render_into_with_adapter(&snap, Some(&adapter_view), Viewport::new(w, h), &mut fb);
+            let model = GameViewModel::new(*session.snapshot(), Some(adapter_view));
+            view.render_model_into(&model, Viewport::new(w, h), &mut fb);
             term.draw_swap(&mut fb)?;
         }
 
         // Input with timeout until next tick.
-        let timeout = tick_duration
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
+        let timeout = clock
+            .until_next_step()
+            .saturating_sub(last_sample.elapsed());
 
         if event::poll(timeout)? {
             match event::read()? {
@@ -330,18 +327,19 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 }
                 Event::Key(key) => match key.kind {
                     KeyEventKind::Press => {
-                        if should_quit(key) {
+                        let command = map_input_command(key);
+                        if command == Some(InputCommand::Quit) {
                             return Ok(());
                         }
 
                         // While paused/game over, input repeats are released and only Pause/Restart
                         // are accepted.
-                        if game_state.paused() || game_state.game_over() {
+                        if session.game().paused() || session.game().game_over() {
                             input_handler.reset();
-                            if let Some(action) = handle_key_event(key) {
+                            if let Some(InputCommand::Action(action)) = command {
                                 match action {
                                     GameAction::Pause | GameAction::Restart => {
-                                        let _ = game_state.apply_action(action);
+                                        let _ = pending_local_actions.try_push(action);
                                     }
                                     _ => {}
                                 }
@@ -350,10 +348,10 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         }
 
                         if let Some(action) = input_handler.handle_key_press(key.code) {
-                            game_state.apply_action(action);
+                            let _ = pending_local_actions.try_push(action);
                         }
 
-                        if let Some(action) = handle_key_event(key) {
+                        if let Some(InputCommand::Action(action)) = command {
                             match action {
                                 GameAction::MoveLeft
                                 | GameAction::MoveRight
@@ -361,7 +359,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                                     // Handled by input_handler / soft drop above.
                                 }
                                 _ => {
-                                    game_state.apply_action(action);
+                                    let _ = pending_local_actions.try_push(action);
                                     if matches!(action, GameAction::Pause | GameAction::Restart) {
                                         input_handler.reset();
                                     }
@@ -370,7 +368,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         }
                     }
                     KeyEventKind::Repeat => {
-                        if game_state.paused() || game_state.game_over() {
+                        if session.game().paused() || session.game().game_over() {
                             continue;
                         }
 
@@ -398,7 +396,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                         }
                     }
                     KeyEventKind::Release => {
-                        if game_state.paused() || game_state.game_over() {
+                        if session.game().paused() || session.game().game_over() {
                             continue;
                         }
                         input_handler.handle_key_release(key.code);
@@ -410,41 +408,26 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
 
         // Tick. Preserve accumulated wall time and cap work per loop so a
         // temporary stall does not permanently slow the deterministic simulation.
-        let steps = fixed_steps_due(last_tick.elapsed(), tick_duration);
-        for _ in 0..steps {
-            last_tick += tick_duration;
-
-            // Apply AI commands before tick (determinism).
-            drain_commands(
-                &mut adapter,
-                &mut game_state,
-                &mut observations,
-                &mut snap,
-                &mut last_board_id,
-            );
-
+        let now = Instant::now();
+        let steps = clock.advance(now.saturating_duration_since(last_sample));
+        last_sample = now;
+        for step_index in 0..steps {
+            let mut local_actions = if step_index == 0 {
+                std::mem::take(&mut pending_local_actions)
+            } else {
+                ArrayVec::<GameAction, 64>::new()
+            };
             for action in input_handler.update(TICK_MS) {
-                game_state.apply_action(action);
+                let _ = local_actions.try_push(action);
             }
 
-            // Soft drop state is managed by core via the soft drop timeout.
-            game_state.tick(TICK_MS, false);
-
-            if let Some((seq, last_event)) = observations.after_tick(&mut game_state) {
-                if let Some(ad) = adapter.as_ref() {
-                    if adapter_view.streaming_count == 0 {
-                        continue;
-                    }
-                    if game_state.board_id() != last_board_id {
-                        last_board_id = game_state.board_id();
-                        game_state.snapshot_board_into(&mut snap);
-                    }
-                    game_state.snapshot_meta_into(&mut snap);
-                    let obs =
-                        tui_tetris::adapter::server::build_observation(seq, &snap, last_event);
-                    ad.send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) });
-                }
-            }
+            step_session(
+                &mut adapter,
+                &mut session,
+                &mut observations,
+                &local_actions,
+                adapter_view.streaming_count > 0,
+            );
         }
     }
 }
@@ -572,17 +555,6 @@ mod tests {
         assert_ne!(
             render_fingerprint(&game, &adapter, Viewport::new(100, 30)),
             baseline
-        );
-    }
-
-    #[test]
-    fn fixed_step_catch_up_is_calculated_and_bounded_per_loop() {
-        let tick = Duration::from_millis(TICK_MS as u64);
-
-        assert_eq!(fixed_steps_due(Duration::from_millis(48), tick), 3);
-        assert_eq!(
-            fixed_steps_due(Duration::from_secs(1), tick),
-            MAX_CATCH_UP_STEPS
         );
     }
 }

@@ -1,3 +1,14 @@
+[workspace]
+members = [
+    ".",
+    "crates/tetris-core",
+    "crates/tetris-session",
+    "crates/tetris-adapter-protocol",
+    "crates/tetris-adapter",
+    "crates/tetris-terminal",
+]
+resolver = "2"
+
 [package]
 name = "tui-tetris"
 version = "0.1.0"
@@ -15,6 +26,11 @@ name = "input-test"
 path = "src/bin/input_test.rs"
 
 [dependencies]
+tetris-core = { path = "crates/tetris-core" }
+tetris-session = { path = "crates/tetris-session" }
+tetris-adapter-protocol = { path = "crates/tetris-adapter-protocol" }
+tetris-adapter = { path = "crates/tetris-adapter" }
+tetris-terminal = { path = "crates/tetris-terminal" }
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
 
 # Async networking for AI adapter
@@ -27,6 +43,7 @@ anyhow = "1.0"
 arrayvec = "0.7"
 
 [dev-dependencies]
+tetris-core = { path = "crates/tetris-core", features = ["test-support"] }
 tokio-test = "0.4"
 criterion = { version = "0.5", features = ["html_reports"] }
 

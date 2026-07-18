@@ -637,6 +637,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "tetris-adapter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "serde",
+ "serde_json",
+ "tetris-adapter-protocol",
+ "tetris-core",
+ "tetris-session",
+ "tokio",
+]
+
+[[package]]
+name = "tetris-adapter-protocol"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "serde",
+ "serde_json",
+ "tetris-core",
+]
+
+[[package]]
+name = "tetris-core"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
+name = "tetris-session"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "tetris-core",
+]
+
+[[package]]
+name = "tetris-terminal"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "crossterm",
+ "tetris-core",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -726,6 +775,11 @@ dependencies = [
  "crossterm",
  "serde",
  "serde_json",
+ "tetris-adapter",
+ "tetris-adapter-protocol",
+ "tetris-core",
+ "tetris-session",
+ "tetris-terminal",
  "tokio",
  "tokio-test",
 ]

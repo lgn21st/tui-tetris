@@ -23,6 +23,19 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Terminals without key release events (timeout auto-release) ✅
 - Vim movement keys (`h/j/l`) supported ✅
 - Terminals with repeat-but-no-release events (adaptive repeat-driven auto-release) ✅
+- Initial presses and repeats share the fixed-step command boundary ✅
+
+## Runtime Architecture
+
+- One authoritative interactive/headless session step ✅
+- Reusable fixed-step backlog clock with eight-step burst cap ✅
+- Coherent single-owner snapshot cache ✅
+- Explicit transition result with bounded ordered events ✅
+- Machine-checked core/composition/queue boundaries ✅
+- Stable command replay with per-step hashes and minimal failure prefixes ✅
+- Source-owning core/session/protocol/adapter/terminal workspace packages ✅
+- Replay TTR2 record/verify/inspect CLI ✅
+- Finite deterministic headless and diagnostic CLI ✅
 
 ## Terminal Rendering
 
@@ -34,6 +47,7 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Snapshot-style renderer tests ✅
 - GameView allocation-free gate ✅
 - Remote observer renderer mode (`cargo run -- observe ...`) ✅
+- Immutable terminal `GameViewModel` and platform-neutral `InputCommand` ✅
 
 ## Adapter
 
@@ -53,6 +67,13 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Immediate snapshot on hello ✅
 - Drift-free fixed-step observation cadence ✅
 - Closed-loop stability tests ✅
+- Required hello snapshot waits for bounded capacity ✅
+- Direct per-client post-application replies ✅
+- Single-variant latest-only global observation bridge ✅
+- Single broker controller source of truth ✅
+- Canonical field-by-field state hash encoding ✅
+- Protocol v3 causal `logical_step`, `events[]`, and applied-state ack ✅
+- Disconnect-storm, slow-client, and 32-observer stress gates ✅
 
 ## Performance
 
@@ -62,3 +83,4 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Benchmark regression gate (`python3 scripts/bench_gate.py`) ✅
 - Active-state tick benchmark (does not collapse into game-over early return) ✅
 - Full renderer pipeline and injected-backend benchmarks ✅
+- 100,000-step zero-allocation soak ✅

@@ -5,7 +5,6 @@ use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
 use tui_tetris::adapter::protocol::{create_hello, CommandMode};
-use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{run_server, ServerConfig};
 use tui_tetris::adapter::{InboundCommand, OutboundMessage};
 
@@ -17,30 +16,25 @@ async fn controller_disconnect_does_not_leave_stale_controller() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 64,
         log_path: None,
         ..ServerConfig::default()
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(128);
-    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
         let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
 
-    // Minimal engine loop: ack every command so the client can observe controller gating.
+    // Production session driver applies and acknowledges every accepted command.
     let engine_handle = tokio::spawn(async move {
+        let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20);
         while let Some(inbound) = cmd_rx.recv().await {
-            if matches!(inbound.payload, InboundPayload::Command(_)) {
-                let ack = tui_tetris::adapter::protocol::create_ack(inbound.seq, inbound.seq);
-                let _ = out_tx.send(OutboundMessage::ToClientAck {
-                    client_id: inbound.client_id,
-                    ack,
-                });
-            }
+            driver.handle(inbound);
         }
     });
 
@@ -55,7 +49,7 @@ async fn controller_disconnect_does_not_leave_stale_controller() {
         let (read_half, mut write_half) = stream.into_split();
         let mut lines = BufReader::new(read_half).lines();
 
-        let mut hello = create_hello(1, "ctrl1", "2.0.0");
+        let mut hello = create_hello(1, "ctrl1", "3.0.0");
         hello.requested.stream_observations = false;
         hello.requested.command_mode = CommandMode::Action;
         write_half
@@ -85,7 +79,7 @@ async fn controller_disconnect_does_not_leave_stale_controller() {
         let (read_half, mut write_half) = stream.into_split();
         let mut lines = BufReader::new(read_half).lines();
 
-        let mut hello = create_hello(1, "ctrl2", "2.0.0");
+        let mut hello = create_hello(1, "ctrl2", "3.0.0");
         hello.requested.stream_observations = false;
         hello.requested.command_mode = CommandMode::Action;
         write_half

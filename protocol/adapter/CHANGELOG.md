@@ -1,5 +1,13 @@
 # Adapter Protocol Changelog
 
+## 3.0.0
+
+- Replaced nullable `last_event` with a bounded, ordered `events` array.
+- Added authoritative `logical_step` to every observation.
+- Added `correlation_seq` to every ack and `applied_step` plus `state_hash` to
+  successful game-command acknowledgments.
+- Intentionally rejects v2 handshakes; clients must migrate explicitly.
+
 ## 2.1.1
 
 - Published the protocol as a single current package at `protocol/adapter/`;

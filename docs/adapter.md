@@ -1,6 +1,6 @@
 # AI Adapter Documentation
 
-tui-tetris implements Tetris AI Adapter Protocol 2.1.1.
+tui-tetris implements Tetris AI Adapter Protocol 3.0.0.
 
 ## Shared current protocol
 
@@ -11,6 +11,7 @@ tui-tetris implements Tetris AI Adapter Protocol 2.1.1.
   `protocol/adapter/conformance/adapter_verify.py`
 - Current version: `protocol/adapter/VERSION`
 - Protocol changelog: `protocol/adapter/CHANGELOG.md`
+- v2 to v3 client migration: `docs/protocol-v3-migration.md`
 
 Only the latest protocol is maintained. When its version changes, dependent
 projects are notified to review the changelog and align their implementations.

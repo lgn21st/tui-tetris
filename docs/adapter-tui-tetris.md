@@ -5,7 +5,7 @@ This profile documents tui-tetris behavior for the shared current protocol at
 
 ## Protocol and transport
 
-- Protocol version: `2.1.1`.
+- Protocol version: `3.0.0`.
 - TCP profile: `protocol/adapter/profiles/tcp-json-lines.md`.
 - Default endpoint: `127.0.0.1:7777`.
 - Maximum inbound payload: 65,536 bytes, excluding newline.
@@ -24,8 +24,9 @@ This profile documents tui-tetris behavior for the shared current protocol at
 
 ## Command application
 
-- The interactive and headless runners share adapter-owned command draining.
-- The fixed-step order is command application, game tick, then observation.
+- The interactive and headless runners use the same `SessionRuntime` step.
+- The fixed-step order is remote commands, local actions, game tick, then
+  observation.
 - Ack is emitted only after authoritative command application.
 - Place commands execute directly against core state and roll back atomically on
   every error; this implementation does not emit `snapshot_required`.
@@ -39,10 +40,18 @@ This profile documents tui-tetris behavior for the shared current protocol at
 - No periodic observation is built when no streaming subscriber exists.
 - Full observations are shared for fanout and each client retains only the most
   recent pending observation.
+- Broadcast observations cross the sync/async boundary through one latest-only
+  slot; they do not consume reliable bridge capacity.
+- Ack, error, and targeted initial snapshots are delivered through the
+  originating client's mailbox responder rather than a global reply queue.
 - reliable queue capacity: `32` messages per client.
 - Reliable overflow closes only the slow client; correlated responses are not
   silently dropped.
 - Adapter status is latest-only rather than an unbounded history.
+- no global reliable reply bridge: ack/error/snapshot replies use the originating
+  client's bounded mailbox; periodic observations use one latest-only slot.
+- A required hello snapshot request awaits bounded inbound capacity instead of
+  being silently dropped when the command queue is full.
 
 ## Runtime configuration
 
@@ -64,7 +73,8 @@ This profile documents tui-tetris behavior for the shared current protocol at
 - Dropped diagnostic log records are allowed; the wire log is not an audit log.
 - The async server performs the single authoritative bind and reports the actual
   address or bind error to the synchronous caller.
-- Socket or disk I/O is not awaited while controller/client locks are held.
+- Client registry and controller id share one broker lock and one controller
+  source of truth. Socket or disk I/O is not awaited while it is held.
 - Writer shutdown is bounded so dead peers do not retain tasks indefinitely.
 
 ## Local verification

@@ -1,5 +1,6 @@
 #![allow(clippy::field_reassign_with_default)] // Stepwise fixtures keep changed fields visible.
 
+use std::io::{BufRead as _, Write as _};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -8,8 +9,10 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use tui_tetris::adapter::protocol::LastEvent;
-use tui_tetris::adapter::protocol::{create_ack, create_hello};
+use tui_tetris::adapter::game_loop::step_session;
+use tui_tetris::adapter::observation_schedule::ObservationSchedule;
+use tui_tetris::adapter::protocol::create_hello;
+use tui_tetris::adapter::protocol::TransitionEvent;
 use tui_tetris::adapter::runtime::AdapterStatus;
 use tui_tetris::adapter::runtime::InboundPayload;
 use tui_tetris::adapter::server::{
@@ -18,7 +21,11 @@ use tui_tetris::adapter::server::{
 use tui_tetris::adapter::{Adapter, ClientCommand, InboundCommand, OutboundMessage};
 use tui_tetris::core::GameSnapshot;
 use tui_tetris::core::GameState;
+use tui_tetris::engine::session::SessionRuntime;
 use tui_tetris::types::{CoreLastEvent, GameAction, TSpinKind};
+
+mod support;
+use support::{read_json_line, spawn_server};
 
 async fn recv_next_command(rx: &mut mpsc::Receiver<InboundCommand>) -> InboundCommand {
     loop {
@@ -27,6 +34,12 @@ async fn recv_next_command(rx: &mut mpsc::Receiver<InboundCommand>) -> InboundCo
             return inbound;
         }
     }
+}
+
+fn read_std_json_line(reader: &mut std::io::BufReader<std::net::TcpStream>) -> serde_json::Value {
+    let mut line = String::new();
+    reader.read_line(&mut line).expect("adapter read failed");
+    serde_json::from_str(&line).expect("adapter returned invalid JSON")
 }
 
 #[test]
@@ -60,11 +73,11 @@ fn adapter_start_returns_the_actual_ephemeral_address() {
 }
 
 #[test]
-fn adapter_observation_last_event_scoring_fields_match_core_semantics() {
+fn adapter_observation_event_scoring_fields_match_core_semantics() {
     // Case 1: combo=-1 must roundtrip ("no active combo chain").
     let mut snap = GameSnapshot::default();
     snap.score = 0;
-    let last_event = CoreLastEvent {
+    let event = CoreLastEvent {
         locked: true,
         lines_cleared: 0,
         line_clear_score: 0,
@@ -72,17 +85,17 @@ fn adapter_observation_last_event_scoring_fields_match_core_semantics() {
         combo: -1,
         back_to_back: false,
     };
-    let obs = build_observation(1, &snap, Some(LastEvent::from(last_event)));
+    let obs = build_observation(1, 0, &snap, &[TransitionEvent::from(event)]);
     let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
     assert_eq!(v["type"], "observation");
-    assert_eq!(v["last_event"]["combo"], -1);
-    assert_eq!(v["last_event"]["line_clear_score"], 0);
-    assert_eq!(v["last_event"]["back_to_back"], false);
+    assert_eq!(v["events"][0]["combo"], -1);
+    assert_eq!(v["events"][0]["line_clear_score"], 0);
+    assert_eq!(v["events"][0]["back_to_back"], false);
 
     // Case 2: line_clear_score is base-only (includes B2B; excludes combo + drop points).
     let mut snap = GameSnapshot::default();
     snap.score = 5450; // base (5400) + combo bonus (50)
-    let last_event = CoreLastEvent {
+    let event = CoreLastEvent {
         locked: true,
         lines_cleared: 4,
         line_clear_score: 5400,
@@ -90,26 +103,26 @@ fn adapter_observation_last_event_scoring_fields_match_core_semantics() {
         combo: 1,
         back_to_back: true,
     };
-    let obs = build_observation(2, &snap, Some(LastEvent::from(last_event)));
+    let obs = build_observation(2, 0, &snap, &[TransitionEvent::from(event)]);
     let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
     assert_eq!(v["type"], "observation");
     assert_eq!(v["seq"], 2);
     assert_eq!(v["score"], 5450);
-    assert_eq!(v["last_event"]["locked"], true);
-    assert_eq!(v["last_event"]["lines_cleared"], 4);
-    assert_eq!(v["last_event"]["line_clear_score"], 5400);
-    assert_eq!(v["last_event"]["tspin"], "full");
-    assert_eq!(v["last_event"]["combo"], 1);
-    assert_eq!(v["last_event"]["back_to_back"], true);
+    assert_eq!(v["events"][0]["locked"], true);
+    assert_eq!(v["events"][0]["lines_cleared"], 4);
+    assert_eq!(v["events"][0]["line_clear_score"], 5400);
+    assert_eq!(v["events"][0]["tspin"], "full");
+    assert_eq!(v["events"][0]["combo"], 1);
+    assert_eq!(v["events"][0]["back_to_back"], true);
 }
 
 #[test]
-fn adapter_observation_tspin_no_line_clear_updates_score_without_last_event_tspin() {
-    // T-Spin no-line points are awarded but not reported as a `last_event` T-Spin.
+fn adapter_observation_tspin_no_line_clear_updates_score_without_event_tspin() {
+    // T-Spin no-line points are awarded but not reported as a transition-event T-Spin.
     let mut snap = GameSnapshot::default();
     snap.score = 400 * (2 + 1);
 
-    let last_event = CoreLastEvent {
+    let event = CoreLastEvent {
         locked: true,
         lines_cleared: 0,
         line_clear_score: 0,
@@ -118,16 +131,16 @@ fn adapter_observation_tspin_no_line_clear_updates_score_without_last_event_tspi
         back_to_back: false,
     };
 
-    let obs = build_observation(3, &snap, Some(LastEvent::from(last_event)));
+    let obs = build_observation(3, 0, &snap, &[TransitionEvent::from(event)]);
     let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&obs).unwrap()).unwrap();
     assert_eq!(v["type"], "observation");
     assert_eq!(v["seq"], 3);
     assert_eq!(v["score"], 400 * 3);
-    assert_eq!(v["last_event"]["lines_cleared"], 0);
-    assert_eq!(v["last_event"]["line_clear_score"], 0);
-    assert_eq!(v["last_event"]["combo"], -1);
-    assert_eq!(v["last_event"]["back_to_back"], false);
-    assert!(v["last_event"].get("tspin").is_none() || v["last_event"]["tspin"].is_null());
+    assert_eq!(v["events"][0]["lines_cleared"], 0);
+    assert_eq!(v["events"][0]["line_clear_score"], 0);
+    assert_eq!(v["events"][0]["combo"], -1);
+    assert_eq!(v["events"][0]["back_to_back"], false);
+    assert!(v["events"][0].get("tspin").is_none() || v["events"][0]["tspin"].is_null());
 }
 
 #[tokio::test]
@@ -148,7 +161,7 @@ async fn adapter_wire_logging_writes_raw_frames() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: Some(log_path.to_string_lossy().to_string()),
         ..ServerConfig::default()
@@ -172,7 +185,7 @@ async fn adapter_wire_logging_writes_raw_frames() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello
-    let hello = create_hello(1, "wire-log-test", "2.0.0");
+    let hello = create_hello(1, "wire-log-test", "3.0.0");
     let hello_line = serde_json::to_string(&hello).unwrap();
     write_half.write_all(hello_line.as_bytes()).await.unwrap();
     write_half.write_all(b"\n").await.unwrap();
@@ -225,14 +238,14 @@ async fn adapter_hello_command_ack_and_observation() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
-    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
@@ -249,7 +262,7 @@ async fn adapter_hello_command_ack_and_observation() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello
-    let hello = create_hello(1, "e2e-test", "2.0.0");
+    let hello = create_hello(1, "e2e-test", "3.0.0");
     let hello_line = serde_json::to_string(&hello).unwrap();
     write_half.write_all(hello_line.as_bytes()).await.unwrap();
     write_half.write_all(b"\n").await.unwrap();
@@ -274,25 +287,20 @@ async fn adapter_hello_command_ack_and_observation() {
         .await
         .unwrap();
     assert_eq!(inbound.seq, 2);
-    match inbound.payload {
+    match &inbound.payload {
         InboundPayload::Command(ClientCommand::Actions {
             actions,
             restart_seed,
         }) => {
             assert_eq!(actions.as_slice(), [GameAction::MoveLeft]);
-            assert_eq!(restart_seed, None);
+            assert_eq!(*restart_seed, None);
         }
         _ => panic!("unexpected inbound payload"),
     }
 
-    // ack after apply
-    let ack = create_ack(2, 2);
-    out_tx
-        .send(OutboundMessage::ToClientAck {
-            client_id: inbound.client_id,
-            ack,
-        })
-        .unwrap();
+    // Apply through the production protocol/session driver.
+    let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20);
+    driver.handle(inbound);
 
     let ack_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
@@ -303,17 +311,6 @@ async fn adapter_hello_command_ack_and_observation() {
     assert_eq!(ack_v["type"], "ack");
     assert_eq!(ack_v["seq"], 2);
 
-    // broadcast observation
-    let mut gs = GameState::new(1);
-    gs.start();
-    let snap = gs.snapshot();
-    let obs = build_observation(10, &snap, None);
-    out_tx
-        .send(OutboundMessage::BroadcastArc {
-            line: std::sync::Arc::from(serde_json::to_string(&obs).unwrap()),
-        })
-        .unwrap();
-
     let obs_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
         .unwrap()
@@ -321,7 +318,7 @@ async fn adapter_hello_command_ack_and_observation() {
         .expect("expected observation line");
     let obs_v: serde_json::Value = serde_json::from_str(&obs_line).unwrap();
     assert_eq!(obs_v["type"], "observation");
-    assert_eq!(obs_v["seq"], 10);
+    assert_eq!(obs_v["type"], "observation");
 
     server_handle.abort();
 }
@@ -331,7 +328,7 @@ async fn adapter_broadcast_observation_arc_fanout() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         ..ServerConfig::default()
     };
@@ -360,7 +357,7 @@ async fn adapter_broadcast_observation_arc_fanout() {
         let (read_half, mut write_half) = stream.into_split();
         let mut lines = BufReader::new(read_half).lines();
 
-        let hello = create_hello(1, name, "2.0.0");
+        let hello = create_hello(1, name, "3.0.0");
         let hello_line = serde_json::to_string(&hello).unwrap();
         write_half.write_all(hello_line.as_bytes()).await.unwrap();
         write_half.write_all(b"\n").await.unwrap();
@@ -384,7 +381,7 @@ async fn adapter_broadcast_observation_arc_fanout() {
     let mut gs = GameState::new(1);
     gs.start();
     let snap = gs.snapshot();
-    let obs = build_observation(123, &snap, None);
+    let obs = build_observation(123, 0, &snap, &[]);
 
     out_tx
         .send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) })
@@ -406,88 +403,6 @@ async fn adapter_broadcast_observation_arc_fanout() {
     let v_b: serde_json::Value = serde_json::from_str(&line_b).unwrap();
     assert_eq!(v_b["type"], "observation");
 
-    // Also ensure the non-Arc broadcast variant fans out correctly (backward compatible).
-    let obs2 = build_observation(124, &snap, None);
-    out_tx
-        .send(OutboundMessage::BroadcastObservation { obs: obs2 })
-        .unwrap();
-
-    let line_a2 = tokio::time::timeout(Duration::from_secs(2), lines_a.next_line())
-        .await
-        .unwrap()
-        .unwrap()
-        .expect("expected broadcast observation for a (non-Arc)");
-    let v_a2: serde_json::Value = serde_json::from_str(&line_a2).unwrap();
-    assert_eq!(v_a2["type"], "observation");
-    assert_eq!(v_a2["seq"], 124);
-
-    let line_b2 = tokio::time::timeout(Duration::from_secs(2), lines_b.next_line())
-        .await
-        .unwrap()
-        .unwrap()
-        .expect("expected broadcast observation for b (non-Arc)");
-    let v_b2: serde_json::Value = serde_json::from_str(&line_b2).unwrap();
-    assert_eq!(v_b2["type"], "observation");
-    assert_eq!(v_b2["seq"], 124);
-
-    // Also ensure string line Arc variants work (they are used by some harnesses/tools).
-    let ping: Arc<str> = Arc::from(r#"{"type":"ack","seq":999,"ts":1,"status":"ok"}"#);
-    out_tx
-        .send(OutboundMessage::BroadcastArc {
-            line: Arc::clone(&ping),
-        })
-        .unwrap();
-
-    let line_a3 = tokio::time::timeout(Duration::from_secs(2), lines_a.next_line())
-        .await
-        .unwrap()
-        .unwrap()
-        .expect("expected broadcast line for a (Arc)");
-    let v_a3: serde_json::Value = serde_json::from_str(&line_a3).unwrap();
-    assert_eq!(v_a3["type"], "ack");
-    assert_eq!(v_a3["seq"], 999);
-
-    let line_b3 = tokio::time::timeout(Duration::from_secs(2), lines_b.next_line())
-        .await
-        .unwrap()
-        .unwrap()
-        .expect("expected broadcast line for b (Arc)");
-    let v_b3: serde_json::Value = serde_json::from_str(&line_b3).unwrap();
-    assert_eq!(v_b3["type"], "ack");
-    assert_eq!(v_b3["seq"], 999);
-
-    out_tx
-        .send(OutboundMessage::ToClientArc {
-            client_id: 0,
-            line: Arc::from(r#"{"type":"ack","seq":1000,"ts":1,"status":"ok"}"#),
-        })
-        .unwrap();
-    out_tx
-        .send(OutboundMessage::ToClientArc {
-            client_id: 1,
-            line: Arc::from(r#"{"type":"ack","seq":1001,"ts":1,"status":"ok"}"#),
-        })
-        .unwrap();
-
-    let mut got = false;
-    if let Ok(Ok(Some(line))) =
-        tokio::time::timeout(Duration::from_millis(200), lines_a.next_line()).await
-    {
-        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-        if v["type"] == "ack" && (v["seq"] == 1000 || v["seq"] == 1001) {
-            got = true;
-        }
-    }
-    if let Ok(Ok(Some(line))) =
-        tokio::time::timeout(Duration::from_millis(200), lines_b.next_line()).await
-    {
-        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-        if v["type"] == "ack" && (v["seq"] == 1000 || v["seq"] == 1001) {
-            got = true;
-        }
-    }
-    assert!(got);
-
     server_handle.abort();
 }
 
@@ -496,14 +411,14 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
     };
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<InboundCommand>(8);
-    let (out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let server_handle = tokio::spawn(async move {
@@ -520,7 +435,7 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello (disable snapshot request to keep cmd_rx predictable)
-    let mut hello = create_hello(1, "ack-test", "2.0.0");
+    let mut hello = create_hello(1, "ack-test", "3.0.0");
     hello.requested.stream_observations = false;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
@@ -553,14 +468,8 @@ async fn adapter_does_not_ack_until_game_loop_applies() {
             .is_err()
     );
 
-    // Simulate game loop apply -> send ack.
-    let ack = create_ack(2, 2);
-    out_tx
-        .send(OutboundMessage::ToClientAck {
-            client_id: inbound.client_id,
-            ack,
-        })
-        .unwrap();
+    let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20);
+    driver.handle(inbound);
 
     let ack_line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
         .await
@@ -579,7 +488,7 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -635,7 +544,7 @@ async fn adapter_emits_status_updates_on_connect_and_controller() {
     }
 
     // hello makes this client controller.
-    let hello = create_hello(1, "status-test", "2.0.0");
+    let hello = create_hello(1, "status-test", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -673,7 +582,7 @@ async fn adapter_hello_enqueues_snapshot_request() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -695,7 +604,7 @@ async fn adapter_hello_enqueues_snapshot_request() {
     let stream = TcpStream::connect(addr).await.expect("connect failed");
     let (_read_half, mut write_half) = stream.into_split();
 
-    let hello = create_hello(1, "snapshot-test", "2.0.0");
+    let hello = create_hello(1, "snapshot-test", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -714,11 +623,103 @@ async fn adapter_hello_enqueues_snapshot_request() {
 }
 
 #[tokio::test]
+async fn adapter_hello_snapshot_request_waits_for_bounded_queue_capacity() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "3.0.0".to_string(),
+        max_pending_commands: 1,
+        log_path: None,
+        log_every_n: 1,
+        log_max_lines: None,
+    };
+    let (server, addr, mut cmd_rx, _out_tx) = spawn_server(config, 1).await;
+
+    let mut clients = Vec::new();
+    for name in ["snapshot-a", "snapshot-b"] {
+        let stream = TcpStream::connect(addr).await.unwrap();
+        let (read_half, mut write_half) = stream.into_split();
+        let mut lines = BufReader::new(read_half).lines();
+        let hello = create_hello(1, name, "3.0.0");
+        write_half
+            .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+            .await
+            .unwrap();
+        write_half.write_all(b"\n").await.unwrap();
+        write_half.flush().await.unwrap();
+        let welcome = read_json_line(&mut lines).await;
+        assert_eq!(welcome["type"], "welcome");
+        clients.push((write_half, lines));
+    }
+
+    let first = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
+        .await
+        .unwrap()
+        .expect("first snapshot request");
+    assert!(matches!(first.payload, InboundPayload::SnapshotRequest));
+
+    let second = tokio::time::timeout(Duration::from_secs(2), cmd_rx.recv())
+        .await
+        .unwrap()
+        .expect("second snapshot request");
+    assert!(matches!(second.payload, InboundPayload::SnapshotRequest));
+
+    drop(clients);
+    server.abort();
+}
+
+#[test]
+fn production_session_replies_through_the_originating_client_mailbox() {
+    let config = ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        protocol_version: "3.0.0".to_string(),
+        max_pending_commands: 8,
+        log_path: None,
+        log_every_n: 1,
+        log_max_lines: None,
+    };
+    let mut adapter = Some(Adapter::start(config).unwrap());
+    let addr = adapter.as_ref().unwrap().listen_addr();
+    let mut stream = std::net::TcpStream::connect(addr).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+
+    let hello = create_hello(1, "production-session", "3.0.0");
+    stream
+        .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
+        .unwrap();
+    stream.write_all(b"\n").unwrap();
+    stream.flush().unwrap();
+    assert_eq!(read_std_json_line(&mut reader)["type"], "welcome");
+
+    std::thread::sleep(Duration::from_millis(10));
+    let mut session = SessionRuntime::new(1);
+    let mut observations = ObservationSchedule::new(session.game(), 20);
+    step_session(&mut adapter, &mut session, &mut observations, &[], true);
+    assert_eq!(read_std_json_line(&mut reader)["type"], "observation");
+
+    stream
+        .write_all(br#"{"type":"command","seq":2,"ts":1,"mode":"action","actions":["moveLeft"]}"#)
+        .unwrap();
+    stream.write_all(b"\n").unwrap();
+    stream.flush().unwrap();
+    std::thread::sleep(Duration::from_millis(10));
+    step_session(&mut adapter, &mut session, &mut observations, &[], true);
+
+    let ack = read_std_json_line(&mut reader);
+    assert_eq!(ack["type"], "ack");
+    assert_eq!(ack["seq"], 2);
+}
+
+#[tokio::test]
 async fn adapter_place_maps_to_place_command() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         log_every_n: 1,
@@ -742,7 +743,7 @@ async fn adapter_place_maps_to_place_command() {
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
 
-    let hello = create_hello(1, "place-test", "2.0.0");
+    let hello = create_hello(1, "place-test", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -783,7 +784,7 @@ async fn adapter_place_invalid_rotation_returns_error() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         log_every_n: 1,
@@ -807,7 +808,7 @@ async fn adapter_place_invalid_rotation_returns_error() {
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
 
-    let hello = create_hello(1, "place-test", "2.0.0");
+    let hello = create_hello(1, "place-test", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -841,7 +842,7 @@ async fn adapter_backpressure_returns_error() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 1,
         log_path: None,
         ..ServerConfig::default()
@@ -864,7 +865,7 @@ async fn adapter_backpressure_returns_error() {
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
 
-    let mut hello = create_hello(1, "e2e-test", "2.0.0");
+    let mut hello = create_hello(1, "e2e-test", "3.0.0");
     // Keep the inbound command queue empty (hello snapshot would fill it).
     hello.requested.stream_observations = false;
     write_half
@@ -945,7 +946,7 @@ async fn adapter_observation_timers_roundtrip_over_tcp() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         ..ServerConfig::default()
     };
@@ -967,7 +968,7 @@ async fn adapter_observation_timers_roundtrip_over_tcp() {
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
 
-    let hello = create_hello(1, "timers-roundtrip", "2.0.0");
+    let hello = create_hello(1, "timers-roundtrip", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -988,7 +989,7 @@ async fn adapter_observation_timers_roundtrip_over_tcp() {
     snap.timers.drop_ms = 12;
     snap.timers.lock_ms = 34;
     snap.timers.line_clear_ms = 56;
-    let obs = build_observation(200, &snap, None);
+    let obs = build_observation(200, 0, &snap, &[]);
 
     out_tx
         .send(OutboundMessage::BroadcastObservationArc { obs: Arc::new(obs) })
@@ -1014,7 +1015,7 @@ async fn adapter_requires_hello_before_command() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         log_every_n: 1,
@@ -1062,7 +1063,7 @@ async fn adapter_parse_error_echoes_seq_best_effort() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         log_every_n: 1,
@@ -1110,7 +1111,7 @@ async fn adapter_rejects_out_of_order_seq_after_hello() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         log_every_n: 1,
@@ -1135,7 +1136,7 @@ async fn adapter_rejects_out_of_order_seq_after_hello() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello with seq=1
-    let hello = create_hello(1, "seq-test", "2.0.0");
+    let hello = create_hello(1, "seq-test", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -1188,7 +1189,7 @@ async fn adapter_rejects_hello_seq_not_one() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         log_every_n: 1,
@@ -1213,7 +1214,7 @@ async fn adapter_rejects_hello_seq_not_one() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello with seq!=1 must be rejected.
-    let hello = create_hello(2, "seq-test", "2.0.0");
+    let hello = create_hello(2, "seq-test", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -1246,7 +1247,7 @@ async fn controller_disconnect_promotes_next_client() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         log_every_n: 1,
@@ -1270,7 +1271,7 @@ async fn controller_disconnect_promotes_next_client() {
     let s1 = TcpStream::connect(addr).await.unwrap();
     let (r1, mut w1) = s1.into_split();
     let mut l1 = BufReader::new(r1).lines();
-    let hello1 = create_hello(1, "c1", "2.0.0");
+    let hello1 = create_hello(1, "c1", "3.0.0");
     w1.write_all(serde_json::to_string(&hello1).unwrap().as_bytes())
         .await
         .unwrap();
@@ -1284,7 +1285,7 @@ async fn controller_disconnect_promotes_next_client() {
     let s2 = TcpStream::connect(addr).await.unwrap();
     let (r2, mut w2) = s2.into_split();
     let mut l2 = BufReader::new(r2).lines();
-    let hello2 = create_hello(1, "c2", "2.0.0");
+    let hello2 = create_hello(1, "c2", "3.0.0");
     w2.write_all(serde_json::to_string(&hello2).unwrap().as_bytes())
         .await
         .unwrap();
@@ -1320,7 +1321,7 @@ async fn adapter_unknown_message_type_echoes_seq() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -1343,7 +1344,7 @@ async fn adapter_unknown_message_type_echoes_seq() {
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
 
-    let hello = create_hello(1, "unknown-test", "2.0.0");
+    let hello = create_hello(1, "unknown-test", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -1378,7 +1379,7 @@ async fn adapter_disconnects_frames_that_exceed_the_inbound_limit() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()

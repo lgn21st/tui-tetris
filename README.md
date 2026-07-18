@@ -19,6 +19,17 @@ cargo run
 # Run in headless mode (no terminal UI; adapter-only loop)
 TUI_TETRIS_HEADLESS=1 cargo run
 
+# Run a finite deterministic batch and exit
+cargo run -- headless --seed 7 --steps 10000
+
+# Record, verify, and inspect a replay
+cargo run -- replay record /tmp/game.ttr --seed 7 --steps 1000
+cargo run -- replay verify /tmp/game.ttr
+cargo run -- replay inspect /tmp/game.ttr
+
+# Print protocol/replay/ruleset diagnostics
+cargo run -- diagnostic
+
 # Observe a remote headless game over adapter TCP
 cargo run -- observe --host 127.0.0.1 --port 7777
 
@@ -37,7 +48,7 @@ cargo test
 - ✅ Full lifecycle: start, pause, game over, restart
 - ✅ Ghost piece
 - ✅ Hold
-- ✅ AI control: current Tetris AI Adapter Protocol 2.1.1
+- ✅ AI control: current Tetris AI Adapter Protocol 3.0.0
 - ✅ DAS/ARR input (150ms / 50ms)
 - ✅ Custom terminal renderer: framebuffer + diff flush (no ratatui widgets)
 
@@ -76,39 +87,24 @@ cargo test
 - **Term Renderer**: framebuffer + diff flush (terminal-native renderer)
 - **Adapter**: AI protocol (JSON over TCP)
 
-See `docs/architecture.md` for dependency boundaries, runtime data flow, and the
-incremental decomposition plan for the larger orchestration modules.
+See `docs/architecture.md` for enforced dependency boundaries and runtime data
+flow.
 
 ## Project Layout
 
 ```
 tui-tetris/
+├── crates/
+│   ├── tetris-core/              # deterministic rules and snapshots
+│   ├── tetris-session/           # StepInput → Transition and Replay TTR2
+│   ├── tetris-adapter-protocol/  # protocol v3 wire types
+│   ├── tetris-adapter/           # broker, TCP transport, scheduling
+│   └── tetris-terminal/          # InputCommand, GameViewModel, framebuffer
 ├── src/
-│   ├── main.rs           # entrypoint + main loop
-│   ├── lib.rs            # crate exports
-│   ├── types.rs          # shared types/constants
-│   ├── input/            # terminal input (DAS/ARR)
-│   │   ├── map.rs        # key mapping
-│   │   └── handler.rs    # DAS/ARR handler
-│   ├── core/             # game logic (no external deps)
-│   │   ├── board.rs
-│   │   ├── pieces.rs
-│   │   ├── rng.rs
-│   │   ├── scoring.rs
-│   │   ├── game_state.rs
-│   │   └── snapshot.rs   # allocation-free render/adapter projection
-│   ├── term/             # terminal rendering (framebuffer + diff flush)
-│   │   ├── fb.rs
-│   │   ├── game_view.rs
-│   │   └── renderer.rs
-│   ├── adapter/          # AI protocol server
-│   │   ├── game_loop.rs  # bounded pre-tick command processing
-│   │   ├── observation_schedule.rs # shared fixed-step observation cadence
-│   │   ├── protocol.rs   # JSON messages
-│   │   ├── runtime.rs    # synchronous game-loop facade
-│   │   └── server.rs     # async TCP lifecycle and fanout
-│   └── engine/           # reusable engine helpers
-│       └── place.rs      # place-mode application logic
+│   ├── main.rs                   # composition root and runners
+│   ├── observe.rs                # remote observer client
+│   ├── replay_cli.rs             # replay commands
+│   └── app_cli.rs                # headless/diagnostic commands
 ├── tests/                # integration tests
 ├── docs/                 # documentation
 │   ├── rules-spec.md

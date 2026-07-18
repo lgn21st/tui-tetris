@@ -61,7 +61,7 @@ fn adapter_observation_build_and_serialize_is_allocation_free() {
         gs.snapshot_board_into(&mut snap);
     }
     gs.snapshot_meta_into(&mut snap);
-    let obs0 = build_observation(seq, &snap, None);
+    let obs0 = build_observation(seq, 0, &snap, &[]);
     buf.clear();
     serde_json::to_writer(&mut buf, &obs0).unwrap();
 
@@ -73,7 +73,7 @@ fn adapter_observation_build_and_serialize_is_allocation_free() {
                 gs.snapshot_board_into(&mut snap);
             }
             gs.snapshot_meta_into(&mut snap);
-            let obs = build_observation(seq, &snap, None);
+            let obs = build_observation(seq, 0, &snap, &[]);
             buf.clear();
             serde_json::to_writer(&mut buf, &obs).unwrap();
         }

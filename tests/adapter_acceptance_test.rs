@@ -7,12 +7,10 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello, ErrorCode};
-use tui_tetris::adapter::runtime::InboundPayload;
+use tui_tetris::adapter::protocol::create_hello;
 use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
-use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
+use tui_tetris::adapter::{InboundCommand, OutboundMessage};
 use tui_tetris::core::GameState;
-use tui_tetris::engine::place::{apply_place, PlaceError};
 use tui_tetris::types::GameAction;
 
 mod support;
@@ -20,429 +18,56 @@ use support::{read_json_line, spawn_server};
 
 async fn engine_task(
     mut cmd_rx: mpsc::Receiver<InboundCommand>,
-    out_tx: mpsc::UnboundedSender<OutboundMessage>,
+    _out_tx: mpsc::UnboundedSender<OutboundMessage>,
 ) {
-    let mut gs = GameState::new(1);
-    gs.start();
-    let mut obs_seq: u64 = 100;
-
+    let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20);
     while let Some(inbound) = cmd_rx.recv().await {
-        match inbound.payload {
-            InboundPayload::SnapshotRequest => {
-                let last_event = gs
-                    .take_last_event()
-                    .map(tui_tetris::adapter::protocol::LastEvent::from);
-                let snap = gs.snapshot();
-                let obs = build_observation(obs_seq, &snap, last_event);
-                obs_seq += 1;
-                let line: std::sync::Arc<str> =
-                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line,
-                });
-            }
-            InboundPayload::Command(cmd) => {
-                match cmd {
-                    ClientCommand::Actions {
-                        actions,
-                        mut restart_seed,
-                    } => {
-                        for a in actions {
-                            if a == GameAction::Restart {
-                                if let Some(seed) = restart_seed.take() {
-                                    let _ = gs.restart_with_seed(seed);
-                                    continue;
-                                }
-                            }
-                            let _ = gs.apply_action(a);
-                        }
-                        let ack = create_ack(inbound.seq, inbound.seq);
-                        let line: std::sync::Arc<str> =
-                            std::sync::Arc::from(serde_json::to_string(&ack).unwrap());
-                        let _ = out_tx.send(OutboundMessage::ToClientArc {
-                            client_id: inbound.client_id,
-                            line,
-                        });
-                    }
-                    ClientCommand::Place { .. } => {
-                        let err = create_error(
-                            inbound.seq,
-                            ErrorCode::InvalidPlace,
-                            "place not supported in acceptance harness",
-                        );
-                        let line: std::sync::Arc<str> =
-                            std::sync::Arc::from(serde_json::to_string(&err).unwrap());
-                        let _ = out_tx.send(OutboundMessage::ToClientArc {
-                            client_id: inbound.client_id,
-                            line,
-                        });
-                    }
-                }
-
-                // Always follow with an observation so acceptance checks can verify state.
-                let last_event = gs
-                    .take_last_event()
-                    .map(tui_tetris::adapter::protocol::LastEvent::from);
-                let snap = gs.snapshot();
-                let obs = build_observation(obs_seq, &snap, last_event);
-                obs_seq += 1;
-                let line: std::sync::Arc<str> =
-                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line,
-                });
-            }
-        }
+        driver.handle(inbound);
     }
 }
 
 async fn engine_task_with_place(
-    mut cmd_rx: mpsc::Receiver<InboundCommand>,
+    cmd_rx: mpsc::Receiver<InboundCommand>,
     out_tx: mpsc::UnboundedSender<OutboundMessage>,
 ) {
-    let mut gs = GameState::new(1);
-    gs.start();
-    let mut obs_seq: u64 = 100;
+    engine_task(cmd_rx, out_tx).await;
+}
 
-    while let Some(inbound) = cmd_rx.recv().await {
-        match inbound.payload {
-            InboundPayload::SnapshotRequest => {
-                let last_event = gs
-                    .take_last_event()
-                    .map(tui_tetris::adapter::protocol::LastEvent::from);
-                let snap = gs.snapshot();
-                let obs = build_observation(obs_seq, &snap, last_event);
-                obs_seq += 1;
-                let line: std::sync::Arc<str> =
-                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line,
-                });
-            }
-            InboundPayload::Command(cmd) => {
-                let mut ok = Ok(());
-                match cmd {
-                    ClientCommand::Actions {
-                        actions,
-                        mut restart_seed,
-                    } => {
-                        for a in actions {
-                            if a == GameAction::Restart {
-                                if let Some(seed) = restart_seed.take() {
-                                    let _ = gs.restart_with_seed(seed);
-                                    continue;
-                                }
-                            }
-                            let _ = gs.apply_action(a);
-                        }
-                    }
-                    ClientCommand::Place {
-                        x,
-                        rotation,
-                        use_hold,
-                    } => {
-                        ok = apply_place(&mut gs, x, rotation, use_hold);
-                    }
-                }
-
-                match ok {
-                    Ok(()) => {
-                        let ack = create_ack(inbound.seq, inbound.seq);
-                        let line: std::sync::Arc<str> =
-                            std::sync::Arc::from(serde_json::to_string(&ack).unwrap());
-                        let _ = out_tx.send(OutboundMessage::ToClientArc {
-                            client_id: inbound.client_id,
-                            line,
-                        });
-                    }
-                    Err(e) => {
-                        let code = match e {
-                            PlaceError::HoldUnavailable => ErrorCode::HoldUnavailable,
-                            _ => ErrorCode::InvalidPlace,
-                        };
-                        let err = create_error(inbound.seq, code, e.message());
-                        let line: std::sync::Arc<str> =
-                            std::sync::Arc::from(serde_json::to_string(&err).unwrap());
-                        let _ = out_tx.send(OutboundMessage::ToClientArc {
-                            client_id: inbound.client_id,
-                            line,
-                        });
-                    }
-                }
-
-                // Always follow with an observation so acceptance checks can verify state.
-                let last_event = gs
-                    .take_last_event()
-                    .map(tui_tetris::adapter::protocol::LastEvent::from);
-                let snap = gs.snapshot();
-                let obs = build_observation(obs_seq, &snap, last_event);
-                obs_seq += 1;
-                let line: std::sync::Arc<str> =
-                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line,
-                });
-            }
+fn game_over_driver() -> tui_tetris::adapter::game_loop::SessionProtocolDriver {
+    let mut game = GameState::new(1);
+    game.start();
+    for _ in 0..5 {
+        let _ = game.apply_action(GameAction::SoftDrop);
+    }
+    for y in 0..4i8 {
+        for x in 1..tui_tetris::types::BOARD_WIDTH as i8 {
+            let _ = game
+                .board_mut()
+                .set(x, y, Some(tui_tetris::types::PieceKind::I));
         }
     }
+    let _ = game.apply_action(GameAction::HardDrop);
+    assert!(game.game_over());
+    let _ = game.take_last_event();
+    let session = tui_tetris::engine::session::SessionRuntime::from_game(game);
+    tui_tetris::adapter::game_loop::SessionProtocolDriver::from_session(session, 20)
 }
 
 async fn engine_task_game_over(
     mut cmd_rx: mpsc::Receiver<InboundCommand>,
-    out_tx: mpsc::UnboundedSender<OutboundMessage>,
+    _out_tx: mpsc::UnboundedSender<OutboundMessage>,
 ) {
-    enum Mode {
-        GameOver,
-        Playing(GameState),
-    }
-
-    let mut mode = Mode::GameOver;
-    let mut snap = tui_tetris::core::GameSnapshot::default();
-    snap.game_over = true;
-    snap.paused = false;
-    snap.seed = 1;
-    snap.timers.drop_ms = 1000;
-    let mut obs_seq: u64 = 100;
-
+    let mut driver = game_over_driver();
     while let Some(inbound) = cmd_rx.recv().await {
-        match inbound.payload {
-            InboundPayload::SnapshotRequest => {
-                let (last_event, snap2) = match &mut mode {
-                    Mode::GameOver => (None, snap),
-                    Mode::Playing(gs) => (
-                        gs.take_last_event()
-                            .map(tui_tetris::adapter::protocol::LastEvent::from),
-                        gs.snapshot(),
-                    ),
-                };
-                let obs = build_observation(obs_seq, &snap2, last_event);
-                obs_seq += 1;
-                let line: std::sync::Arc<str> =
-                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line,
-                });
-            }
-            InboundPayload::Command(cmd) => {
-                match cmd {
-                    ClientCommand::Actions {
-                        actions,
-                        mut restart_seed,
-                    } => {
-                        for a in actions {
-                            match &mut mode {
-                                Mode::GameOver => {
-                                    if a == GameAction::Restart {
-                                        let seed = restart_seed.take().unwrap_or(1);
-                                        let mut gs = GameState::new(seed);
-                                        gs.start();
-                                        mode = Mode::Playing(gs);
-                                    }
-                                }
-                                Mode::Playing(gs) => {
-                                    if a == GameAction::Restart {
-                                        if let Some(seed) = restart_seed.take() {
-                                            let _ = gs.restart_with_seed(seed);
-                                            continue;
-                                        }
-                                    }
-                                    let _ = gs.apply_action(a);
-                                }
-                            }
-                        }
-
-                        let ack = create_ack(inbound.seq, inbound.seq);
-                        let line: std::sync::Arc<str> =
-                            std::sync::Arc::from(serde_json::to_string(&ack).unwrap());
-                        let _ = out_tx.send(OutboundMessage::ToClientArc {
-                            client_id: inbound.client_id,
-                            line,
-                        });
-                    }
-                    ClientCommand::Place { .. } => {
-                        let err = create_error(
-                            inbound.seq,
-                            ErrorCode::InvalidPlace,
-                            "place not supported in acceptance harness",
-                        );
-                        let line: std::sync::Arc<str> =
-                            std::sync::Arc::from(serde_json::to_string(&err).unwrap());
-                        let _ = out_tx.send(OutboundMessage::ToClientArc {
-                            client_id: inbound.client_id,
-                            line,
-                        });
-                    }
-                }
-
-                // Always follow with an observation so acceptance checks can verify state.
-                let (last_event, snap2) = match &mut mode {
-                    Mode::GameOver => (None, snap),
-                    Mode::Playing(gs) => (
-                        gs.take_last_event()
-                            .map(tui_tetris::adapter::protocol::LastEvent::from),
-                        gs.snapshot(),
-                    ),
-                };
-                let obs = build_observation(obs_seq, &snap2, last_event);
-                obs_seq += 1;
-                let line: std::sync::Arc<str> =
-                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line,
-                });
-            }
-        }
+        driver.handle(inbound);
     }
 }
 
 async fn engine_task_game_over_with_place(
-    mut cmd_rx: mpsc::Receiver<InboundCommand>,
+    cmd_rx: mpsc::Receiver<InboundCommand>,
     out_tx: mpsc::UnboundedSender<OutboundMessage>,
 ) {
-    enum Mode {
-        GameOver,
-        Playing(GameState),
-    }
-
-    let mut mode = Mode::GameOver;
-    let mut snap = tui_tetris::core::GameSnapshot::default();
-    snap.game_over = true;
-    snap.paused = false;
-    snap.seed = 1;
-    snap.timers.drop_ms = 1000;
-    let mut obs_seq: u64 = 100;
-
-    while let Some(inbound) = cmd_rx.recv().await {
-        match inbound.payload {
-            InboundPayload::SnapshotRequest => {
-                let (last_event, snap2) = match &mut mode {
-                    Mode::GameOver => (None, snap),
-                    Mode::Playing(gs) => (
-                        gs.take_last_event()
-                            .map(tui_tetris::adapter::protocol::LastEvent::from),
-                        gs.snapshot(),
-                    ),
-                };
-                let obs = build_observation(obs_seq, &snap2, last_event);
-                obs_seq += 1;
-                let line: std::sync::Arc<str> =
-                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line,
-                });
-            }
-            InboundPayload::Command(cmd) => {
-                match cmd {
-                    ClientCommand::Actions {
-                        actions,
-                        mut restart_seed,
-                    } => {
-                        for a in actions {
-                            match &mut mode {
-                                Mode::GameOver => {
-                                    if a == GameAction::Restart {
-                                        let seed = restart_seed.take().unwrap_or(1);
-                                        let mut gs = GameState::new(seed);
-                                        gs.start();
-                                        mode = Mode::Playing(gs);
-                                    }
-                                }
-                                Mode::Playing(gs) => {
-                                    if a == GameAction::Restart {
-                                        if let Some(seed) = restart_seed.take() {
-                                            let _ = gs.restart_with_seed(seed);
-                                            continue;
-                                        }
-                                    }
-                                    let _ = gs.apply_action(a);
-                                }
-                            }
-                        }
-
-                        let ack = create_ack(inbound.seq, inbound.seq);
-                        let line: std::sync::Arc<str> =
-                            std::sync::Arc::from(serde_json::to_string(&ack).unwrap());
-                        let _ = out_tx.send(OutboundMessage::ToClientArc {
-                            client_id: inbound.client_id,
-                            line,
-                        });
-                    }
-                    ClientCommand::Place {
-                        x,
-                        rotation,
-                        use_hold,
-                    } => match &mut mode {
-                        Mode::GameOver => {
-                            // Match place semantics: not playable => invalid_place.
-                            let err = create_error(
-                                inbound.seq,
-                                ErrorCode::InvalidPlace,
-                                "game is not playable",
-                            );
-                            let line: std::sync::Arc<str> =
-                                std::sync::Arc::from(serde_json::to_string(&err).unwrap());
-                            let _ = out_tx.send(OutboundMessage::ToClientArc {
-                                client_id: inbound.client_id,
-                                line,
-                            });
-                        }
-                        Mode::Playing(gs) => {
-                            let ok: Result<(), PlaceError> = apply_place(gs, x, rotation, use_hold);
-                            match ok {
-                                Ok(()) => {
-                                    let ack = create_ack(inbound.seq, inbound.seq);
-                                    let line: std::sync::Arc<str> =
-                                        std::sync::Arc::from(serde_json::to_string(&ack).unwrap());
-                                    let _ = out_tx.send(OutboundMessage::ToClientArc {
-                                        client_id: inbound.client_id,
-                                        line,
-                                    });
-                                }
-                                Err(e) => {
-                                    let code = match e {
-                                        PlaceError::HoldUnavailable => ErrorCode::HoldUnavailable,
-                                        _ => ErrorCode::InvalidPlace,
-                                    };
-                                    let err = create_error(inbound.seq, code, e.message());
-                                    let line: std::sync::Arc<str> =
-                                        std::sync::Arc::from(serde_json::to_string(&err).unwrap());
-                                    let _ = out_tx.send(OutboundMessage::ToClientArc {
-                                        client_id: inbound.client_id,
-                                        line,
-                                    });
-                                }
-                            }
-                        }
-                    },
-                }
-
-                // Always follow with an observation so acceptance checks can verify state.
-                let (last_event, snap2) = match &mut mode {
-                    Mode::GameOver => (None, snap),
-                    Mode::Playing(gs) => (
-                        gs.take_last_event()
-                            .map(tui_tetris::adapter::protocol::LastEvent::from),
-                        gs.snapshot(),
-                    ),
-                };
-                let obs = build_observation(obs_seq, &snap2, last_event);
-                obs_seq += 1;
-                let line: std::sync::Arc<str> =
-                    std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line,
-                });
-            }
-        }
-    }
+    engine_task_game_over(cmd_rx, out_tx).await;
 }
 
 async fn broadcast_observations_task(out_tx: mpsc::UnboundedSender<OutboundMessage>) {
@@ -452,10 +77,11 @@ async fn broadcast_observations_task(out_tx: mpsc::UnboundedSender<OutboundMessa
 
     loop {
         let snap = gs.snapshot();
-        let obs = build_observation(seq, &snap, None);
+        let obs = build_observation(seq, seq, &snap, &[]);
         seq = seq.wrapping_add(1);
-        let line: std::sync::Arc<str> = std::sync::Arc::from(serde_json::to_string(&obs).unwrap());
-        let _ = out_tx.send(OutboundMessage::BroadcastArc { line });
+        let _ = out_tx.send(OutboundMessage::BroadcastObservationArc {
+            obs: std::sync::Arc::new(obs),
+        });
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
@@ -468,7 +94,7 @@ async fn acceptance_backpressure_does_not_stop_observations() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -482,7 +108,7 @@ async fn acceptance_backpressure_does_not_stop_observations() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello
-    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    let mut hello = create_hello(1, "acceptance", "3.0.0");
     hello.requested.stream_observations = true;
     hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     write_half
@@ -564,15 +190,17 @@ fn acceptance_determinism_fixed_seed_reproduces_state_hash_sequence() {
 
         let last_a = a
             .take_last_event()
-            .map(tui_tetris::adapter::protocol::LastEvent::from);
+            .map(tui_tetris::adapter::protocol::TransitionEvent::from);
         let last_b = b
             .take_last_event()
-            .map(tui_tetris::adapter::protocol::LastEvent::from);
+            .map(tui_tetris::adapter::protocol::TransitionEvent::from);
 
         let snap_a = a.snapshot();
         let snap_b = b.snapshot();
-        let obs_a = build_observation(i, &snap_a, last_a);
-        let obs_b = build_observation(i, &snap_b, last_b);
+        let events_a = last_a.into_iter().collect::<Vec<_>>();
+        let events_b = last_b.into_iter().collect::<Vec<_>>();
+        let obs_a = build_observation(i, i, &snap_a, &events_a);
+        let obs_b = build_observation(i, i, &snap_b, &events_b);
 
         hashes_a.push(obs_a.state_hash);
         hashes_b.push(obs_b.state_hash);
@@ -587,7 +215,7 @@ async fn acceptance_handshake_ordering_command_before_hello_returns_handshake_re
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -617,7 +245,7 @@ async fn acceptance_handshake_ordering_control_before_hello_returns_handshake_re
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -647,7 +275,7 @@ async fn acceptance_hello_seq_must_be_one_and_does_not_handshake() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -660,7 +288,7 @@ async fn acceptance_hello_seq_must_be_one_and_does_not_handshake() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello with seq!=1 must be rejected and MUST NOT handshake the connection.
-    let hello = r#"{"type":"hello","seq":2,"ts":1,"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.0.0","formats":["json"],"requested":{"stream_observations":false,"command_mode":"place"}}"#;
+    let hello = r#"{"type":"hello","seq":2,"ts":1,"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"3.0.0","formats":["json"],"requested":{"stream_observations":false,"command_mode":"place"}}"#;
     write_half.write_all(hello.as_bytes()).await.unwrap();
     write_half.write_all(b"\n").await.unwrap();
     write_half.flush().await.unwrap();
@@ -689,7 +317,7 @@ async fn acceptance_hello_formats_must_include_json_and_does_not_handshake() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -702,7 +330,7 @@ async fn acceptance_hello_formats_must_include_json_and_does_not_handshake() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello without json format must be rejected and MUST NOT handshake the connection.
-    let hello = r#"{"type":"hello","seq":1,"ts":1,"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"2.0.0","formats":["text"],"requested":{"stream_observations":false,"command_mode":"place"}}"#;
+    let hello = r#"{"type":"hello","seq":1,"ts":1,"client":{"name":"acceptance","version":"0.1.0"},"protocol_version":"3.0.0","formats":["text"],"requested":{"stream_observations":false,"command_mode":"place"}}"#;
     write_half.write_all(hello.as_bytes()).await.unwrap();
     write_half.write_all(b"\n").await.unwrap();
     write_half.flush().await.unwrap();
@@ -731,7 +359,7 @@ async fn acceptance_place_x_out_of_bounds_returns_invalid_place() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -756,7 +384,7 @@ async fn acceptance_place_x_out_of_bounds_returns_invalid_place() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello (request place mode)
-    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    let mut hello = create_hello(1, "acceptance", "3.0.0");
     hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
@@ -793,7 +421,7 @@ async fn acceptance_place_use_hold_when_unavailable_returns_hold_unavailable() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -818,7 +446,7 @@ async fn acceptance_place_use_hold_when_unavailable_returns_hold_unavailable() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello (request place mode)
-    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    let mut hello = create_hello(1, "acceptance", "3.0.0");
     hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
@@ -866,7 +494,7 @@ async fn acceptance_protocol_mismatch_returns_error() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -878,7 +506,7 @@ async fn acceptance_protocol_mismatch_returns_error() {
     let (read_half, mut write_half) = stream.into_split();
     let mut lines = BufReader::new(read_half).lines();
 
-    let mut hello = create_hello(1, "acceptance", "3.0.0");
+    let mut hello = create_hello(1, "acceptance", "2.1.1");
     hello.requested.stream_observations = false;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
@@ -900,7 +528,7 @@ async fn acceptance_control_enforces_monotonic_seq_after_hello() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -913,7 +541,7 @@ async fn acceptance_control_enforces_monotonic_seq_after_hello() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello (seq must be 1)
-    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    let mut hello = create_hello(1, "acceptance", "3.0.0");
     hello.requested.stream_observations = false;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
@@ -955,7 +583,7 @@ async fn acceptance_command_enforces_monotonic_seq_after_hello() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -969,7 +597,7 @@ async fn acceptance_command_enforces_monotonic_seq_after_hello() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello
-    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    let mut hello = create_hello(1, "acceptance", "3.0.0");
     hello.requested.stream_observations = false;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
@@ -1015,7 +643,7 @@ async fn acceptance_parse_error_returns_invalid_command() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -1042,7 +670,7 @@ async fn acceptance_observer_enforcement_not_controller() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -1065,7 +693,7 @@ async fn acceptance_observer_enforcement_not_controller() {
     let s1 = TcpStream::connect(addr).await.unwrap();
     let (r1, mut w1) = s1.into_split();
     let mut l1 = BufReader::new(r1).lines();
-    let hello1 = create_hello(1, "c1", "2.0.0");
+    let hello1 = create_hello(1, "c1", "3.0.0");
     w1.write_all(serde_json::to_string(&hello1).unwrap().as_bytes())
         .await
         .unwrap();
@@ -1077,7 +705,7 @@ async fn acceptance_observer_enforcement_not_controller() {
     let s2 = TcpStream::connect(addr).await.unwrap();
     let (r2, mut w2) = s2.into_split();
     let mut l2 = BufReader::new(r2).lines();
-    let hello2 = create_hello(1, "c2", "2.0.0");
+    let hello2 = create_hello(1, "c2", "3.0.0");
     w2.write_all(serde_json::to_string(&hello2).unwrap().as_bytes())
         .await
         .unwrap();
@@ -1104,7 +732,7 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -1129,7 +757,7 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello requesting place + streaming observations
-    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    let mut hello = create_hello(1, "acceptance", "3.0.0");
     hello.requested.stream_observations = true;
     hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     write_half
@@ -1169,7 +797,7 @@ async fn acceptance_place_invalid_rotation_returns_invalid_place() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1193,7 +821,7 @@ async fn acceptance_place_invalid_rotation_returns_invalid_place() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello (place mode)
-    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    let mut hello = create_hello(1, "acceptance", "3.0.0");
     hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     hello.requested.stream_observations = false;
     write_half
@@ -1223,7 +851,7 @@ async fn acceptance_place_rejected_when_paused() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1248,7 +876,7 @@ async fn acceptance_place_rejected_when_paused() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello (place mode)
-    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    let mut hello = create_hello(1, "acceptance", "3.0.0");
     hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
@@ -1293,7 +921,7 @@ async fn acceptance_place_from_observer_returns_not_controller() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1317,7 +945,7 @@ async fn acceptance_place_from_observer_returns_not_controller() {
     let stream_a = TcpStream::connect(addr).await.unwrap();
     let (read_a, mut write_a) = stream_a.into_split();
     let mut lines_a = BufReader::new(read_a).lines();
-    let mut hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    let mut hello_a = create_hello(1, "acceptance-a", "3.0.0");
     hello_a.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     hello_a.requested.stream_observations = false;
     write_a
@@ -1332,7 +960,7 @@ async fn acceptance_place_from_observer_returns_not_controller() {
     let stream_b = TcpStream::connect(addr).await.unwrap();
     let (read_b, mut write_b) = stream_b.into_split();
     let mut lines_b = BufReader::new(read_b).lines();
-    let mut hello_b = create_hello(1, "acceptance-b", "2.0.0");
+    let mut hello_b = create_hello(1, "acceptance-b", "3.0.0");
     hello_b.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     hello_b.requested.stream_observations = false;
     write_b
@@ -1363,7 +991,7 @@ async fn acceptance_place_rejected_when_game_over() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1388,7 +1016,7 @@ async fn acceptance_place_rejected_when_game_over() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello (place mode, stream observations so we get game_over snapshot)
-    let mut hello = create_hello(1, "acceptance", "2.0.0");
+    let mut hello = create_hello(1, "acceptance", "3.0.0");
     hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     hello.requested.stream_observations = true;
     write_half
@@ -1424,7 +1052,7 @@ async fn acceptance_place_rejected_when_no_controller_until_claim() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1448,7 +1076,7 @@ async fn acceptance_place_rejected_when_no_controller_until_claim() {
     let stream_a = TcpStream::connect(addr).await.unwrap();
     let (read_a, mut write_a) = stream_a.into_split();
     let mut lines_a = BufReader::new(read_a).lines();
-    let mut hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    let mut hello_a = create_hello(1, "acceptance-a", "3.0.0");
     hello_a.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     hello_a.requested.stream_observations = false;
     write_a
@@ -1463,7 +1091,7 @@ async fn acceptance_place_rejected_when_no_controller_until_claim() {
     let stream_b = TcpStream::connect(addr).await.unwrap();
     let (read_b, mut write_b) = stream_b.into_split();
     let mut lines_b = BufReader::new(read_b).lines();
-    let mut hello_b = create_hello(1, "acceptance-b", "2.0.0");
+    let mut hello_b = create_hello(1, "acceptance-b", "3.0.0");
     hello_b.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
     hello_b.requested.stream_observations = false;
     write_b
@@ -1520,7 +1148,7 @@ async fn acceptance_restart_and_pause_semantics() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 8,
         log_path: None,
         ..ServerConfig::default()
@@ -1545,7 +1173,7 @@ async fn acceptance_restart_and_pause_semantics() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello
-    let hello = create_hello(1, "acceptance", "2.0.0");
+    let hello = create_hello(1, "acceptance", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -1596,7 +1224,7 @@ async fn acceptance_actions_ignored_while_paused() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1621,7 +1249,7 @@ async fn acceptance_actions_ignored_while_paused() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello
-    let hello = create_hello(1, "acceptance", "2.0.0");
+    let hello = create_hello(1, "acceptance", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -1679,7 +1307,7 @@ async fn acceptance_actions_ignored_when_game_over() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1704,7 +1332,7 @@ async fn acceptance_actions_ignored_when_game_over() {
     let mut lines = BufReader::new(read_half).lines();
 
     // hello
-    let hello = create_hello(1, "acceptance", "2.0.0");
+    let hello = create_hello(1, "acceptance", "3.0.0");
     write_half
         .write_all(serde_json::to_string(&hello).unwrap().as_bytes())
         .await
@@ -1770,7 +1398,7 @@ async fn acceptance_control_claim_release_and_controller_enforcement() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1795,7 +1423,7 @@ async fn acceptance_control_claim_release_and_controller_enforcement() {
     let (read_a, mut write_a) = stream_a.into_split();
     let mut lines_a = BufReader::new(read_a).lines();
 
-    let hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    let hello_a = create_hello(1, "acceptance-a", "3.0.0");
     write_a
         .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
         .await
@@ -1813,7 +1441,7 @@ async fn acceptance_control_claim_release_and_controller_enforcement() {
     let (read_b, mut write_b) = stream_b.into_split();
     let mut lines_b = BufReader::new(read_b).lines();
 
-    let hello_b = create_hello(1, "acceptance-b", "2.0.0");
+    let hello_b = create_hello(1, "acceptance-b", "3.0.0");
     write_b
         .write_all(serde_json::to_string(&hello_b).unwrap().as_bytes())
         .await
@@ -1900,7 +1528,7 @@ async fn acceptance_control_release_requires_controller() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1925,7 +1553,7 @@ async fn acceptance_control_release_requires_controller() {
     let (read_a, mut write_a) = stream_a.into_split();
     let mut lines_a = BufReader::new(read_a).lines();
 
-    let hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    let hello_a = create_hello(1, "acceptance-a", "3.0.0");
     write_a
         .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
         .await
@@ -1940,7 +1568,7 @@ async fn acceptance_control_release_requires_controller() {
     let (read_b, mut write_b) = stream_b.into_split();
     let mut lines_b = BufReader::new(read_b).lines();
 
-    let hello_b = create_hello(1, "acceptance-b", "2.0.0");
+    let hello_b = create_hello(1, "acceptance-b", "3.0.0");
     write_b
         .write_all(serde_json::to_string(&hello_b).unwrap().as_bytes())
         .await
@@ -1970,7 +1598,7 @@ async fn acceptance_no_controller_after_release_rejects_commands_until_claim() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -1995,7 +1623,7 @@ async fn acceptance_no_controller_after_release_rejects_commands_until_claim() {
     let (read_a, mut write_a) = stream_a.into_split();
     let mut lines_a = BufReader::new(read_a).lines();
 
-    let hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    let hello_a = create_hello(1, "acceptance-a", "3.0.0");
     write_a
         .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
         .await
@@ -2010,7 +1638,7 @@ async fn acceptance_no_controller_after_release_rejects_commands_until_claim() {
     let (read_b, mut write_b) = stream_b.into_split();
     let mut lines_b = BufReader::new(read_b).lines();
 
-    let hello_b = create_hello(1, "acceptance-b", "2.0.0");
+    let hello_b = create_hello(1, "acceptance-b", "3.0.0");
     write_b
         .write_all(serde_json::to_string(&hello_b).unwrap().as_bytes())
         .await
@@ -2076,7 +1704,7 @@ async fn acceptance_control_claim_is_idempotent_for_controller() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -2089,7 +1717,7 @@ async fn acceptance_control_claim_is_idempotent_for_controller() {
     let (read_a, mut write_a) = stream_a.into_split();
     let mut lines_a = BufReader::new(read_a).lines();
 
-    let hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    let hello_a = create_hello(1, "acceptance-a", "3.0.0");
     write_a
         .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
         .await
@@ -2124,7 +1752,7 @@ async fn acceptance_requested_role_observer_never_auto_becomes_controller() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -2143,7 +1771,7 @@ async fn acceptance_requested_role_observer_never_auto_becomes_controller() {
         "seq": 1,
         "ts": 1,
         "client": {"name": "acceptance-a", "version": "0.1.0"},
-        "protocol_version": "2.0.0",
+        "protocol_version": "3.0.0",
         "formats": ["json"],
         "requested": {
             "stream_observations": true,
@@ -2186,7 +1814,7 @@ async fn acceptance_observer_connected_does_not_block_new_controller_hello() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.1.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -2205,7 +1833,7 @@ async fn acceptance_observer_connected_does_not_block_new_controller_hello() {
         "seq": 1,
         "ts": 1,
         "client": {"name": "observe", "version": "0.1.0"},
-        "protocol_version": "2.1.0",
+        "protocol_version": "3.0.0",
         "formats": ["json"],
         "requested": {
             "stream_observations": true,
@@ -2231,7 +1859,7 @@ async fn acceptance_observer_connected_does_not_block_new_controller_hello() {
     let (read_ai, mut write_ai) = stream_ai.into_split();
     let mut lines_ai = BufReader::new(read_ai).lines();
 
-    let hello_ai = create_hello(1, "ai-client", "2.1.0");
+    let hello_ai = create_hello(1, "ai-client", "3.0.0");
     write_ai
         .write_all(serde_json::to_string(&hello_ai).unwrap().as_bytes())
         .await
@@ -2272,7 +1900,7 @@ async fn acceptance_controller_disconnect_promotes_next_client() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -2297,7 +1925,7 @@ async fn acceptance_controller_disconnect_promotes_next_client() {
     let (read_a, mut write_a) = stream_a.into_split();
     let mut lines_a = BufReader::new(read_a).lines();
 
-    let hello_a = create_hello(1, "acceptance-a", "2.0.0");
+    let hello_a = create_hello(1, "acceptance-a", "3.0.0");
     write_a
         .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
         .await
@@ -2314,7 +1942,7 @@ async fn acceptance_controller_disconnect_promotes_next_client() {
     let (read_b, mut write_b) = stream_b.into_split();
     let mut lines_b = BufReader::new(read_b).lines();
 
-    let hello_b = create_hello(1, "acceptance-b", "2.0.0");
+    let hello_b = create_hello(1, "acceptance-b", "3.0.0");
     write_b
         .write_all(serde_json::to_string(&hello_b).unwrap().as_bytes())
         .await
@@ -2359,7 +1987,7 @@ async fn acceptance_controller_disconnect_does_not_auto_promote_observer_role() 
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.1.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 16,
         log_path: None,
         ..ServerConfig::default()
@@ -2384,7 +2012,7 @@ async fn acceptance_controller_disconnect_does_not_auto_promote_observer_role() 
     let (read_a, mut write_a) = stream_a.into_split();
     let mut lines_a = BufReader::new(read_a).lines();
 
-    let hello_a = create_hello(1, "acceptance-a", "2.1.0");
+    let hello_a = create_hello(1, "acceptance-a", "3.0.0");
     write_a
         .write_all(serde_json::to_string(&hello_a).unwrap().as_bytes())
         .await
@@ -2404,7 +2032,7 @@ async fn acceptance_controller_disconnect_does_not_auto_promote_observer_role() 
         "seq": 1,
         "ts": 1,
         "client": {"name": "acceptance-b", "version": "0.1.0"},
-        "protocol_version": "2.1.0",
+        "protocol_version": "3.0.0",
         "formats": ["json"],
         "requested": {
             "stream_observations": true,

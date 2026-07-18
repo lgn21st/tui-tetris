@@ -4,10 +4,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crossterm::event::KeyCode;
 
 use tui_tetris::adapter::server::build_observation;
-use tui_tetris::core::GameState;
+use tui_tetris::engine::session::{SessionRuntime, StepInput};
 use tui_tetris::input::InputHandler;
 use tui_tetris::term::{FrameBuffer, GameView, Viewport};
-use tui_tetris::types::GameAction;
 
 struct CountingAlloc;
 
@@ -49,8 +48,7 @@ fn with_alloc_counting<F: FnOnce()>(f: F) -> usize {
 
 #[test]
 fn e2e_hot_path_is_allocation_free_without_io() {
-    let mut gs = GameState::new(1);
-    gs.start();
+    let mut session = SessionRuntime::new(1);
 
     let mut ih = InputHandler::new();
     let _ = ih.handle_key_press(KeyCode::Left);
@@ -61,53 +59,29 @@ fn e2e_hot_path_is_allocation_free_without_io() {
 
     let mut buf: Vec<u8> = Vec::with_capacity(64 * 1024);
     let mut seq: u64 = 1;
-    let mut snap = gs.snapshot();
-    let mut last_board_id = gs.board_id();
-    gs.snapshot_board_into(&mut snap);
-
     // Warm-up: allow any lazy init/resizes.
     let actions = ih.update(16);
-    for a in actions {
-        let _ = gs.apply_action(a);
-    }
-    let _ = gs.tick(16, false);
-    if gs.board_id() != last_board_id {
-        last_board_id = gs.board_id();
-        gs.snapshot_board_into(&mut snap);
-    }
-    gs.snapshot_meta_into(&mut snap);
-    let obs0 = build_observation(seq, &snap, None);
+    let mut input = StepInput::default();
+    input.local.extend(actions);
+    let _ = session.transition(&input);
+    let mut snap = *session.snapshot();
+    let obs0 = build_observation(seq, 0, &snap, &[]);
     buf.clear();
     serde_json::to_writer(&mut buf, &obs0).unwrap();
-    gs.snapshot_into(&mut snap);
     view.render_into(&snap, viewport, &mut fb);
 
     let allocs = with_alloc_counting(|| {
         for _ in 0..500 {
             // Input -> actions.
-            for a in ih.update(16) {
-                // Keep this branch simple but representative.
-                match a {
-                    GameAction::SoftDrop => {
-                        let _ = gs.apply_action(GameAction::SoftDrop);
-                    }
-                    _ => {
-                        let _ = gs.apply_action(a);
-                    }
-                }
-            }
-
-            // Core tick.
-            let _ = gs.tick(16, false);
+            let actions = ih.update(16);
+            let mut input = StepInput::default();
+            input.local.extend(actions);
+            let _ = session.transition(&input);
 
             // Observation build + serialize to preallocated buffer.
             seq = seq.wrapping_add(1);
-            if gs.board_id() != last_board_id {
-                last_board_id = gs.board_id();
-                gs.snapshot_board_into(&mut snap);
-            }
-            gs.snapshot_meta_into(&mut snap);
-            let obs = build_observation(seq, &snap, None);
+            snap = *session.snapshot();
+            let obs = build_observation(seq, 0, &snap, &[]);
             buf.clear();
             serde_json::to_writer(&mut buf, &obs).unwrap();
 
@@ -117,4 +91,13 @@ fn e2e_hot_path_is_allocation_free_without_io() {
     });
 
     assert!(allocs == 0);
+
+    let transition_allocs = with_alloc_counting(|| {
+        let idle = StepInput::default();
+        for _ in 0..100_000 {
+            std::hint::black_box(session.transition(&idle));
+        }
+    });
+    assert_eq!(transition_allocs, 0, "100k-step session soak allocated");
+    assert!(session.logical_step() >= 100_501);
 }

@@ -3,6 +3,8 @@ use std::io::{self, Write};
 use tui_tetris::adapter::protocol::parse_message;
 use tui_tetris::adapter::server::build_observation;
 use tui_tetris::core::{Board, GameSnapshot, GameState};
+use tui_tetris::engine::replay::transition_hash;
+use tui_tetris::engine::session::{SessionRuntime, StepInput};
 use tui_tetris::term::{encode_diff_into, FrameBuffer, GameView, TerminalRenderer, Viewport};
 use tui_tetris::types::{GameAction, PieceKind};
 
@@ -42,6 +44,36 @@ fn bench_tick(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
+    });
+}
+
+fn bench_session_command_batch(c: &mut Criterion) {
+    let template = SessionRuntime::new(12345);
+    let input = StepInput::default().with_local(GameAction::MoveLeft);
+
+    c.bench_function("session_command_batch_16ms", |b| {
+        b.iter_batched(
+            || template.clone(),
+            |mut session| {
+                let result = session.transition(&input);
+                black_box((session.snapshot(), result.changed));
+            },
+            BatchSize::SmallInput,
+        )
+    });
+}
+
+fn bench_transition_hash(c: &mut Criterion) {
+    let session = SessionRuntime::new(12345);
+    c.bench_function("transition_hash", |b| {
+        b.iter(|| {
+            black_box(transition_hash(
+                black_box(session.snapshot()),
+                black_box(1),
+                &[],
+                &[],
+            ))
+        })
     });
 }
 
@@ -101,7 +133,7 @@ fn bench_build_observation_and_serialize(c: &mut Criterion) {
         b.iter(|| {
             seq = seq.wrapping_add(1);
             state.snapshot_meta_into(&mut snap);
-            let obs = build_observation(seq, &snap, None);
+            let obs = build_observation(seq, seq, &snap, &[]);
             buf.clear();
             serde_json::to_writer(&mut buf, &obs).unwrap();
             black_box(buf.len())
@@ -122,7 +154,7 @@ fn bench_build_observation_only(c: &mut Criterion) {
         b.iter(|| {
             seq = seq.wrapping_add(1);
             state.snapshot_meta_into(&mut snap);
-            let obs = build_observation(seq, &snap, None);
+            let obs = build_observation(seq, seq, &snap, &[]);
             black_box(obs.state_hash);
         })
     });
@@ -135,7 +167,7 @@ fn bench_serialize_observation_to_writer(c: &mut Criterion) {
     let mut snap = GameSnapshot::default();
     state.snapshot_into(&mut snap);
 
-    let obs = build_observation(1, &snap, None);
+    let obs = build_observation(1, 1, &snap, &[]);
     let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
 
     c.bench_function("serialize_observation_to_writer", |b| {
@@ -162,7 +194,7 @@ fn bench_serialize_observation_to_writer_dynamic(c: &mut Criterion) {
         b.iter(|| {
             seq = seq.wrapping_add(1);
             state.snapshot_meta_into(&mut snap);
-            let obs = build_observation(seq, &snap, None);
+            let obs = build_observation(seq, seq, &snap, &[]);
             buf.clear();
             serde_json::to_writer(&mut buf, black_box(&obs)).unwrap();
             black_box(buf.len())
@@ -351,6 +383,8 @@ fn bench_parse_command_action(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_tick,
+    bench_session_command_batch,
+    bench_transition_hash,
     bench_line_clear,
     bench_snapshot_meta_into,
     bench_snapshot_board_into,

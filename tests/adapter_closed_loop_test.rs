@@ -4,12 +4,10 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
-use tui_tetris::adapter::protocol::{create_ack, create_error, create_hello, ErrorCode, LastEvent};
-use tui_tetris::adapter::runtime::InboundPayload;
-use tui_tetris::adapter::server::{build_observation, run_server, ServerConfig};
-use tui_tetris::adapter::{ClientCommand, InboundCommand, OutboundMessage};
-use tui_tetris::core::{get_shape, GameState};
-use tui_tetris::engine::place::apply_place;
+use tui_tetris::adapter::protocol::create_hello;
+use tui_tetris::adapter::server::{run_server, ServerConfig};
+use tui_tetris::adapter::{InboundCommand, OutboundMessage};
+use tui_tetris::core::get_shape;
 use tui_tetris::types::{PieceKind, Rotation};
 
 mod support;
@@ -21,88 +19,24 @@ async fn read_next_json(
     serde_json::from_str(&read_line(lines).await).expect("valid json line")
 }
 
-fn last_event_from_core(gs: &mut GameState) -> Option<LastEvent> {
-    gs.take_last_event().map(LastEvent::from)
-}
-
 async fn engine_loop(
     mut cmd_rx: mpsc::Receiver<InboundCommand>,
-    out_tx: mpsc::UnboundedSender<OutboundMessage>,
+    _out_tx: mpsc::UnboundedSender<OutboundMessage>,
 ) {
-    let mut gs = GameState::new(1);
-    gs.start();
-
+    let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20)
+        .with_post_command_steps(64);
     while let Some(inbound) = cmd_rx.recv().await {
-        match inbound.payload {
-            InboundPayload::SnapshotRequest => {
-                let last_event = last_event_from_core(&mut gs);
-                let snap = gs.snapshot();
-                let obs = build_observation(inbound.seq, &snap, last_event);
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line: std::sync::Arc::from(serde_json::to_string(&obs).unwrap()),
-                });
-            }
-            InboundPayload::Command(cmd) => {
-                let result = match cmd {
-                    ClientCommand::Actions {
-                        actions,
-                        mut restart_seed,
-                    } => {
-                        for a in actions {
-                            if a == tui_tetris::types::GameAction::Restart {
-                                if let Some(seed) = restart_seed.take() {
-                                    let _ = gs.restart_with_seed(seed);
-                                    continue;
-                                }
-                            }
-                            let _ = gs.apply_action(a);
-                        }
-                        Ok(())
-                    }
-                    ClientCommand::Place {
-                        x,
-                        rotation,
-                        use_hold,
-                    } => apply_place(&mut gs, x, rotation, use_hold).map(|_| ()),
-                };
+        driver.handle(inbound);
+    }
+}
 
-                // Let timers advance so we don't get stuck in line-clear pause.
-                let _ = gs.tick(1000, false);
-
-                // ack/error
-                match result {
-                    Ok(()) => {
-                        let ack = create_ack(inbound.seq, inbound.seq);
-                        let _ = out_tx.send(OutboundMessage::ToClientArc {
-                            client_id: inbound.client_id,
-                            line: std::sync::Arc::from(serde_json::to_string(&ack).unwrap()),
-                        });
-                    }
-                    Err(e) => {
-                        let code = match e.code() {
-                            "hold_unavailable" => ErrorCode::HoldUnavailable,
-                            "invalid_place" => ErrorCode::InvalidPlace,
-                            _ => ErrorCode::InvalidCommand,
-                        };
-                        let err = create_error(inbound.seq, code, e.message());
-                        let _ = out_tx.send(OutboundMessage::ToClientArc {
-                            client_id: inbound.client_id,
-                            line: std::sync::Arc::from(serde_json::to_string(&err).unwrap()),
-                        });
-                    }
-                }
-
-                // follow with an observation
-                let last_event = last_event_from_core(&mut gs);
-                let snap = gs.snapshot();
-                let obs = build_observation(inbound.seq.wrapping_add(10_000), &snap, last_event);
-                let _ = out_tx.send(OutboundMessage::ToClientArc {
-                    client_id: inbound.client_id,
-                    line: std::sync::Arc::from(serde_json::to_string(&obs).unwrap()),
-                });
-            }
-        }
+async fn engine_loop_without_settle(
+    mut cmd_rx: mpsc::Receiver<InboundCommand>,
+    _out_tx: mpsc::UnboundedSender<OutboundMessage>,
+) {
+    let mut driver = tui_tetris::adapter::game_loop::SessionProtocolDriver::new(1, 20);
+    while let Some(inbound) = cmd_rx.recv().await {
+        driver.handle(inbound);
     }
 }
 
@@ -121,7 +55,7 @@ async fn collect_next_queue_signature(addr: std::net::SocketAddr, seed: u32) -> 
     let mut lines = BufReader::new(read_half).lines();
 
     let mut seq: u64 = 1;
-    let mut hello = create_hello(seq, "restart-seed", "2.0.0");
+    let mut hello = create_hello(seq, "restart-seed", "3.0.0");
     hello.requested.stream_observations = true;
     hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Action;
     hello.requested.role = Some(tui_tetris::adapter::protocol::RequestedRole::Controller);
@@ -246,7 +180,7 @@ async fn closed_loop_stability_3x50_reconnects() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 64,
         log_path: None,
         ..ServerConfig::default()
@@ -274,7 +208,7 @@ async fn closed_loop_stability_3x50_reconnects() {
             let mut lines = BufReader::new(read_half).lines();
 
             let mut seq: u64 = 1;
-            let mut hello = create_hello(seq, "closed-loop", "2.0.0");
+            let mut hello = create_hello(seq, "closed-loop", "3.0.0");
             hello.requested.stream_observations = true;
             hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
             write_half
@@ -363,7 +297,7 @@ async fn restart_with_seed_is_deterministic_for_next_queue() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 64,
         log_path: None,
         ..ServerConfig::default()
@@ -376,7 +310,7 @@ async fn restart_with_seed_is_deterministic_for_next_queue() {
     let server_handle = tokio::spawn(async move {
         let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
     });
-    let engine_handle = tokio::spawn(engine_loop(cmd_rx, out_tx));
+    let engine_handle = tokio::spawn(engine_loop_without_settle(cmd_rx, out_tx));
 
     let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
         .await
@@ -398,7 +332,7 @@ async fn closed_loop_long_run_200_episodes() {
     let config = ServerConfig {
         host: "127.0.0.1".to_string(),
         port: 0,
-        protocol_version: "2.0.0".to_string(),
+        protocol_version: "3.0.0".to_string(),
         max_pending_commands: 64,
         log_path: None,
         ..ServerConfig::default()
@@ -424,7 +358,7 @@ async fn closed_loop_long_run_200_episodes() {
         let mut lines = BufReader::new(read_half).lines();
 
         let mut seq: u64 = 1;
-        let mut hello = create_hello(seq, "closed-loop-long", "2.0.0");
+        let mut hello = create_hello(seq, "closed-loop-long", "3.0.0");
         hello.requested.stream_observations = true;
         hello.requested.command_mode = tui_tetris::adapter::protocol::CommandMode::Place;
         write_half
