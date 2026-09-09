@@ -1,4 +1,4 @@
-use crate::adapter::protocol::ErrorCode;
+use tetris_adapter_protocol::protocol::ErrorCode;
 use tetris_session::engine::place::PlaceError;
 
 pub fn map_place_error_code(err: PlaceError) -> ErrorCode {

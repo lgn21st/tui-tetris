@@ -2,7 +2,7 @@
 
 use std::net::SocketAddr;
 
-use crate::adapter::protocol::PROTOCOL_VERSION;
+use tetris_adapter_protocol::protocol::PROTOCOL_VERSION;
 
 #[derive(Debug, Clone)]
 pub struct ServerConfig {

@@ -82,6 +82,45 @@ async fn stalled_client_does_not_block_a_new_healthy_client() {
 }
 
 #[tokio::test]
+async fn reliable_overflow_closes_only_the_slow_client() {
+    let config = support::server_config();
+    let (server, addr, mut commands, _outbound) = spawn_server(config, 512).await;
+    let drain = tokio::spawn(async move { while commands.recv().await.is_some() {} });
+
+    let slow = hello(addr, "slow-reader").await;
+    let (slow_read, mut slow_write) = slow.into_split();
+    let mut slow_lines = BufReader::new(slow_read).lines();
+    assert_eq!(read_json_line(&mut slow_lines).await["type"], "welcome");
+
+    for _ in 0..4_000 {
+        if slow_write.write_all(b"{not-json\n").await.is_err() {
+            break;
+        }
+    }
+    let _ = slow_write.flush().await;
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match slow_lines.next_line().await {
+                Ok(None) => break,
+                Ok(Some(_)) => {}
+                Err(_) => break,
+            }
+        }
+    })
+    .await
+    .expect("slow client was not closed after reliable overflow");
+
+    let healthy = hello(addr, "healthy-after-overflow").await;
+    let (read, _) = healthy.into_split();
+    let mut lines = BufReader::new(read).lines();
+    assert_eq!(read_json_line(&mut lines).await["type"], "welcome");
+
+    server.abort();
+    drain.abort();
+}
+
+#[tokio::test]
 async fn latest_observation_fans_out_to_32_observers() {
     let config = support::server_config();
     let (server, addr, mut commands, outbound) = spawn_server(config, 512).await;

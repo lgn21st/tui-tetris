@@ -605,7 +605,7 @@ fn production_session_replies_through_the_originating_client_mailbox() {
 
     std::thread::sleep(Duration::from_millis(10));
     let mut session = SessionRuntime::new(1);
-    let mut observations = ObservationSchedule::new(session.game(), 20);
+    let mut observations = ObservationSchedule::new(session.snapshot(), 20);
     step_session(&mut adapter, &mut session, &mut observations, &[], true);
     assert_eq!(read_std_json_line(&mut reader)["type"], "observation");
 
@@ -907,6 +907,75 @@ async fn controller_disconnect_promotes_next_client() {
         .await
         .unwrap();
     assert_eq!(inbound.seq, 2);
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn unhandshaken_client_is_not_promoted_on_controller_disconnect() {
+    let config = support::server_config();
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (status_tx, mut status_rx) = watch::channel(AdapterStatus {
+        client_count: 0,
+        controller_id: None,
+        streaming_count: 0,
+    });
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), Some(status_tx)).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let (mut l1, mut w1) = support::connect(addr).await;
+    support::write_json_line(&mut w1, &create_hello(1, "controller", "3.0.0")).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), l1.next_line())
+        .await
+        .unwrap();
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if status_rx.borrow().controller_id == Some(1) {
+                break;
+            }
+            status_rx.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("controller hello timed out");
+
+    let (_l2, _w2) = support::connect(addr).await;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if status_rx.borrow().client_count == 2 {
+                break;
+            }
+            status_rx.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("second connect timed out");
+
+    drop(w1);
+    drop(l1);
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let status = *status_rx.borrow();
+            if status.client_count == 1 && status.controller_id.is_none() {
+                break;
+            }
+            status_rx.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("unhandshaken client was promoted or controller lingered");
 
     server_handle.abort();
 }

@@ -11,9 +11,9 @@ use tokio::sync::{mpsc, oneshot, watch};
 use std::sync::Arc;
 
 use crate::adapter::client_mailbox::{ClientOutbound, ClientOutboundSender};
-use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage};
 use crate::adapter::server::{ServerConfig, ServerState, run_server_with_startup};
-pub use tetris_session::engine::session::GameCommand as ClientCommand;
+use tetris_adapter_protocol::protocol::{AckMessage, ErrorMessage, ObservationMessage};
+pub type ClientCommand = tetris_session::engine::session::GameCommand;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AdapterStatus {

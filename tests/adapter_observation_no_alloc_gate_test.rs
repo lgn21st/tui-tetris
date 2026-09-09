@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use tetris_adapter::adapter::server::build_observation;
 use tetris_core::core::GameState;
+use tetris_core::types::GameAction;
 
 struct CountingAlloc;
 
@@ -70,8 +71,17 @@ fn adapter_observation_build_and_serialize_is_allocation_free() {
     serde_json::to_writer(&mut buf, &obs0).unwrap();
 
     let allocs = with_alloc_counting(|| {
-        for _ in 0..200 {
+        for i in 0..200 {
             seq = seq.wrapping_add(1);
+            if i % 8 == 0 {
+                let _ = gs.apply_action(GameAction::HardDrop);
+                let _ = gs.tick(16, false);
+                if gs.game_over() {
+                    let _ = gs.apply_action(GameAction::Restart);
+                }
+            } else {
+                let _ = gs.tick(16, false);
+            }
             if gs.board_id() != last_board_id {
                 last_board_id = gs.board_id();
                 gs.snapshot_board_into(&mut snap);

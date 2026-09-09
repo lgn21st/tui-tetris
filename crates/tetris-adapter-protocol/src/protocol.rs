@@ -925,15 +925,14 @@ pub fn create_welcome(
                 CapabilityFeature::StateHash,
                 CapabilityFeature::Score,
                 CapabilityFeature::Timers,
-                CapabilityFeature::Events,
-                CapabilityFeature::LogicalStep,
             ],
-
             features_always: vec![
                 CapabilityFeature::Next,
                 CapabilityFeature::NextQueue,
                 CapabilityFeature::CanHold,
                 CapabilityFeature::BoardId,
+                CapabilityFeature::Events,
+                CapabilityFeature::LogicalStep,
                 CapabilityFeature::StateHash,
                 CapabilityFeature::Score,
                 CapabilityFeature::Timers,
@@ -1087,6 +1086,23 @@ mod tests {
                 .control_policy
                 .auto_promote_on_disconnect
         );
+        assert!(
+            welcome
+                .capabilities
+                .features_always
+                .contains(&CapabilityFeature::Events)
+        );
+        assert!(
+            welcome
+                .capabilities
+                .features_always
+                .contains(&CapabilityFeature::LogicalStep)
+        );
+        assert_eq!(welcome.capabilities.features.len(), 11);
+        let mut unique = welcome.capabilities.features.clone();
+        unique.sort_by_key(|feature| format!("{feature:?}"));
+        unique.dedup();
+        assert_eq!(unique.len(), welcome.capabilities.features.len());
     }
 
     #[test]

@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrayvec::ArrayVec;
 
-use crate::adapter::protocol::{
+use tetris_adapter_protocol::protocol::{
     ActivePieceSnapshot, BoardSnapshot, EventList, ObservationMessage, ObservationType,
     PieceKindLower, RotationLower, StateHash, TSpinLower, TimersSnapshot, TransitionEvent,
 };

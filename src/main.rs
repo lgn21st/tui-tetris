@@ -186,7 +186,7 @@ fn run_headless(seed: u32) -> Result<()> {
     let mut adapter = Adapter::start_from_env()?;
     let mut adapter_streaming_count: u16 = 0;
 
-    let mut observations = ObservationSchedule::from_env(session.game());
+    let mut observations = ObservationSchedule::from_env(session.snapshot());
 
     let tick_duration = Duration::from_millis(TICK_MS as u64);
     let mut clock = FixedStepClock::new(tick_duration, MAX_CATCH_UP_STEPS);
@@ -233,14 +233,15 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
     }
     // Optional: tune repeat-driven release bounds for terminals that emit Repeat but not Release.
     // Useful for Ghostty-like terminals that have repeat events but no key-up events.
-    let repeat_min = std::env::var("TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MIN_MS")
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok());
-    let repeat_max = std::env::var("TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MAX_MS")
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok());
-    if let (Some(min_ms), Some(max_ms)) = (repeat_min, repeat_max) {
-        input_handler = input_handler.with_repeat_release_timeout_bounds_ms(min_ms, max_ms);
+    if let Ok(s) = std::env::var("TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MIN_MS")
+        && let Ok(ms) = s.parse::<u32>()
+    {
+        input_handler = input_handler.with_repeat_release_timeout_min_ms(ms);
+    }
+    if let Ok(s) = std::env::var("TUI_TETRIS_REPEAT_RELEASE_TIMEOUT_MAX_MS")
+        && let Ok(ms) = s.parse::<u32>()
+    {
+        input_handler = input_handler.with_repeat_release_timeout_max_ms(ms);
     }
     let mut last_term_size: (u16, u16) = (0, 0);
     let render_epoch = Instant::now();
@@ -274,7 +275,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
         pid: std::process::id(),
         listen_addr,
     };
-    let mut observations = ObservationSchedule::from_env(session.game());
+    let mut observations = ObservationSchedule::from_env(session.snapshot());
     let mut pending_local_actions = ArrayVec::<GameAction, 64>::new();
 
     let tick_duration = Duration::from_millis(TICK_MS as u64);

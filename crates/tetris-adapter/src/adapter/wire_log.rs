@@ -5,7 +5,9 @@ use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 
-use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage, WelcomeMessage};
+use tetris_adapter_protocol::protocol::{
+    AckMessage, ErrorMessage, ObservationMessage, WelcomeMessage,
+};
 
 pub const WIRE_LOG_QUEUE_CAPACITY: usize = 1024;
 

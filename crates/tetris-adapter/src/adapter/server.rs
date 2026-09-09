@@ -14,11 +14,11 @@ use tokio::time::{Duration, MissedTickBehavior};
 use crate::adapter::client_mailbox::{
     ClientOutbound, ClientOutboundSender, client_outbound_channel,
 };
-use crate::adapter::protocol::*;
 use crate::adapter::runtime::{
     AdapterStatus, ClientCommand, ClientResponder, InboundCommand, InboundPayload, OutboundMessage,
 };
 use crate::adapter::wire_log::{WireRecord, spawn_wire_logger, try_log as log_wire_record};
+use tetris_adapter_protocol::protocol::*;
 use tetris_core::types::{GameAction, Rotation};
 
 pub use crate::adapter::client_mailbox::CLIENT_RELIABLE_QUEUE_CAPACITY;
@@ -263,7 +263,9 @@ impl BrokerState {
                 .clients
                 .iter()
                 .filter(|client| {
-                    client.outbound.is_live() && client.requested_role != RequestedRole::Observer
+                    client.outbound.is_live()
+                        && client.handshaken
+                        && client.requested_role != RequestedRole::Observer
                 })
                 .map(|client| client.id)
                 .min();
@@ -594,7 +596,7 @@ async fn handle_client(
     let client_handle = ClientHandle {
         id: client_id,
         addr,
-        requested_role: RequestedRole::Auto,
+        requested_role: RequestedRole::Observer,
         command_mode: CommandMode::Action,
         stream_observations: false,
         handshaken: false,
@@ -800,8 +802,10 @@ async fn handle_client(
                     continue;
                 }
 
-                // Mark client as handshaken and store requested capabilities.
-                {
+                // Mark handshake, store requested capabilities, and assign controller
+                // in one broker write so an unhandshaken socket cannot occupy the role.
+                let mut assigned_role = AssignedRole::Observer;
+                let controller_id: Option<usize> = {
                     let mut broker = state.broker.write().await;
                     if let Some(client) = broker.clients.iter_mut().find(|c| c.id == client_id) {
                         client.handshaken = true;
@@ -810,22 +814,20 @@ async fn handle_client(
                         client.command_mode = hello.requested.command_mode;
                         client.stream_observations = hello.requested.stream_observations;
                     }
-                }
 
-                // Role/controller assignment:
-                // - Default policy: when no controller is assigned, first hello becomes controller.
-                // - If hello.requested.role == observer: never auto-assign controller as a side-effect of hello.
-                let mut assigned_role = AssignedRole::Observer;
-                let controller_id: Option<usize> = {
-                    let mut broker = state.broker.write().await;
                     broker.clear_stale_controller();
 
                     let requested_role = hello.requested.role.unwrap_or(RequestedRole::Auto);
                     let allow_auto_controller = requested_role != RequestedRole::Observer;
 
                     if broker.controller_id == Some(client_id) {
-                        assigned_role = AssignedRole::Controller;
-                    } else if broker.controller_id.is_none() && allow_auto_controller {
+                        if allow_auto_controller {
+                            assigned_role = AssignedRole::Controller;
+                        } else {
+                            broker.controller_id = None;
+                        }
+                    }
+                    if broker.controller_id.is_none() && allow_auto_controller {
                         broker.controller_id = Some(client_id);
                         assigned_role = AssignedRole::Controller;
                     }

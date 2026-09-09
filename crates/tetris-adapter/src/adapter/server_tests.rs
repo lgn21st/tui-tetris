@@ -135,6 +135,45 @@ fn broker_disconnect_promotes_lowest_eligible_client() {
 }
 
 #[test]
+fn broker_does_not_promote_unhandshaken_client() {
+    let addr = "127.0.0.1:9999".parse().unwrap();
+    let (tx1, rx1, obs1, shutdown1) = client_outbound_channel(1);
+    let (tx2, rx2, obs2, shutdown2) = client_outbound_channel(1);
+    let _receiver_guards = (rx1, obs1, shutdown1, rx2, obs2, shutdown2);
+    let clients = vec![
+        ClientHandle {
+            id: 1,
+            addr,
+            requested_role: RequestedRole::Auto,
+            command_mode: CommandMode::Action,
+            stream_observations: false,
+            handshaken: true,
+            last_seq: Some(1),
+            outbound: tx1,
+        },
+        ClientHandle {
+            id: 2,
+            addr,
+            requested_role: RequestedRole::Auto,
+            command_mode: CommandMode::Action,
+            stream_observations: false,
+            handshaken: false,
+            last_seq: None,
+            outbound: tx2,
+        },
+    ];
+
+    let mut broker = BrokerState {
+        clients,
+        controller_id: Some(1),
+    };
+    broker.remove_and_promote(1);
+
+    assert_eq!(broker.controller_id, None);
+    assert_eq!(broker.clients.len(), 1);
+}
+
+#[test]
 fn broker_authorization_has_one_controller_source_of_truth() {
     let mut broker = BrokerState {
         controller_id: Some(7),

@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, watch};
 
-use crate::adapter::protocol::{AckMessage, ErrorMessage, ObservationMessage, WelcomeMessage};
+use tetris_adapter_protocol::protocol::{
+    AckMessage, ErrorMessage, ObservationMessage, WelcomeMessage,
+};
 
 pub const CLIENT_RELIABLE_QUEUE_CAPACITY: usize = 32;
 
@@ -80,7 +82,7 @@ pub(super) fn client_outbound_channel(
 mod tests {
     use super::*;
     use crate::adapter::observation::build_observation;
-    use crate::adapter::protocol::create_ack;
+    use tetris_adapter_protocol::protocol::create_ack;
     use tetris_core::core::GameSnapshot;
 
     #[test]

@@ -1,8 +1,8 @@
 //! Deterministic observation cadence shared by interactive and headless runners.
 
-use crate::adapter::protocol::TransitionEvent;
 use arrayvec::ArrayVec;
-use tetris_core::core::GameState;
+use tetris_adapter_protocol::protocol::TransitionEvent;
+use tetris_core::core::GameSnapshot;
 use tetris_core::types::CoreLastEvent;
 use tetris_core::types::TICK_MS;
 
@@ -20,26 +20,26 @@ pub struct ObservationSchedule {
 }
 
 impl ObservationSchedule {
-    pub fn new(game: &GameState, frequency_hz: u32) -> Self {
+    pub fn new(snapshot: &GameSnapshot, frequency_hz: u32) -> Self {
         Self {
             frequency_hz: frequency_hz.clamp(1, 60),
             accumulated_frequency_units: 0,
             seq: 0,
-            last_episode_id: game.episode_id(),
-            last_piece_id: game.piece_id(),
-            last_active_id: game.active_id(),
-            last_paused: game.paused(),
-            last_game_over: game.game_over(),
+            last_episode_id: snapshot.episode_id,
+            last_piece_id: snapshot.piece_id,
+            last_active_id: snapshot.active_id,
+            last_paused: snapshot.paused,
+            last_game_over: snapshot.game_over,
             pending_events: ArrayVec::new(),
         }
     }
 
-    pub fn from_env(game: &GameState) -> Self {
+    pub fn from_env(snapshot: &GameSnapshot) -> Self {
         let frequency_hz = std::env::var("TETRIS_AI_OBS_HZ")
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(20);
-        Self::new(game, frequency_hz)
+        Self::new(snapshot, frequency_hz)
     }
 
     pub fn capture_event(&mut self, event: CoreLastEvent) {
@@ -54,13 +54,16 @@ impl ObservationSchedule {
         (self.seq, std::mem::take(&mut self.pending_events))
     }
 
-    pub fn after_tick(&mut self, game: &GameState) -> Option<(u64, ArrayVec<TransitionEvent, 4>)> {
+    pub fn after_tick(
+        &mut self,
+        snapshot: &GameSnapshot,
+    ) -> Option<(u64, ArrayVec<TransitionEvent, 4>)> {
         let mut critical = false;
-        critical |= update_changed(&mut self.last_piece_id, game.piece_id());
-        critical |= update_changed(&mut self.last_active_id, game.active_id());
-        critical |= update_changed(&mut self.last_episode_id, game.episode_id());
-        critical |= update_changed(&mut self.last_paused, game.paused());
-        critical |= update_changed(&mut self.last_game_over, game.game_over());
+        critical |= update_changed(&mut self.last_piece_id, snapshot.piece_id);
+        critical |= update_changed(&mut self.last_active_id, snapshot.active_id);
+        critical |= update_changed(&mut self.last_episode_id, snapshot.episode_id);
+        critical |= update_changed(&mut self.last_paused, snapshot.paused);
+        critical |= update_changed(&mut self.last_game_over, snapshot.game_over);
 
         critical |= !self.pending_events.is_empty();
 
@@ -92,30 +95,31 @@ fn update_changed<T: Copy + PartialEq>(previous: &mut T, current: T) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tetris_core::core::GameState;
     use tetris_core::types::GameAction;
 
     #[test]
     fn emits_at_configured_fixed_step_interval() {
         let mut game = GameState::new(1);
         game.start();
-        let mut schedule = ObservationSchedule::new(&game, 20);
+        let mut schedule = ObservationSchedule::new(&game.snapshot(), 20);
 
-        assert!(schedule.after_tick(&game).is_none());
-        assert!(schedule.after_tick(&game).is_none());
-        assert!(schedule.after_tick(&game).is_none());
-        assert_eq!(schedule.after_tick(&game).unwrap().0, 1);
+        assert!(schedule.after_tick(&game.snapshot()).is_none());
+        assert!(schedule.after_tick(&game.snapshot()).is_none());
+        assert!(schedule.after_tick(&game.snapshot()).is_none());
+        assert_eq!(schedule.after_tick(&game.snapshot()).unwrap().0, 1);
     }
 
     #[test]
     fn preserves_requested_frequency_without_integer_period_drift() {
         let mut game = GameState::new(1);
         game.start();
-        let mut schedule = ObservationSchedule::new(&game, 20);
+        let mut schedule = ObservationSchedule::new(&game.snapshot(), 20);
 
         // 63 fixed 16ms steps cover 1008ms, so a 20Hz schedule should emit 20
         // observations and retain the fractional phase for the next second.
         let emissions = (0..63)
-            .filter(|_| schedule.after_tick(&game).is_some())
+            .filter(|_| schedule.after_tick(&game.snapshot()).is_some())
             .count();
 
         assert_eq!(emissions, 20);
@@ -125,17 +129,17 @@ mod tests {
     fn emits_immediately_when_pause_state_changes() {
         let mut game = GameState::new(1);
         game.start();
-        let mut schedule = ObservationSchedule::new(&game, 1);
+        let mut schedule = ObservationSchedule::new(&game.snapshot(), 1);
 
         game.apply_action(GameAction::Pause);
-        assert_eq!(schedule.after_tick(&game).unwrap().0, 1);
+        assert_eq!(schedule.after_tick(&game.snapshot()).unwrap().0, 1);
     }
 
     #[test]
     fn immediate_snapshots_share_the_monotonic_sequence() {
         let mut game = GameState::new(1);
         game.start();
-        let mut schedule = ObservationSchedule::new(&game, 20);
+        let mut schedule = ObservationSchedule::new(&game.snapshot(), 20);
 
         assert_eq!(schedule.immediate().0, 1);
         assert_eq!(schedule.immediate().0, 2);
@@ -145,12 +149,14 @@ mod tests {
     fn captures_an_explicit_core_event_without_mutating_game() {
         let mut game = GameState::new(1);
         game.start();
-        let mut schedule = ObservationSchedule::new(&game, 1);
+        let mut schedule = ObservationSchedule::new(&game.snapshot(), 1);
         assert!(game.apply_action(GameAction::HardDrop));
         let event = game.take_last_event().expect("lock event");
 
         schedule.capture_event(event);
-        let (_, observed) = schedule.after_tick(&game).expect("critical observation");
+        let (_, observed) = schedule
+            .after_tick(&game.snapshot())
+            .expect("critical observation");
 
         assert!(observed.first().expect("event").locked);
     }

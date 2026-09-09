@@ -53,7 +53,7 @@
 //! Server -> Client: {"type":"welcome","seq":1,"ts":1234567890,"protocol_version":"3.0.0",...}
 //! Server -> Client: {"type":"observation","seq":2,"ts":1234567891,"board":{...},"active":{...},...}
 //! Client -> Server: {"type":"command","seq":2,"ts":1234567892,"mode":"action","actions":["moveLeft","rotateCw","hardDrop"]}
-//! Server -> Client: {"type":"ack","seq":2,"ts":1234567892,"status":"ok"}
+//! Server -> Client: {"type":"ack","seq":2,"ts":1234567892,"status":"ok","correlation_seq":2,"applied_step":1,"state_hash":"0123456789abcdef"}
 //! ```
 //!
 //! # Implementation
@@ -63,7 +63,7 @@
 //! - Controller can release control for another client to take over
 //! - Reliable replies use bounded per-client queues; pending observations coalesce
 //! - Diagnostic wire logging is bounded and best-effort under storage backpressure
-//! - See [`protocol`] for message structure definitions
+//! - See `tetris_adapter_protocol::protocol` for message structure definitions
 //! - See [`server`] for TCP server implementation
 //!
 //! # Testing
@@ -80,7 +80,6 @@ pub mod command_apply;
 pub mod game_loop;
 pub mod observation;
 pub mod observation_schedule;
-pub use tetris_adapter_protocol::protocol;
 pub mod runtime;
 pub mod server;
 pub mod server_config;

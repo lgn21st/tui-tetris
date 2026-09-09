@@ -17,8 +17,9 @@ This profile documents tui-tetris behavior for the shared current protocol at
   none exists.
 - A requested `observer` remains observer-locked for automatic promotion.
 - Explicit release leaves the controller unassigned until claim.
-- Controller disconnect promotes the eligible connected client with the lowest
-  client id.
+- Controller disconnect promotes the eligible **handshaken** connected client
+  with the lowest client id. Unhandshaken sockets stay observer-locked until
+  hello and are not promotion candidates.
 - Welcome reports `auto_promote_on_disconnect=true` and
   `promotion_order=lowest_client_id`.
 
@@ -88,7 +89,8 @@ python3 scripts/adapter_verify.py all
 Repository validation:
 
 ```bash
-cargo test --lib adapter
+cargo test --workspace
+cargo test -p tetris-adapter --lib
 cargo test --test adapter_acceptance_test
 cargo test --test adapter_e2e_test
 cargo test --test adapter_closed_loop_test
