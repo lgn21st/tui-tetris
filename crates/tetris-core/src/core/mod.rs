@@ -18,15 +18,16 @@
 //!
 //! # Game Rules
 //!
-//! This implementation follows modern Tetris guidelines:
+//! This implementation follows the portable Guideline DS/Friends subset in
+//! `protocol/rules/SPEC.md`:
 //!
 //! - **7-Bag Randomizer**: Pieces are drawn from a bag of 7, ensuring all piece types appear regularly
-//! - **SRS Rotation**: Super Rotation System with wall kicks for all pieces except O
-//! - **Lock Delay**: 450ms before a grounded piece locks, with 15 move/rotate reset limit
+//! - **SRS Rotation**: Super Rotation System with wiki Y-up kicks converted to this Y-down board
+//! - **Lock Delay**: 500ms before a grounded piece locks, with 15 move/rotate reset limit
 //! - **Ghost Piece**: Shows where the current piece will land
 //! - **Hold**: Store one piece for later use (once per piece)
 //! - **T-Spin Detection**: Mini and full T-spins based on corner occupancy
-//! - **Scoring**: Classic Nintendo scoring with modern bonuses
+//! - **Scoring**: Guideline DS/Friends line, T-Spin, B2B, and combo tables
 //!
 //! # Example
 //!
@@ -53,7 +54,7 @@
 //! - **Tick Rate**: 16ms (approximately 60 FPS)
 //! - **Gravity**: Depends on level (1000ms at level 0, decreases with level)
 //! - **Soft Drop**: 10x faster than normal gravity
-//! - **Lock Delay**: 450ms when piece is grounded
+//! - **Lock Delay**: 500ms when piece is grounded
 //!
 //! Call [`GameState::tick`](game_state::GameState::tick) every frame with elapsed time.
 

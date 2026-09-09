@@ -1,11 +1,12 @@
-//! Scoring module - Classic and Modern Tetris scoring rules
+//! Scoring module - Guideline DS/Friends scoring
 //!
 //! Compatibility note:
-//! Scoring behavior is defined by `docs/rules-spec.md`.
+//! Portable scoring is defined by `protocol/rules/SPEC.md`.
 //! In particular:
-//! - T-Spin scoring uses the T-Spin tables (it does not add classic line-clear points).
+//! - T-Spin scoring uses the T-Spin tables (it does not add line-clear points).
 //! - B2B applies a 3/2 multiplier to the base clear points (before combo bonus).
-//! - Combo bonus is `combo_base * combo_index` with no level multiplier.
+//! - Combo bonus is `combo_base * combo_index * guideline_level`.
+//! - Mini T-Spin with lines is difficult (B2B-capable).
 
 use crate::types::{
     B2B_DENOMINATOR, B2B_NUMERATOR, COMBO_BASE, DROP_INTERVAL_FLOOR_MS, DROP_INTERVALS,
@@ -51,26 +52,27 @@ pub(crate) fn calculate_tspin_score(tspin: TSpinKind, lines: usize, level: u32) 
     }
 }
 
-/// Calculate combo bonus (modern rules).
+/// Calculate combo bonus (Guideline DS/Friends).
 ///
 /// `combo_index` semantics:
 /// - `-1`: no combo chain
 /// - `0`: first clear in chain (no bonus)
-/// - `1+`: bonus applies as `combo_base * combo_index`
-pub(crate) fn calculate_combo_bonus(combo_index: i32) -> u32 {
+/// - `1+`: bonus applies as `combo_base * combo_index * guideline_level`
+pub(crate) fn calculate_combo_bonus(combo_index: i32, level: u32) -> u32 {
     if combo_index <= 0 {
         return 0;
     }
-    COMBO_BASE.saturating_mul(combo_index as u32)
+    COMBO_BASE
+        .saturating_mul(combo_index as u32)
+        .saturating_mul(level.saturating_add(1))
 }
 
-/// Check if this clear qualifies for back-to-back
-/// B2B applies to: T-spin full with any lines, or Tetris (4 lines)
+/// Check if this clear qualifies for back-to-back.
+/// B2B applies to: T-spin full or mini with lines, or Tetris (4 lines).
 pub(crate) fn qualifies_for_b2b(tspin: TSpinKind, lines: usize) -> bool {
     matches!(
         (tspin, lines),
-        (TSpinKind::Full, 1..=4) | // T-spin full with lines
-        (TSpinKind::None, 4) // Tetris
+        (TSpinKind::Full, 1..=4) | (TSpinKind::Mini, 1..=4) | (TSpinKind::None, 4)
     )
 }
 
@@ -107,7 +109,7 @@ pub(crate) fn calculate_score(
         base_points
     };
 
-    let combo_bonus = calculate_combo_bonus(combo_index);
+    let combo_bonus = calculate_combo_bonus(combo_index, level);
     let total = line_clear_score.saturating_add(combo_bonus);
 
     ScoreResult {
@@ -160,15 +162,15 @@ mod tests {
 
     #[test]
     fn test_classic_line_scores() {
-        // Level 0
-        assert_eq!(calculate_line_score(1, 0), 40);
-        assert_eq!(calculate_line_score(2, 0), 100);
-        assert_eq!(calculate_line_score(3, 0), 300);
-        assert_eq!(calculate_line_score(4, 0), 1200);
+        // Level 0 (guideline level 1)
+        assert_eq!(calculate_line_score(1, 0), 100);
+        assert_eq!(calculate_line_score(2, 0), 300);
+        assert_eq!(calculate_line_score(3, 0), 500);
+        assert_eq!(calculate_line_score(4, 0), 800);
 
-        // Level 5
-        assert_eq!(calculate_line_score(1, 5), 40 * 6);
-        assert_eq!(calculate_line_score(4, 5), 1200 * 6);
+        // Level 5 (guideline level 6)
+        assert_eq!(calculate_line_score(1, 5), 100 * 6);
+        assert_eq!(calculate_line_score(4, 5), 800 * 6);
     }
 
     #[test]
@@ -190,10 +192,11 @@ mod tests {
 
     #[test]
     fn test_combo_bonus() {
-        assert_eq!(calculate_combo_bonus(-1), 0);
-        assert_eq!(calculate_combo_bonus(0), 0);
-        assert_eq!(calculate_combo_bonus(1), 50);
-        assert_eq!(calculate_combo_bonus(3), 150);
+        assert_eq!(calculate_combo_bonus(-1, 0), 0);
+        assert_eq!(calculate_combo_bonus(0, 0), 0);
+        assert_eq!(calculate_combo_bonus(1, 0), 50);
+        assert_eq!(calculate_combo_bonus(3, 0), 150);
+        assert_eq!(calculate_combo_bonus(3, 5), 50 * 3 * 6);
     }
 
     #[test]
@@ -205,8 +208,13 @@ mod tests {
         // Tetris qualifies
         assert!(qualifies_for_b2b(TSpinKind::None, 4));
 
-        // T-spin mini does not qualify
-        assert!(!qualifies_for_b2b(TSpinKind::Mini, 1));
+        // T-spin mini with lines qualifies
+        assert!(qualifies_for_b2b(TSpinKind::Mini, 1));
+        assert!(qualifies_for_b2b(TSpinKind::Mini, 2));
+
+        // Zero-line T-spins do not qualify (they also do not break a live chain)
+        assert!(!qualifies_for_b2b(TSpinKind::Full, 0));
+        assert!(!qualifies_for_b2b(TSpinKind::Mini, 0));
 
         // Regular clears do not qualify
         assert!(!qualifies_for_b2b(TSpinKind::None, 1));
@@ -229,43 +237,41 @@ mod tests {
 
         // Second consecutive clear has combo bonus (combo_index = 1).
         let result = calculate_score(1, 0, TSpinKind::None, 1, false);
-        assert_eq!(result.line_clear_score, 40);
+        assert_eq!(result.line_clear_score, 100);
         assert_eq!(result.combo_bonus, 50);
-        assert_eq!(result.total, 90);
+        assert_eq!(result.total, 150);
 
         // Back-to-back Tetris multiplies the base clear points only.
         let result = calculate_score(4, 0, TSpinKind::None, 1, true);
-        assert_eq!(result.line_clear_score, 1800);
+        assert_eq!(result.line_clear_score, 1200);
         assert_eq!(result.combo_bonus, 50);
-        assert_eq!(result.total, 1850);
+        assert_eq!(result.total, 1250);
         assert!(result.qualifies_for_b2b);
         assert!(result.b2b_applied);
     }
 
     #[test]
-    fn test_mini_tspin_never_gets_b2b_multiplier() {
-        // Even if the previous clear was B2B-qualifying, Mini T-Spins do not qualify for B2B.
+    fn test_mini_tspin_with_lines_gets_b2b_multiplier() {
         let result = calculate_score(1, 0, TSpinKind::Mini, 0, true);
-        assert_eq!(result.line_clear_score, 200);
+        assert_eq!(result.line_clear_score, 300);
         assert_eq!(result.combo_bonus, 0);
-        assert_eq!(result.total, 200);
-        assert!(!result.qualifies_for_b2b);
-        assert!(!result.b2b_applied);
+        assert_eq!(result.total, 300);
+        assert!(result.qualifies_for_b2b);
+        assert!(result.b2b_applied);
 
         let result = calculate_score(2, 3, TSpinKind::Mini, 0, true);
-        assert_eq!(result.line_clear_score, 400 * (3 + 1));
+        assert_eq!(result.line_clear_score, 400 * 4 * 3 / 2);
         assert_eq!(result.combo_bonus, 0);
-        assert_eq!(result.total, 400 * (3 + 1));
-        assert!(!result.qualifies_for_b2b);
-        assert!(!result.b2b_applied);
+        assert_eq!(result.total, 400 * 4 * 3 / 2);
+        assert!(result.qualifies_for_b2b);
+        assert!(result.b2b_applied);
 
-        // Combo bonus is still added on top of the base (non-B2B) points.
         let result = calculate_score(1, 0, TSpinKind::Mini, 2, true);
-        assert_eq!(result.line_clear_score, 200);
+        assert_eq!(result.line_clear_score, 300);
         assert_eq!(result.combo_bonus, 100);
-        assert_eq!(result.total, 300);
-        assert!(!result.qualifies_for_b2b);
-        assert!(!result.b2b_applied);
+        assert_eq!(result.total, 400);
+        assert!(result.qualifies_for_b2b);
+        assert!(result.b2b_applied);
     }
 
     #[test]
@@ -273,9 +279,9 @@ mod tests {
         // Even if the previous clear qualified (previous_b2b=true), a normal single clear
         // must not receive the B2B multiplier.
         let result = calculate_score(1, 0, TSpinKind::None, 0, true);
-        assert_eq!(result.line_clear_score, 40);
+        assert_eq!(result.line_clear_score, 100);
         assert_eq!(result.combo_bonus, 0);
-        assert_eq!(result.total, 40);
+        assert_eq!(result.total, 100);
         assert!(!result.qualifies_for_b2b);
         assert!(!result.b2b_applied);
     }
@@ -301,12 +307,11 @@ mod tests {
     }
 
     #[test]
-    fn test_combo_bonus_does_not_scale_with_level() {
-        // Combo bonus is independent of level.
+    fn test_combo_bonus_scales_with_guideline_level() {
         let result = calculate_score(2, 5, TSpinKind::None, 3, false);
-        assert_eq!(result.line_clear_score, 100 * (5 + 1));
-        assert_eq!(result.combo_bonus, 50 * 3);
-        assert_eq!(result.total, 100 * (5 + 1) + 50 * 3);
+        assert_eq!(result.line_clear_score, 300 * 6);
+        assert_eq!(result.combo_bonus, 50 * 3 * 6);
+        assert_eq!(result.total, 300 * 6 + 50 * 3 * 6);
     }
 
     #[test]
@@ -323,7 +328,8 @@ mod tests {
             u32::MAX
         );
         assert_eq!(calculate_drop_score(u32::MAX, true), u32::MAX);
-        assert_eq!(calculate_combo_bonus(i32::MAX), u32::MAX);
+        assert_eq!(calculate_combo_bonus(i32::MAX, 0), u32::MAX);
+        assert_eq!(calculate_combo_bonus(i32::MAX, u32::MAX), u32::MAX);
     }
 
     #[test]

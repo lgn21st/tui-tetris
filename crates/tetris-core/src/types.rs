@@ -22,7 +22,7 @@
 //! | `BASE_DROP_MS` | 1000 | Gravity at level 0 |
 //! | `SOFT_DROP_MULTIPLIER` | 10 | Soft drop is 10x faster |
 //! | `SOFT_DROP_GRACE_MS` | 150 | Soft drop state timeout |
-//! | `LOCK_DELAY_MS` | 450 | Time before piece locks when grounded |
+//! | `LOCK_DELAY_MS` | 500 | Time before piece locks when grounded |
 //! | `LOCK_RESET_LIMIT` | 15 | Max lock timer resets per piece |
 //! | `LINE_CLEAR_PAUSE_MS` | 180 | Pause duration after line clear |
 //! | `LANDING_FLASH_MS` | 120 | Flash duration on piece landing |
@@ -96,8 +96,8 @@ pub const SOFT_DROP_MULTIPLIER: u32 = 10;
 /// Soft drop state timeout.
 pub const SOFT_DROP_GRACE_MS: u32 = 150;
 
-/// Lock delay when piece is grounded (450ms).
-pub const LOCK_DELAY_MS: u32 = 450;
+/// Lock delay when piece is grounded (500ms).
+pub const LOCK_DELAY_MS: u32 = 500;
 
 /// Maximum number of lock timer resets per piece (15)
 pub const LOCK_RESET_LIMIT: u8 = 15;
@@ -137,10 +137,11 @@ mod tests {
 
     #[test]
     fn timing_defaults_match_rules_spec() {
-        // Source-of-truth: docs/rules-spec.md
+        // Local timing: docs/rules-spec.md; portable rules: protocol/rules/
         assert_eq!(SOFT_DROP_MULTIPLIER, 10);
         assert_eq!(SOFT_DROP_GRACE_MS, 150);
-        assert_eq!(LOCK_DELAY_MS, 450);
+        assert_eq!(LOCK_DELAY_MS, 500);
+        assert_eq!(LINE_SCORES, [0, 100, 300, 500, 800]);
         assert_eq!(LOCK_RESET_LIMIT, 15);
         assert_eq!(LINE_CLEAR_PAUSE_MS, 180);
         assert_eq!(LANDING_FLASH_MS, 120);
@@ -454,26 +455,28 @@ impl TSpinKind {
 /// Used internally by the board as a flat array of cells.
 pub type Cell = Option<PieceKind>;
 
-/// Line clear scoring table (Classic Nintendo scoring)
+/// Line clear scoring table (Guideline DS/Friends)
 ///
-/// Base points for clearing N lines at level 0:
+/// Base points for clearing N lines at guideline level 1 (engine level 0):
 /// - 0 lines: 0 points
-/// - 1 line: 40 points
-/// - 2 lines: 100 points
-/// - 3 lines: 300 points
-/// - 4 lines: 1200 points (Tetris!)
+/// - 1 line: 100 points
+/// - 2 lines: 300 points
+/// - 3 lines: 500 points
+/// - 4 lines: 800 points (Tetris)
 ///
-/// Points are multiplied by (level + 1) for higher levels.
-pub const LINE_SCORES: [u32; 5] = [0, 40, 100, 300, 1200];
+/// Points are multiplied by guideline level (`engine_level + 1`).
+pub const LINE_SCORES: [u32; 5] = [0, 100, 300, 500, 800];
 
 /// Combo scoring base value (50 points per combo step)
 ///
-/// Combo bonus is added after the base line-clear score (and after any B2B multiplier).
+/// Combo bonus is `COMBO_BASE * combo_index * guideline_level`, added after
+/// the base line-clear score (and after any B2B multiplier).
 pub const COMBO_BASE: u32 = 50;
 
 /// Back-to-back bonus numerator (3/2 = 1.5x multiplier)
 ///
-/// Back-to-back bonuses apply to consecutive Tetrises (4 lines) or T-Spin line clears.
+/// Back-to-back bonuses apply to consecutive Tetrises or T-Spin line clears
+/// (including Mini T-Spin with lines).
 pub const B2B_NUMERATOR: u32 = 3;
 
 /// Back-to-back bonus denominator

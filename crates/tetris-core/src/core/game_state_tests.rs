@@ -856,11 +856,11 @@ fn test_tspin_full_single_uses_modern_table_only() {
 fn test_combo_bonus_starts_after_second_clear() {
     let mut state = GameState::new(1);
     state.apply_line_clear(1, TSpinKind::None);
-    assert_eq!(state.score, 40);
+    assert_eq!(state.score, 100);
     assert_eq!(state.combo, 0);
 
     state.apply_line_clear(1, TSpinKind::None);
-    assert_eq!(state.score, 40 + (40 + 50));
+    assert_eq!(state.score, 100 + (100 + 50));
     assert_eq!(state.combo, 1);
 }
 
@@ -870,7 +870,7 @@ fn test_level_multiplier_uses_pre_clear_level() {
     state.lines = 9;
     state.level = 0;
     state.apply_line_clear(1, TSpinKind::None);
-    assert_eq!(state.score, 40);
+    assert_eq!(state.score, 100);
     assert_eq!(state.lines, 10);
     assert_eq!(state.level, 1);
 }
@@ -882,8 +882,8 @@ fn test_b2b_multiplier_excludes_combo_bonus() {
     state.combo = 0; // already have one prior clear in the chain
     state.apply_line_clear(4, TSpinKind::None);
 
-    // Base: 1200 * 3/2 = 1800, then combo bonus +50.
-    assert_eq!(state.score, 1850);
+    // Base: 800 * 3/2 = 1200, then combo bonus +50 at guideline level 1.
+    assert_eq!(state.score, 1250);
     assert_eq!(state.combo, 1);
     assert!(state.back_to_back);
 }
@@ -974,8 +974,9 @@ fn test_qualifies_for_b2b() {
     assert!(qualifies_for_b2b(TSpinKind::Full, 1));
     assert!(qualifies_for_b2b(TSpinKind::Full, 4));
     assert!(qualifies_for_b2b(TSpinKind::None, 4)); // Tetris
+    assert!(qualifies_for_b2b(TSpinKind::Mini, 1));
 
-    assert!(!qualifies_for_b2b(TSpinKind::Mini, 1));
+    assert!(!qualifies_for_b2b(TSpinKind::Mini, 0));
     assert!(!qualifies_for_b2b(TSpinKind::None, 3));
     assert!(!qualifies_for_b2b(TSpinKind::None, 1));
 }
@@ -1359,10 +1360,11 @@ fn test_last_event_line_clear_score_excludes_combo_bonus() {
     state.lock_piece();
     let ev = state.take_last_event().expect("expected last_event");
 
-    let expected_base = 1200 * (state.level + 1); // pre-clear level = 2 => *3
+    let expected_base = 800 * (state.level + 1); // pre-clear level = 2 => *3
     let expected_line_clear_score = expected_base * 3 / 2; // B2B multiplier
     let expected_combo_after = 1; // combo was 0, +1 on clear
-    let expected_combo_bonus = crate::types::COMBO_BASE * (expected_combo_after as u32);
+    let expected_combo_bonus =
+        crate::types::COMBO_BASE * (expected_combo_after as u32) * (state.level + 1);
     let expected_delta = expected_line_clear_score + expected_combo_bonus;
 
     assert!(ev.locked);
@@ -1404,7 +1406,7 @@ fn test_last_event_combo_starts_at_zero_and_b2b_applies_on_next_clear() {
     state.lock_piece();
     let ev = state.take_last_event().expect("expected last_event");
 
-    let expected_line_clear_score = 1200;
+    let expected_line_clear_score = 800;
     let expected_delta = expected_line_clear_score; // first clear in chain => combo=0, no combo bonus
 
     assert_eq!(ev.lines_cleared, 4);
@@ -1448,7 +1450,7 @@ fn test_last_event_line_clear_score_excludes_drop_points() {
 
     // I(East) lands at y=16 in this setup => 16 rows hard-dropped => 32 drop points.
     let expected_drop_points = 16 * 2;
-    let expected_line_clear_score = 1200;
+    let expected_line_clear_score = 800;
     let expected_delta = expected_line_clear_score + expected_drop_points;
 
     assert_eq!(ev.lines_cleared, 4);
@@ -1459,7 +1461,7 @@ fn test_last_event_line_clear_score_excludes_drop_points() {
 }
 
 #[test]
-fn test_mini_tspin_clear_resets_b2b_chain() {
+fn test_mini_tspin_clear_keeps_b2b_chain() {
     let mut state = GameState::new(12345);
     state.start();
 
@@ -1472,11 +1474,11 @@ fn test_mini_tspin_clear_resets_b2b_chain() {
     let score_before = state.score;
     let base = state.apply_line_clear(1, TSpinKind::Mini);
 
-    // Mini T-Spins use their own table but do not qualify for B2B carry.
-    assert_eq!(base, 200);
+    // Mini T-Spins with lines are difficult and keep the B2B chain.
+    assert_eq!(base, 300); // 200 * 3/2
     assert_eq!(state.combo, 0);
-    assert!(!state.back_to_back);
-    assert_eq!(state.score - score_before, 200);
+    assert!(state.back_to_back);
+    assert_eq!(state.score - score_before, 300);
 }
 
 #[test]
@@ -1495,8 +1497,8 @@ fn test_back_to_back_breaks_on_non_qualifying_clear() {
     // Normal single clear does not qualify, so:
     // - it should not get a B2B multiplier even though previous_b2b was true
     // - it should break the chain
-    assert_eq!(base, 40);
-    assert_eq!(state.score - score_before, 40);
+    assert_eq!(base, 100);
+    assert_eq!(state.score - score_before, 100);
     assert!(!state.back_to_back);
     assert_eq!(state.combo, 0);
 }
@@ -1561,8 +1563,8 @@ fn test_b2b_chain_break_prevents_next_tetris_multiplier() {
     // Next Tetris should NOT receive the B2B multiplier.
     let score_before = state.score;
     let base = state.apply_line_clear(4, TSpinKind::None);
-    assert_eq!(base, 1200);
-    assert_eq!(state.score - score_before, 1200 + crate::types::COMBO_BASE); // combo=1 => +50
+    assert_eq!(base, 800);
+    assert_eq!(state.score - score_before, 800 + crate::types::COMBO_BASE); // combo=1 => +50
     assert!(state.back_to_back);
     assert_eq!(state.combo, 1);
 }
@@ -1580,11 +1582,11 @@ fn test_tspin_no_line_clear_awards_points_and_resets_chains_full() {
     let score_before = state.score;
     let base = state.apply_line_clear(0, TSpinKind::Full);
 
-    // T-Spin no-lines awards points but resets combo/B2B and does not report a line-clear score.
+    // T-Spin no-lines awards points and resets combo, but keeps the B2B chain.
     assert_eq!(base, 0);
     assert_eq!(state.score - score_before, 400 * (2 + 1));
     assert_eq!(state.combo, -1);
-    assert!(!state.back_to_back);
+    assert!(state.back_to_back);
     assert_eq!(state.level, 2);
     assert_eq!(state.lines, 29);
 }
@@ -1605,7 +1607,7 @@ fn test_tspin_no_line_clear_awards_points_and_resets_chains_mini() {
     assert_eq!(base, 0);
     assert_eq!(state.score - score_before, 100 * (1 + 1));
     assert_eq!(state.combo, -1);
-    assert!(!state.back_to_back);
+    assert!(state.back_to_back);
     assert_eq!(state.level, 1);
     assert_eq!(state.lines, 10);
 }
@@ -1642,7 +1644,7 @@ fn test_lock_piece_tspin_no_lines_awards_points_but_last_event_omits_tspin_full(
     assert_eq!(ev.line_clear_score, 0);
     assert_eq!(ev.tspin, None);
     assert_eq!(ev.combo, -1);
-    assert!(!ev.back_to_back);
+    assert!(ev.back_to_back);
 }
 
 #[test]
@@ -1676,7 +1678,7 @@ fn test_lock_piece_tspin_no_lines_awards_points_but_last_event_omits_tspin_mini(
     assert_eq!(ev.line_clear_score, 0);
     assert_eq!(ev.tspin, None);
     assert_eq!(ev.combo, -1);
-    assert!(!ev.back_to_back);
+    assert!(ev.back_to_back);
 }
 
 #[test]

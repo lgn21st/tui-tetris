@@ -567,10 +567,13 @@ impl GameState {
     fn apply_line_clear(&mut self, lines_cleared: usize, tspin: TSpinKind) -> u32 {
         if lines_cleared == 0 {
             self.combo = -1;
-            self.back_to_back = false;
+            if tspin == TSpinKind::None {
+                self.back_to_back = false;
+            }
 
-            // Award points for T-Spin "no lines", but it does not count as a line clear for
-            // combo/B2B/line_clear_score reporting.
+            // Award points for T-Spin "no lines". Combo still resets. A T-Spin
+            // with 0 lines does not break an existing B2B chain and does not
+            // start one. Adapter events omit tspin when lines_cleared is 0.
             let tspin_points = match tspin {
                 TSpinKind::Full => {
                     crate::core::scoring::calculate_tspin_score(TSpinKind::Full, 0, self.level)

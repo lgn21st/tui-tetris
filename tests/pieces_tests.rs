@@ -217,6 +217,35 @@ fn test_kick_table_consistency() {
     assert_ne!(i_kicks, j_kicks);
 }
 
+#[test]
+fn kick_tables_are_wiki_y_up_negated_for_y_down_board() {
+    use tetris_core::core::pieces::get_kick_table;
+
+    let jlstz = get_kick_table(PieceKind::T);
+    assert_eq!(
+        jlstz[0],
+        [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)],
+        "JLSTZ N→E must negate wiki +y"
+    );
+    assert_eq!(jlstz[1], [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)]);
+    assert_eq!(jlstz[2], [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)]);
+    assert_eq!(jlstz[3], [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)]);
+    assert_eq!(jlstz[4], [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)]);
+    assert_eq!(jlstz[5], [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)]);
+    assert_eq!(jlstz[6], [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)]);
+    assert_eq!(jlstz[7], [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)]);
+
+    let i_kicks = get_kick_table(PieceKind::I);
+    assert_eq!(i_kicks[0], [(0, 0), (-2, 0), (1, 0), (-2, 1), (1, -2)]);
+    assert_eq!(i_kicks[1], [(0, 0), (-1, 0), (2, 0), (-1, -2), (2, 1)]);
+    assert_eq!(i_kicks[2], [(0, 0), (2, 0), (-1, 0), (2, -1), (-1, 2)]);
+    assert_eq!(i_kicks[3], [(0, 0), (-1, 0), (2, 0), (-1, -2), (2, 1)]);
+    assert_eq!(i_kicks[4], [(0, 0), (1, 0), (-2, 0), (1, 2), (-2, -1)]);
+    assert_eq!(i_kicks[5], [(0, 0), (2, 0), (-1, 0), (2, -1), (-1, 2)]);
+    assert_eq!(i_kicks[6], [(0, 0), (-2, 0), (1, 0), (-2, 1), (1, -2)]);
+    assert_eq!(i_kicks[7], [(0, 0), (1, 0), (-2, 0), (1, 2), (-2, -1)]);
+}
+
 // ============== Shape Consistency Tests ==============
 
 #[test]
