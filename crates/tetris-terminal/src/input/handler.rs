@@ -6,7 +6,9 @@ use crossterm::event::KeyCode;
 
 use arrayvec::ArrayVec;
 
-use tetris_core::types::{DEFAULT_ARR_MS, DEFAULT_DAS_MS, GameAction, SOFT_DROP_ARR_MS};
+use tetris_core::types::{
+    DEFAULT_ARR_MS, DEFAULT_DAS_MS, GameAction, SOFT_DROP_ARR_MS, SOFT_DROP_DAS_MS,
+};
 
 /// Direction for horizontal movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +93,16 @@ impl InputHandler {
         self.repeat_release_timeout_max_ms = max_ms;
         self.repeat_release_timeout_ms = self.repeat_release_timeout_ms.clamp(min_ms, max_ms);
         self
+    }
+
+    pub fn with_repeat_release_timeout_min_ms(self, min_ms: u32) -> Self {
+        let max_ms = self.repeat_release_timeout_max_ms;
+        self.with_repeat_release_timeout_bounds_ms(min_ms, max_ms)
+    }
+
+    pub fn with_repeat_release_timeout_max_ms(self, max_ms: u32) -> Self {
+        let min_ms = self.repeat_release_timeout_min_ms;
+        self.with_repeat_release_timeout_bounds_ms(min_ms, max_ms)
     }
 
     pub fn handle_key_press(&mut self, code: KeyCode) -> Option<GameAction> {
@@ -285,7 +297,7 @@ impl InputHandler {
         match self.horizontal {
             HorizontalDirection::Left | HorizontalDirection::Right => {
                 let prev_das = self.horizontal_das_timer;
-                self.horizontal_das_timer += elapsed_ms;
+                self.horizontal_das_timer = self.horizontal_das_timer.saturating_add(elapsed_ms);
 
                 if self.horizontal_das_timer >= self.das_delay {
                     let excess = if prev_das < self.das_delay {
@@ -293,7 +305,8 @@ impl InputHandler {
                     } else {
                         elapsed_ms
                     };
-                    self.horizontal_arr_accumulator += excess;
+                    self.horizontal_arr_accumulator =
+                        self.horizontal_arr_accumulator.saturating_add(excess);
 
                     while self.horizontal_arr_accumulator >= self.arr_rate {
                         match self.horizontal {
@@ -316,8 +329,10 @@ impl InputHandler {
         }
 
         if self.down_held {
-            self.down_das_timer += elapsed_ms;
-            self.down_arr_accumulator += elapsed_ms;
+            // Spec DAS is 0, so ARR starts on the first held tick.
+            debug_assert_eq!(SOFT_DROP_DAS_MS, 0);
+            self.down_das_timer = self.down_das_timer.saturating_add(elapsed_ms);
+            self.down_arr_accumulator = self.down_arr_accumulator.saturating_add(elapsed_ms);
             while self.down_arr_accumulator >= SOFT_DROP_ARR_MS {
                 let _ = actions.try_push(GameAction::SoftDrop);
                 self.down_arr_accumulator -= SOFT_DROP_ARR_MS;
@@ -512,7 +527,25 @@ mod tests {
     }
 
     #[test]
+    fn test_repeat_release_timeout_bounds_can_be_set_independently() {
+        let min_only = InputHandler::new().with_repeat_release_timeout_min_ms(120);
+        assert_eq!(min_only.repeat_release_timeout_min_ms, 120);
+        assert_eq!(
+            min_only.repeat_release_timeout_max_ms,
+            MAX_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS
+        );
+
+        let max_only = InputHandler::new().with_repeat_release_timeout_max_ms(180);
+        assert_eq!(
+            max_only.repeat_release_timeout_min_ms,
+            MIN_REPEAT_DRIVEN_RELEASE_TIMEOUT_MS
+        );
+        assert_eq!(max_only.repeat_release_timeout_max_ms, 180);
+    }
+
+    #[test]
     fn test_soft_drop_repeats_use_zero_das_and_50ms_arr() {
+        assert_eq!(SOFT_DROP_DAS_MS, 0);
         let mut ih = InputHandler::new().with_key_release_timeout_ms(10_000);
 
         assert_eq!(

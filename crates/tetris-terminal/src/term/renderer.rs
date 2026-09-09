@@ -9,13 +9,11 @@ use anyhow::Result;
 
 use crossterm::{
     QueueableCommand, cursor,
-    style::{
-        Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
-    },
+    style::{Attribute, ResetColor, SetAttribute},
     terminal,
 };
 
-use crate::term::fb::{CellStyle, FrameBuffer, Rgb};
+use crate::term::fb::{CellStyle, FrameBuffer};
 
 pub struct TerminalRenderer<W: Write = io::Stdout> {
     writer: W,
@@ -118,77 +116,101 @@ impl Default for TerminalRenderer<io::Stdout> {
     }
 }
 
-/// Encode a full-frame redraw into `out`.
-///
-/// This builds a sequence of crossterm commands without writing to stdout.
+/// Encode a full-frame redraw into `out` using ANSI CSI sequences.
 pub fn encode_full_into(fb: &FrameBuffer, out: &mut Vec<u8>) -> Result<()> {
-    out.queue(terminal::Clear(terminal::ClearType::All))?;
-    out.queue(cursor::MoveTo(0, 0))?;
+    out.extend_from_slice(b"\x1b[2J");
+    push_move_to(out, 0, 0);
 
     let mut current_style: Option<CellStyle> = None;
     for y in 0..fb.height() {
         for x in 0..fb.width() {
             let cell = fb.get(x, y).unwrap_or_default();
             if current_style != Some(cell.style) {
-                apply_style_into(out, cell.style)?;
+                apply_style_into(out, cell.style);
                 current_style = Some(cell.style);
             }
-            out.queue(Print(cell.ch))?;
+            push_char(out, cell.ch);
         }
         if y + 1 < fb.height() {
-            out.queue(Print("\r\n"))?;
+            out.extend_from_slice(b"\r\n");
         }
     }
 
-    out.queue(ResetColor)?;
-    out.queue(SetAttribute(Attribute::Reset))?;
+    out.extend_from_slice(b"\x1b[0m");
     Ok(())
 }
 
-/// Encode a diff redraw (changed runs) into `out`.
-///
-/// This builds a sequence of crossterm commands without writing to stdout.
+/// Encode a diff redraw (changed runs) into `out` using ANSI CSI sequences.
 pub fn encode_diff_into(prev: &FrameBuffer, next: &FrameBuffer, out: &mut Vec<u8>) -> Result<()> {
     let mut current_style: Option<CellStyle> = None;
 
     for_each_changed_run(prev, next, |x, y, len| {
-        out.queue(cursor::MoveTo(x, y))?;
+        push_move_to(out, x, y);
         for dx in 0..len {
             let cell = next.get(x + dx, y).unwrap_or_default();
             if current_style != Some(cell.style) {
-                apply_style_into(out, cell.style)?;
+                apply_style_into(out, cell.style);
                 current_style = Some(cell.style);
             }
-            out.queue(Print(cell.ch))?;
+            push_char(out, cell.ch);
         }
         Ok(())
     })?;
 
     if current_style.is_some() {
-        out.queue(ResetColor)?;
-        out.queue(SetAttribute(Attribute::Reset))?;
+        out.extend_from_slice(b"\x1b[0m");
     }
     Ok(())
 }
 
-fn apply_style_into(out: &mut Vec<u8>, style: CellStyle) -> Result<()> {
-    out.queue(SetForegroundColor(rgb_to_color(style.fg)))?;
-    out.queue(SetBackgroundColor(rgb_to_color(style.bg)))?;
-    out.queue(SetAttribute(Attribute::Reset))?;
+fn push_decimal(out: &mut Vec<u8>, mut value: u32) {
+    let mut digits = [0u8; 10];
+    let mut i = 10;
+    if value == 0 {
+        out.push(b'0');
+        return;
+    }
+    while value != 0 {
+        i -= 1;
+        digits[i] = b'0' + (value % 10) as u8;
+        value /= 10;
+    }
+    out.extend_from_slice(&digits[i..]);
+}
+
+fn push_move_to(out: &mut Vec<u8>, x: u16, y: u16) {
+    out.extend_from_slice(b"\x1b[");
+    push_decimal(out, u32::from(y) + 1);
+    out.push(b';');
+    push_decimal(out, u32::from(x) + 1);
+    out.push(b'H');
+}
+
+fn push_char(out: &mut Vec<u8>, ch: char) {
+    let mut buf = [0u8; 4];
+    let encoded = ch.encode_utf8(&mut buf);
+    out.extend_from_slice(encoded.as_bytes());
+}
+
+fn apply_style_into(out: &mut Vec<u8>, style: CellStyle) {
+    out.extend_from_slice(b"\x1b[0m\x1b[38;2;");
+    push_decimal(out, u32::from(style.fg.r));
+    out.push(b';');
+    push_decimal(out, u32::from(style.fg.g));
+    out.push(b';');
+    push_decimal(out, u32::from(style.fg.b));
+    out.extend_from_slice(b"m\x1b[48;2;");
+    push_decimal(out, u32::from(style.bg.r));
+    out.push(b';');
+    push_decimal(out, u32::from(style.bg.g));
+    out.push(b';');
+    push_decimal(out, u32::from(style.bg.b));
+    out.push(b'm');
     if style.bold {
-        out.queue(SetAttribute(Attribute::Bold))?;
+        out.extend_from_slice(b"\x1b[1m");
     }
     if style.dim {
-        out.queue(SetAttribute(Attribute::Dim))?;
-    }
-    Ok(())
-}
-
-fn rgb_to_color(rgb: Rgb) -> Color {
-    Color::Rgb {
-        r: rgb.r,
-        g: rgb.g,
-        b: rgb.b,
+        out.extend_from_slice(b"\x1b[2m");
     }
 }
 
@@ -261,8 +283,6 @@ mod tests {
         }
     }
 
-    // This is not a perfect test of terminal output, but it ensures we can build
-    // a framebuffer and iterate all cells without panicking.
     #[test]
     fn can_draw_small_framebuffer() {
         let mut fb = FrameBuffer::new(2, 2);
@@ -271,17 +291,8 @@ mod tests {
         fb.set(1, 0, Cell { ch: 'B', style });
         fb.set(0, 1, Cell { ch: 'C', style });
         fb.set(1, 1, Cell { ch: 'D', style });
-
-        // We can't easily validate the terminal I/O in unit tests.
-        // But we can at least exercise the style conversion.
-        assert_eq!(
-            rgb_to_color(style.fg),
-            Color::Rgb {
-                r: style.fg.r,
-                g: style.fg.g,
-                b: style.fg.b
-            }
-        );
+        assert_eq!(fb.get(0, 0).unwrap().ch, 'A');
+        assert_eq!(fb.get(1, 1).unwrap().ch, 'D');
     }
 
     #[test]
@@ -325,6 +336,18 @@ mod tests {
         encode_diff_into(&frame, &frame, &mut output).unwrap();
 
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn encode_diff_emits_csi_move_and_glyph() {
+        let prev = FrameBuffer::new(4, 2);
+        let mut next = FrameBuffer::new(4, 2);
+        next.put_char(1, 0, 'X', CellStyle::default());
+        let mut output = Vec::new();
+        encode_diff_into(&prev, &next, &mut output).unwrap();
+        assert!(output.contains(&b'\x1b'));
+        assert!(output.contains(&b'X'));
+        assert!(output.starts_with(b"\x1b[1;2H"));
     }
 
     #[test]

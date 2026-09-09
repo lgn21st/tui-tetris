@@ -1,13 +1,15 @@
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use tetris_core::core::GameState;
-use tetris_terminal::term::{FrameBuffer, GameView, Viewport};
+use tetris_terminal::term::{Cell, FrameBuffer, GameView, Viewport, encode_diff_into};
 
 struct CountingAlloc;
 
 static COUNT_ENABLED: AtomicBool = AtomicBool::new(false);
 static ALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
+static ALLOC_GATE: Mutex<()> = Mutex::new(());
 
 #[global_allocator]
 static GLOBAL: CountingAlloc = CountingAlloc;
@@ -48,6 +50,7 @@ fn with_alloc_counting<F: FnOnce()>(f: F) -> usize {
 
 #[test]
 fn term_game_view_render_is_allocation_free_after_warmup() {
+    let _gate = ALLOC_GATE.lock().expect("alloc gate");
     let view = GameView::default();
     let viewport = Viewport::new(80, 24);
     let mut fb = FrameBuffer::new(viewport.width, viewport.height);
@@ -79,4 +82,55 @@ fn term_game_view_render_is_allocation_free_after_warmup() {
     });
 
     assert!(allocs == 0);
+}
+
+#[test]
+fn encode_diff_into_is_allocation_free_after_warmup() {
+    let _gate = ALLOC_GATE.lock().expect("alloc gate");
+    let mut prev = FrameBuffer::new(80, 24);
+    let mut next = FrameBuffer::new(80, 24);
+    next.set(
+        4,
+        4,
+        Cell {
+            ch: 'X',
+            ..Cell::default()
+        },
+    );
+    let mut out = Vec::with_capacity(64 * 1024);
+    encode_diff_into(&prev, &next, &mut out).unwrap();
+    std::mem::swap(&mut prev, &mut next);
+    next.set(
+        5,
+        5,
+        Cell {
+            ch: 'Y',
+            ..Cell::default()
+        },
+    );
+    out.clear();
+    encode_diff_into(&prev, &next, &mut out).unwrap();
+
+    let allocs = with_alloc_counting(|| {
+        let mut prev_x = 5u16;
+        let mut prev_y = 5u16;
+        for i in 0..200 {
+            next.set(prev_x, prev_y, Cell::default());
+            prev_x = (i % 40) as u16;
+            prev_y = ((i / 40) % 12) as u16;
+            next.set(
+                prev_x,
+                prev_y,
+                Cell {
+                    ch: 'Z',
+                    ..Cell::default()
+                },
+            );
+            out.clear();
+            encode_diff_into(&prev, &next, &mut out).unwrap();
+            std::mem::swap(&mut prev, &mut next);
+        }
+    });
+
+    assert_eq!(allocs, 0);
 }

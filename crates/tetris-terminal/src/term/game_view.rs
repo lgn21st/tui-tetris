@@ -1,4 +1,4 @@
-//! GameView: maps `core::GameState` into a terminal framebuffer.
+//! GameView: maps an immutable `GameSnapshot` into a terminal framebuffer.
 //!
 //! This module is pure (no I/O). It can be unit-tested.
 
