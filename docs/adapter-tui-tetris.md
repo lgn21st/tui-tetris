@@ -86,14 +86,4 @@ The stable local entry point delegates to the current conformance client:
 python3 scripts/adapter_verify.py all
 ```
 
-Repository validation:
-
-```bash
-cargo test --workspace
-cargo test -p tetris-adapter --lib
-cargo test --test adapter_acceptance_test
-cargo test --test adapter_e2e_test
-cargo test --test adapter_closed_loop_test
-cargo test --test adapter_docs_test
-cargo test --test adapter_observation_no_alloc_gate_test
-```
+Repository validation: `cargo test --workspace`.

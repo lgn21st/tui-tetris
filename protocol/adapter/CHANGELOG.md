@@ -2,28 +2,10 @@
 
 ## 3.0.0
 
-- Replaced nullable `last_event` with a bounded, ordered `events` array.
-- Added authoritative `logical_step` to every observation.
-- Added `correlation_seq` to every ack and `applied_step` plus `state_hash` to
-  successful game-command acknowledgments.
-- Intentionally rejects v2 handshakes; clients must migrate explicitly.
+Current wire contract. Older protocol versions are not maintained.
 
-## 2.1.1
-
-- Published the protocol as a single current package at `protocol/adapter/`;
-  future upgrades update this path in place and notify dependent projects.
-- Clarified strict semantic-version validation while preserving compatibility
-  with valid `2.x` clients.
-- Defined bounded TCP framing in the TCP JSON-lines profile.
-- Clarified that observation sequence gaps are valid because observations are
-  full, latest-state snapshots.
-- Required correlated welcome/ack/error delivery to avoid silent response loss.
-- Clarified lifecycle playability, place atomicity, and deterministic restart
-  behavior without changing message shapes or error codes.
-
-## 2.1.0
-
-- Added deterministic `client_id`, `role`, and `controller_id` welcome fields.
-- Added explicit controller policy capabilities.
-- Partitioned always-present and optional observation capabilities.
-- Added optional backpressure retry hints.
+- Observations carry a bounded ordered `events` array and `logical_step`
+- Every ack has `correlation_seq`; successful game-command acks also have
+  `applied_step` and `state_hash`
+- Hello/welcome `protocol_version` is major 3; v2 clients (including those
+  that used nullable `last_event`) are rejected

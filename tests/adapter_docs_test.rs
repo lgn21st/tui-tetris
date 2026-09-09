@@ -131,6 +131,7 @@ fn tui_tetris_index_and_profile_are_separate_from_shared_spec() {
 
     assert!(index.contains("protocol/adapter/SPEC.md"));
     assert!(index.contains("docs/adapter-tui-tetris.md"));
+    assert!(!index.contains("protocol-v3-migration"));
     assert!(profile.contains("fixed-step phase accumulator"));
     assert!(profile.contains(&format!(
         "reliable queue capacity: `{CLIENT_RELIABLE_QUEUE_CAPACITY}`"
@@ -150,33 +151,15 @@ fn current_conformance_client_and_local_wrapper_exist() {
 }
 
 #[test]
-fn protocol_v3_has_a_dependent_client_migration_notice() {
-    let migration = fs::read_to_string(project_path("docs/protocol-v3-migration.md"))
-        .expect("protocol v3 migration notice");
-    for required in [
-        "2.1.1",
-        "3.0.0",
-        "last_event",
-        "events",
-        "logical_step",
-        "correlation_seq",
-        "applied_step",
-        "state_hash",
-    ] {
-        assert!(
-            migration.contains(required),
-            "missing migration item {required}"
-        );
-    }
-}
-
-#[test]
 fn protocol_package_contains_upgrade_and_notification_guidance() {
     let changelog = read(&format!("{PROTOCOL_ROOT}/CHANGELOG.md"));
     let readme = read(&format!("{PROTOCOL_ROOT}/README.md"));
 
-    assert!(changelog.contains("## 2.1.1"));
-    assert!(changelog.contains("single current package"));
+    assert!(changelog.contains("## 3.0.0"));
+    assert!(changelog.contains("events"));
+    assert!(changelog.contains("logical_step"));
+    assert!(changelog.contains("correlation_seq"));
+    assert!(!changelog.contains("## 2."));
     assert!(readme.contains("update the existing files in place"));
     assert!(readme.contains("notify dependent projects"));
     assert!(readme.contains("conformance/adapter_verify.py"));

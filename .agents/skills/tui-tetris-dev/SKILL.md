@@ -12,7 +12,8 @@ Work from `/Users/daniel/workspace/learn/tui-tetris`.
 1. Read `AGENTS.md` completely.
 2. Inspect `git status --short --branch`; preserve unrelated user changes.
 3. Read only the source-of-truth documents relevant to the task:
-   - Rules or timing: `docs/rules-spec.md`
+   - Portable rules: `protocol/rules/SPEC.md`
+   - Local timing/input profile: `docs/rules-spec.md`
    - Adapter behavior: `docs/adapter.md`
    - Architecture boundaries: `docs/architecture.md`
    - Completion/status claims: `docs/feature-matrix.md` and `docs/roadmap.md`
@@ -56,7 +57,8 @@ For adapter protocol, lifecycle, concurrency, or backpressure work, also use `tu
 
 ## Synchronize Documentation
 
-- Rule, timing, scoring, or input behavior: update `docs/rules-spec.md` and `docs/feature-matrix.md`.
+- Portable rule behavior: update `protocol/rules/` and `docs/feature-matrix.md`.
+- Local timing or input behavior: update `docs/rules-spec.md` and `docs/feature-matrix.md`.
 - Protocol fields or observable adapter semantics: update `docs/adapter.md`, examples/schema, and `docs/feature-matrix.md`.
 - Module ownership or runtime flow: update `docs/architecture.md`; update `docs/roadmap.md` only when current status or priorities change.
 - User-visible or notable technical behavior: update `CHANGELOG.md`.

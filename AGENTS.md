@@ -6,9 +6,10 @@
 - Strict TDD: every feature/improvement/refactor must add/adjust tests first
 
 ## Key Docs
-- `docs/rules-spec.md`: authoritative rules/timing constants
-- `docs/feature-matrix.md`: feature checklist
-- `docs/roadmap.md`: goals and validation checklist
+- `protocol/rules/SPEC.md`: portable Guideline DS/Friends rules
+- `docs/rules-spec.md`: tui-tetris local timing/input profile
+- `docs/feature-matrix.md`: current capability snapshot
+- `docs/roadmap.md`: remaining work
 - `docs/architecture.md`: crate boundaries and runtime flow
 - `docs/development-workflow.md`: change order and local validation
 - `protocol/adapter/SPEC.md`: current, implementation-neutral AI protocol
@@ -27,7 +28,8 @@
 ## Working Agreements
 - Follow strict TDD: write tests first, then implement
 - Core changes first; UI changes come after logic is stable
-- If behavior changes, update `docs/rules-spec.md` and `docs/feature-matrix.md`
+- If portable rules change, update `protocol/rules/` and `docs/feature-matrix.md`
+- If only local timing/input changes, update `docs/rules-spec.md` and `docs/feature-matrix.md`
 - Zero-allocation in hot paths (tick, render, observation build/serialize, diff encode)
 - Fixed timestep: 16ms logic updates
 

@@ -1,8 +1,7 @@
 # Tetris AI Adapter Protocol
 
 This directory is the single current protocol package. The current version is
-recorded in `VERSION`; protocol history and upgrade notes are recorded in
-`CHANGELOG.md`.
+recorded in `VERSION`; the current release notes are in `CHANGELOG.md`.
 
 ## Contents
 

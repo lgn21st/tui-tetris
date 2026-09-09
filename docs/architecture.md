@@ -1,8 +1,9 @@
 # Architecture
 
 This document describes the current dependency boundaries and runtime flows.
-Rule details belong in `rules-spec.md`; wire compatibility belongs in
-`adapter.md`.
+Portable rules: `protocol/rules/SPEC.md`. Local timing: `rules-spec.md`.
+Wire: `adapter.md`. `SessionRuntime` stays synchronous and single-owner;
+TCP uses one Tokio runtime.
 
 ## Dependency Boundaries
 
