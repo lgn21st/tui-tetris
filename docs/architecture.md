@@ -29,9 +29,9 @@ app (`tui-tetris`)
 - `term` renders immutable `GameViewModel` values through a framebuffer and
   diff flush. Play and observe inject the same five-line `HudOverlay`. It
   never mutates game rules.
-- `adapter` owns TCP framing, the client broker, per-client mailboxes,
+- `adapter` owns TCP framing/writer, the client broker, per-client mailboxes,
   observation scheduling, and the sync/async bridge; wire types live in the
-  separate adapter-protocol crate.
+  separate adapter-protocol crate. Line read/write lives in `framing`.
 - `main` is only a composition root. Interactive and headless modes install
   different ports around the same `step_session` implementation.
 - Workspace crates import APIs from their owning crate directly. Member crates

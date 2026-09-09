@@ -548,6 +548,7 @@ impl GameState {
     }
 
     /// Take and clear the oldest lock/line-clear event.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn take_last_event(&mut self) -> Option<CoreLastEvent> {
         if self.last_events.is_empty() {
             None

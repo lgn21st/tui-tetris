@@ -5,15 +5,15 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::io::BufReader;
 use tokio::io::BufWriter;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{RwLock, mpsc, oneshot, watch};
-use tokio::time::{Duration, MissedTickBehavior};
 
 use crate::adapter::client_mailbox::{
     ClientOutbound, ClientOutboundSender, client_outbound_channel,
 };
+use crate::adapter::framing::{BoundedLineRead, read_bounded_line, run_client_writer};
 use crate::adapter::runtime::{
     AdapterStatus, ClientCommand, ClientResponder, InboundCommand, InboundPayload, OutboundMessage,
 };
@@ -22,6 +22,7 @@ use tetris_adapter_protocol::protocol::*;
 use tetris_core::types::{GameAction, Rotation};
 
 pub use crate::adapter::client_mailbox::CLIENT_RELIABLE_QUEUE_CAPACITY;
+pub use crate::adapter::framing::MAX_INBOUND_LINE_BYTES;
 pub use crate::adapter::observation::build_observation;
 pub use crate::adapter::server_config::ServerConfig;
 pub use crate::adapter::wire_log::WIRE_LOG_QUEUE_CAPACITY;
@@ -29,48 +30,7 @@ pub use crate::adapter::wire_log::WIRE_LOG_QUEUE_CAPACITY;
 use arrayvec::ArrayVec;
 
 const BACKPRESSURE_RETRY_AFTER_MS: u64 = 50;
-pub const MAX_INBOUND_LINE_BYTES: usize = 64 * 1024;
-const CLIENT_WRITER_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(100);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BoundedLineRead {
-    Eof,
-    Line,
-    TooLong,
-}
-
-async fn read_bounded_line<R>(
-    reader: &mut R,
-    line: &mut Vec<u8>,
-) -> std::io::Result<BoundedLineRead>
-where
-    R: AsyncBufRead + Unpin,
-{
-    line.clear();
-    loop {
-        let available = reader.fill_buf().await?;
-        if available.is_empty() {
-            return Ok(if line.is_empty() {
-                BoundedLineRead::Eof
-            } else {
-                BoundedLineRead::Line
-            });
-        }
-
-        let newline = available.iter().position(|byte| *byte == b'\n');
-        let payload_len = newline.unwrap_or(available.len());
-        if line.len().saturating_add(payload_len) > MAX_INBOUND_LINE_BYTES {
-            return Ok(BoundedLineRead::TooLong);
-        }
-
-        let consumed = newline.map_or(available.len(), |index| index + 1);
-        line.extend_from_slice(&available[..consumed]);
-        reader.consume(consumed);
-        if newline.is_some() {
-            return Ok(BoundedLineRead::Line);
-        }
-    }
-}
+const CLIENT_WRITER_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 
 fn is_compatible_protocol_version(version: &str) -> bool {
     fn valid_identifiers(value: &str, reject_numeric_leading_zero: bool) -> bool {
@@ -165,31 +125,6 @@ fn send_client_error(
         code,
         message.as_ref(),
     )));
-}
-
-fn encode_json_into_buf<T: serde::Serialize>(buf: &mut Vec<u8>, value: &T) -> bool {
-    buf.clear();
-    serde_json::to_writer(&mut *buf, value).is_ok()
-}
-
-async fn write_json_and_log<W, T, F>(
-    writer: &mut BufWriter<W>,
-    buf: &mut Vec<u8>,
-    value: T,
-    log_tx: Option<&mpsc::Sender<WireRecord>>,
-    wrap: F,
-) -> std::io::Result<()>
-where
-    W: AsyncWrite + Unpin,
-    T: serde::Serialize,
-    F: FnOnce(T) -> WireRecord,
-{
-    if !encode_json_into_buf(buf, &value) {
-        return Ok(());
-    }
-    writer.write_all(buf).await?;
-    log_wire_record(log_tx, wrap(value));
-    Ok(())
 }
 
 async fn enforce_strict_seq(
@@ -586,10 +521,10 @@ async fn handle_client(
     wire_log_tx: Option<mpsc::Sender<WireRecord>>,
 ) -> anyhow::Result<()> {
     let (reader, writer) = tokio::io::split(socket);
-    let mut writer = BufWriter::with_capacity(16 * 1024, writer);
+    let writer = BufWriter::with_capacity(16 * 1024, writer);
     let mut reader = BufReader::new(reader);
 
-    let (outbound, mut reliable_rx, mut observation_rx, mut shutdown_rx) =
+    let (outbound, reliable_rx, observation_rx, mut shutdown_rx) =
         client_outbound_channel(CLIENT_RELIABLE_QUEUE_CAPACITY);
 
     // Add client to list
@@ -612,110 +547,8 @@ async fn handle_client(
     emit_status(&state).await;
 
     let wire_log_tx_out = wire_log_tx.clone();
-
-    // Spawn task to write messages to client
     let write_task = tokio::spawn(async move {
-        let mut buf: Vec<u8> = Vec::with_capacity(4096);
-        let mut dirty = false;
-        let mut flush_tick = tokio::time::interval(Duration::from_millis(16));
-        flush_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-        loop {
-            let msg = tokio::select! {
-                biased;
-                msg = reliable_rx.recv() => msg,
-                changed = observation_rx.changed() => {
-                    if changed.is_err() {
-                        None
-                    } else {
-                        observation_rx.borrow_and_update().clone()
-                    }
-                }
-                _ = flush_tick.tick(), if dirty => {
-                    if writer.flush().await.is_err() {
-                        break;
-                    }
-                    dirty = false;
-                    continue;
-                }
-            };
-
-            let Some(msg) = msg else {
-                break;
-            };
-
-            let flush_after = matches!(
-                msg,
-                ClientOutbound::Ack(_) | ClientOutbound::Error(_) | ClientOutbound::Welcome(_)
-            );
-
-            match msg {
-                ClientOutbound::Ack(ack) => {
-                    if write_json_and_log(
-                        &mut writer,
-                        &mut buf,
-                        ack,
-                        wire_log_tx_out.as_ref(),
-                        WireRecord::Ack,
-                    )
-                    .await
-                    .is_err()
-                    {
-                        break;
-                    }
-                }
-                ClientOutbound::Error(err) => {
-                    if write_json_and_log(
-                        &mut writer,
-                        &mut buf,
-                        err,
-                        wire_log_tx_out.as_ref(),
-                        WireRecord::Error,
-                    )
-                    .await
-                    .is_err()
-                    {
-                        break;
-                    }
-                }
-                ClientOutbound::Welcome(welcome) => {
-                    if write_json_and_log(
-                        &mut writer,
-                        &mut buf,
-                        welcome,
-                        wire_log_tx_out.as_ref(),
-                        WireRecord::Welcome,
-                    )
-                    .await
-                    .is_err()
-                    {
-                        break;
-                    }
-                }
-                ClientOutbound::ObservationArc(obs) => {
-                    if !encode_json_into_buf(&mut buf, obs.as_ref()) {
-                        continue;
-                    }
-                    if writer.write_all(&buf).await.is_err() {
-                        break;
-                    }
-                    log_wire_record(wire_log_tx_out.as_ref(), WireRecord::ObservationArc(obs));
-                }
-            }
-
-            if writer.write_all(b"\n").await.is_err() {
-                break;
-            }
-
-            dirty = true;
-            if flush_after {
-                if writer.flush().await.is_err() {
-                    break;
-                }
-                dirty = false;
-            }
-        }
-        let _ = writer.flush().await;
+        run_client_writer(writer, reliable_rx, observation_rx, wire_log_tx_out).await;
     });
 
     // Handle incoming messages

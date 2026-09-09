@@ -52,6 +52,19 @@ fn test_build_observation_copies_timers_fields() {
 }
 
 #[test]
+fn test_build_observation_copies_combo_and_back_to_back() {
+    let snap = tetris_core::core::snapshot::GameSnapshot {
+        combo: 2,
+        back_to_back: true,
+        ..Default::default()
+    };
+
+    let obs = build_observation(1, 0, &snap, &[]);
+    assert_eq!(obs.combo, 2);
+    assert!(obs.back_to_back);
+}
+
+#[test]
 fn test_server_config_from_env() {
     // This test just ensures it doesn't panic
     let _config = ServerConfig::from_env();
@@ -89,7 +102,9 @@ fn test_clear_stale_controller_id_keeps() {
 fn test_encode_json_into_buf_ack() {
     let ack = create_ack(10, 10);
     let mut buf = Vec::new();
-    assert!(encode_json_into_buf(&mut buf, &ack));
+    assert!(crate::adapter::framing::encode_json_into_buf(
+        &mut buf, &ack
+    ));
     let text = std::str::from_utf8(&buf).unwrap();
     assert!(text.contains("\"type\":\"ack\""));
     assert!(text.contains("\"seq\":10"));

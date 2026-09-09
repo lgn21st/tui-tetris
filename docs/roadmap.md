@@ -3,8 +3,6 @@
 Open work:
 
 - Keep allocation and Criterion gates green
-- Shrink `GameState` public surface
-- Split connection framing/writer when those flows next change
 
 Validate:
 

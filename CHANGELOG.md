@@ -14,4 +14,6 @@
 - Lock delay 500 ms / 15 Extended Placement resets
 - Guideline DS/Friends scoring: 100/300/500/800, Mini-with-lines B2B, combo × guideline level
 - A 0-line T-Spin no longer breaks back-to-back
-- Replay id `guideline-ds-1.0.0`; adapter protocol remains 3.0.0
+- Replay id `guideline-ds-1.0.0`; adapter protocol 3.1.0 adds observation `combo` / `back_to_back`
+- `GameState::take_last_event` is test-only; production drains `take_events`
+- Adapter TCP line read/write lives in `framing`

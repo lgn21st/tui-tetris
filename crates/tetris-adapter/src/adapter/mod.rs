@@ -77,6 +77,7 @@
 
 mod client_mailbox;
 pub mod command_apply;
+mod framing;
 pub mod game_loop;
 pub mod observation;
 pub mod observation_schedule;

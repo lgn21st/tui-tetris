@@ -37,6 +37,21 @@ fn core_has_no_platform_or_adapter_dependencies() {
 }
 
 #[test]
+fn game_state_mutation_helpers_are_test_gated() {
+    let source = fs::read_to_string("crates/tetris-core/src/core/game_state.rs").unwrap();
+    for needle in ["pub fn board_mut", "pub fn take_last_event"] {
+        let idx = source
+            .find(needle)
+            .unwrap_or_else(|| panic!("missing {needle}"));
+        let window = &source[idx.saturating_sub(160)..idx];
+        assert!(
+            window.contains("test-support"),
+            "{needle} must stay behind test-support: {window}"
+        );
+    }
+}
+
+#[test]
 fn composition_root_does_not_mutate_game_state_directly() {
     let main = fs::read_to_string("src/main.rs").unwrap();
     assert!(!main.contains("game_state.apply_action"));
