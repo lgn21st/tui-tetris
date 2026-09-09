@@ -74,6 +74,8 @@ pub fn build_observation(
         score: snap.score,
         level: snap.level,
         lines: snap.lines,
+        combo: snap.combo,
+        back_to_back: snap.back_to_back,
         timers: TimersSnapshot {
             drop_ms: snap.timers.drop_ms,
             lock_ms: snap.timers.lock_ms,

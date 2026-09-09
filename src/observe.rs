@@ -231,8 +231,8 @@ pub fn snapshot_from_observation(obs: &ObservationMessage) -> GameSnapshot {
         score: obs.score,
         level: obs.level,
         lines: obs.lines,
-        combo: -1,
-        back_to_back: false,
+        combo: obs.combo,
+        back_to_back: obs.back_to_back,
         lock_reset_count: 0,
         timers: TimersSnapshot {
             drop_ms: obs.timers.drop_ms,
@@ -411,6 +411,8 @@ mod tests {
             score: 300,
             level: 2,
             lines: 4,
+            combo: 3,
+            back_to_back: true,
             timers: tetris_adapter_protocol::protocol::TimersSnapshot {
                 drop_ms: 1000,
                 lock_ms: 500,
@@ -427,6 +429,8 @@ mod tests {
         assert_eq!(snap.score, 300);
         assert_eq!(snap.level, 2);
         assert_eq!(snap.lines, 4);
+        assert_eq!(snap.combo, 3);
+        assert!(snap.back_to_back);
         assert_eq!(snap.hold, Some(PieceKind::L));
         assert_eq!(snap.next_queue[0], PieceKind::I);
         assert_eq!(snap.next_queue[1], PieceKind::O);
@@ -445,6 +449,8 @@ mod tests {
         match event {
             ObserveEvent::Observation(obs) => {
                 assert_eq!(obs.active.unwrap().rotation, RotationLower::North);
+                assert_eq!(obs.combo, -1);
+                assert!(!obs.back_to_back);
             }
             _ => panic!("expected observation"),
         }
@@ -491,6 +497,8 @@ mod tests {
             score: 0,
             level: 0,
             lines: 0,
+            combo: -1,
+            back_to_back: false,
             timers: tetris_adapter_protocol::protocol::TimersSnapshot {
                 drop_ms: 1000,
                 lock_ms: 500,

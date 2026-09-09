@@ -155,6 +155,7 @@ fn protocol_package_contains_upgrade_and_notification_guidance() {
     let changelog = read(&format!("{PROTOCOL_ROOT}/CHANGELOG.md"));
     let readme = read(&format!("{PROTOCOL_ROOT}/README.md"));
 
+    assert!(changelog.contains("## 3.1.0"));
     assert!(changelog.contains("## 3.0.0"));
     assert!(changelog.contains("events"));
     assert!(changelog.contains("logical_step"));

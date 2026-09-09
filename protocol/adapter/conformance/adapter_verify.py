@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stdlib-only conformance client for Tetris AI Adapter Protocol 3.0.0."""
+"""Stdlib-only conformance client for Tetris AI Adapter Protocol 3.1.0."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-PROTOCOL_VERSION = "3.0.0"
+PROTOCOL_VERSION = "3.1.0"
 
 
 class AdapterClient:

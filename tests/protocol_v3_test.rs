@@ -19,7 +19,7 @@ fn event(lines: u32) -> TransitionEvent {
 
 #[test]
 fn v3_observation_exposes_logical_step_and_all_events() {
-    assert_eq!(PROTOCOL_VERSION, "3.0.0");
+    assert_eq!(PROTOCOL_VERSION, "3.1.0");
     let mut game = GameState::new(3);
     game.start();
     let observation = build_observation(8, 21, &game.snapshot(), &[event(1), event(2)]);

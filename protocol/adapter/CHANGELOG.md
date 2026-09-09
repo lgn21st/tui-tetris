@@ -1,5 +1,11 @@
 # Adapter Protocol Changelog
 
+## 3.1.0
+
+- Observations include current HUD chain state: `combo` and `back_to_back`
+- Welcome `features` / `features_always` advertise `combo` and `back_to_back`
+- Missing `combo` deserializes as `-1`; missing `back_to_back` deserializes as `false`
+
 ## 3.0.0
 
 Current wire contract. Older protocol versions are not maintained.

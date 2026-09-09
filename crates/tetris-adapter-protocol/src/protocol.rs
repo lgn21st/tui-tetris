@@ -10,7 +10,7 @@ use tetris_core::types::{CoreLastEvent, PieceKind, Rotation, TSpinKind};
 use arrayvec::ArrayVec;
 
 /// Protocol version implemented by both the adapter server and bundled clients.
-pub const PROTOCOL_VERSION: &str = "3.0.0";
+pub const PROTOCOL_VERSION: &str = "3.1.0";
 
 // ============== Client -> Game Messages ==============
 
@@ -493,6 +493,10 @@ pub enum CapabilityFeature {
     Score,
     #[serde(rename = "timers")]
     Timers,
+    #[serde(rename = "combo")]
+    Combo,
+    #[serde(rename = "back_to_back")]
+    BackToBack,
 }
 
 /// Acknowledgment for command receipt
@@ -571,7 +575,16 @@ pub struct ObservationMessage {
     pub score: u32,
     pub level: u32,
     pub lines: u32,
+    /// Current combo index. `-1` means no active chain.
+    #[serde(default = "default_idle_combo")]
+    pub combo: i32,
+    #[serde(default, rename = "back_to_back")]
+    pub back_to_back: bool,
     pub timers: TimersSnapshot,
+}
+
+fn default_idle_combo() -> i32 {
+    -1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -925,6 +938,8 @@ pub fn create_welcome(
                 CapabilityFeature::StateHash,
                 CapabilityFeature::Score,
                 CapabilityFeature::Timers,
+                CapabilityFeature::Combo,
+                CapabilityFeature::BackToBack,
             ],
             features_always: vec![
                 CapabilityFeature::Next,
@@ -936,6 +951,8 @@ pub fn create_welcome(
                 CapabilityFeature::StateHash,
                 CapabilityFeature::Score,
                 CapabilityFeature::Timers,
+                CapabilityFeature::Combo,
+                CapabilityFeature::BackToBack,
             ],
             features_optional: vec![CapabilityFeature::Hold, CapabilityFeature::GhostY],
             control_policy: ControlPolicy {
@@ -1015,7 +1032,7 @@ mod tests {
 
     #[test]
     fn protocol_version_matches_adapter_spec() {
-        assert_eq!(PROTOCOL_VERSION, "3.0.0");
+        assert_eq!(PROTOCOL_VERSION, "3.1.0");
     }
     use tetris_core::types::CoreLastEvent;
 
@@ -1098,7 +1115,19 @@ mod tests {
                 .features_always
                 .contains(&CapabilityFeature::LogicalStep)
         );
-        assert_eq!(welcome.capabilities.features.len(), 11);
+        assert_eq!(welcome.capabilities.features.len(), 13);
+        assert!(
+            welcome
+                .capabilities
+                .features_always
+                .contains(&CapabilityFeature::Combo)
+        );
+        assert!(
+            welcome
+                .capabilities
+                .features_always
+                .contains(&CapabilityFeature::BackToBack)
+        );
         let mut unique = welcome.capabilities.features.clone();
         unique.sort_by_key(|feature| format!("{feature:?}"));
         unique.dedup();

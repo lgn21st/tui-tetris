@@ -1,4 +1,4 @@
-# Tetris AI Adapter Protocol 3.0.0
+# Tetris AI Adapter Protocol 3.1.0
 
 This document is the normative, implementation-neutral contract between a
 Tetris game adapter and an AI client. The key words MUST, MUST NOT, SHOULD,
@@ -10,7 +10,7 @@ by a selected profile such as `profiles/tcp-json-lines.md`.
 ## 1. Versioning and compatibility
 
 - Every hello and welcome contains `protocol_version` as semantic version text.
-- Implementations of this release report `3.0.0` in welcome messages.
+- Implementations of this release report `3.1.0` in welcome messages.
 - Version 3.0.0 intentionally replaces the ambiguous v2 event and ack shapes.
 - A server MUST reject an incompatible major version with `protocol_mismatch`.
 - A server MUST reject malformed semantic versions.
@@ -61,7 +61,7 @@ Welcome requires `type`, `seq`, `ts`, `protocol_version`, `game_id`,
 Example:
 
 ```json
-{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"3.0.0","client_id":1,"role":"controller","controller_id":1,"game_id":"example-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","events","logical_step","state_hash","score","timers"],"features_always":["next","next_queue","can_hold","board_id","events","logical_step","state_hash","score","timers"],"features_optional":["hold","ghost_y"],"control_policy":{"auto_promote_on_disconnect":true,"promotion_order":"lowest_client_id"}}}
+{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"3.1.0","client_id":1,"role":"controller","controller_id":1,"game_id":"example-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","events","logical_step","state_hash","score","timers","combo","back_to_back"],"features_always":["next","next_queue","can_hold","board_id","events","logical_step","state_hash","score","timers","combo","back_to_back"],"features_optional":["hold","ghost_y"],"control_policy":{"auto_promote_on_disconnect":true,"promotion_order":"lowest_client_id"}}}
 ```
 
 ## 4. Sequencing and correlation
@@ -156,6 +156,7 @@ Required fields:
 - `next`, `next_queue`, `can_hold`;
 - `events`, `state_hash`;
 - `score`, `level`, `lines`;
+- `combo`, `back_to_back`;
 - `timers`.
 
 Data invariants:
@@ -164,6 +165,8 @@ Data invariants:
 - Cell value 0 is empty; values 1 through 7 map to I, O, T, S, Z, J, L.
 - `next_queue` contains exactly five pieces.
 - `next == next_queue[0]`.
+- `combo` is the current combo index; `-1` means no active chain.
+- `back_to_back` is the current back-to-back flag.
 - `active` is present when `playable` is true and MAY be absent otherwise.
 - `ghost_y` and `hold` are optional.
 - `events` contains zero to four events emitted by the represented logical
@@ -177,7 +180,7 @@ Data invariants:
 Example:
 
 ```json
-{"type":"observation","seq":42,"ts":1730000001200,"logical_step":42,"playable":true,"paused":false,"game_over":false,"episode_id":0,"seed":1,"piece_id":12,"step_in_piece":0,"board":{"width":10,"height":20,"cells":[[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0]]},"board_id":123,"active":{"kind":"t","rotation":"north","x":4,"y":0},"ghost_y":17,"next":"i","next_queue":["i","o","t","s","z"],"can_hold":true,"events":[],"state_hash":"e1bca4d1b673b8c2","score":1200,"level":2,"lines":17,"timers":{"drop_ms":320,"lock_ms":120,"line_clear_ms":0}}
+{"type":"observation","seq":42,"ts":1730000001200,"logical_step":42,"playable":true,"paused":false,"game_over":false,"episode_id":0,"seed":1,"piece_id":12,"step_in_piece":0,"board":{"width":10,"height":20,"cells":[[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0]]},"board_id":123,"active":{"kind":"t","rotation":"north","x":4,"y":0},"ghost_y":17,"next":"i","next_queue":["i","o","t","s","z"],"can_hold":true,"events":[],"state_hash":"e1bca4d1b673b8c2","score":1200,"level":2,"lines":17,"combo":-1,"back_to_back":false,"timers":{"drop_ms":320,"lock_ms":120,"line_clear_ms":0}}
 ```
 
 ## 8. Lifecycle and determinism

@@ -1,6 +1,6 @@
 # Feature Matrix
 
-Current: ruleset `guideline-ds-1.0.0`, adapter protocol 3.0.0.
+Current: ruleset `guideline-ds-1.0.0`, adapter protocol 3.1.0.
 
 - Core: 10×20, 7-bag, SRS (Y-down wiki kicks), hold, 500 ms / 15 lock, Guideline scoring
 - Session: 16 ms fixed step, TTR2 replay

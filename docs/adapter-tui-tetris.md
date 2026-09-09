@@ -5,7 +5,7 @@ This profile documents tui-tetris behavior for the shared current protocol at
 
 ## Protocol and transport
 
-- Protocol version: `3.0.0`.
+- Protocol version: `3.1.0`.
 - TCP profile: `protocol/adapter/profiles/tcp-json-lines.md`.
 - Default endpoint: `127.0.0.1:7777`.
 - Maximum inbound payload: 65,536 bytes, excluding newline.
