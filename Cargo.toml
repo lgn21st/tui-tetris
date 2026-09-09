@@ -27,6 +27,7 @@ tetris-terminal = { path = "crates/tetris-terminal" }
 name = "tui-tetris"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 authors = ["AI Assistant"]
 description = "High-performance TUI Tetris with AI control support"
 default-run = "tui-tetris"
