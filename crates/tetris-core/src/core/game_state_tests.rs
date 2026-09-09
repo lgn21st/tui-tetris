@@ -306,9 +306,10 @@ fn test_try_rotate_o_piece() {
     state.start();
     assert_eq!(state.active.unwrap().kind, PieceKind::O);
 
-    // O piece shouldn't rotate
-    assert!(!state.try_rotate(true));
-    assert!(!state.try_rotate(false));
+    assert!(state.try_rotate(true));
+    assert_eq!(state.active.unwrap().rotation, Rotation::East);
+    assert!(state.try_rotate(false));
+    assert_eq!(state.active.unwrap().rotation, Rotation::North);
 }
 
 #[test]
@@ -718,6 +719,31 @@ fn test_lock_reset_limit() {
     }
 
     // Should be limited to 15
+    assert_eq!(state.lock_reset_count, LOCK_RESET_LIMIT);
+}
+
+#[test]
+fn test_lock_reset_limit_stops_resetting_lock_timer() {
+    let mut state = GameState::new(12345);
+    state.started = true;
+    state.active = Some(Tetromino {
+        kind: PieceKind::O,
+        rotation: Rotation::North,
+        x: 3,
+        y: 18,
+    });
+    assert!(state.is_grounded());
+
+    for i in 0..15 {
+        let dx = if i % 2 == 0 { -1 } else { 1 };
+        assert!(state.try_move(dx, 0));
+        assert_eq!(state.lock_timer_ms, 0);
+    }
+    assert_eq!(state.lock_reset_count, LOCK_RESET_LIMIT);
+
+    state.lock_timer_ms = 200;
+    assert!(state.try_move(-1, 0) || state.try_move(1, 0));
+    assert_eq!(state.lock_timer_ms, 200);
     assert_eq!(state.lock_reset_count, LOCK_RESET_LIMIT);
 }
 
@@ -1771,4 +1797,42 @@ fn test_landing_flash_ticks_down_during_line_clear_pause() {
     assert!(!state.tick(16, false));
     assert!(state.landing_flash_ms < flash_before);
     assert!(state.line_clear_timer_ms < 32);
+}
+
+#[test]
+fn test_o_piece_rotation_advances_index() {
+    let mut state = GameState::new(find_seed_with_first_piece(PieceKind::O));
+    state.start();
+    assert_eq!(state.active.unwrap().kind, PieceKind::O);
+    assert_eq!(state.active.unwrap().rotation, Rotation::North);
+
+    assert!(state.apply_action(GameAction::RotateCw));
+    assert_eq!(state.active.unwrap().kind, PieceKind::O);
+    assert_eq!(state.active.unwrap().rotation, Rotation::East);
+}
+
+#[test]
+fn test_actions_are_accepted_during_line_clear_pause() {
+    let mut state = GameState::new(12345);
+    state.start();
+    state.line_clear_timer_ms = LINE_CLEAR_PAUSE_MS;
+    let before = state.active.unwrap();
+
+    let moved =
+        state.apply_action(GameAction::MoveRight) || state.apply_action(GameAction::MoveLeft);
+    assert!(moved);
+    assert!(state.line_clear_timer_ms > 0);
+    assert!(state.active.is_some());
+    assert_ne!(state.active.unwrap().x, before.x);
+}
+
+#[test]
+fn test_multiple_locks_in_one_action_batch_keep_ordered_events() {
+    let mut state = GameState::new(1);
+    state.start();
+    assert!(state.apply_action(GameAction::HardDrop));
+    assert!(state.apply_action(GameAction::HardDrop));
+    let events = state.take_events();
+    assert_eq!(events.len(), 2);
+    assert!(events.iter().all(|event| event.locked));
 }

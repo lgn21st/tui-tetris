@@ -31,8 +31,8 @@
 //! # Example
 //!
 //! ```
-//! use tui_tetris::core::GameState;
-//! use tui_tetris::types::GameAction;
+//! use tetris_core::core::GameState;
+//! use tetris_core::types::GameAction;
 //!
 //! // Create and start a game
 //! let mut game = GameState::new(12345);
@@ -69,7 +69,6 @@ pub mod state_hash;
 pub use board::Board;
 pub use game_state::{GameState, Tetromino};
 pub use pieces::{get_shape, try_rotate};
-pub use rng::{PieceQueue, SimpleRng};
-pub use scoring::{ScoreResult, calculate_drop_score, calculate_score};
+pub use rng::PieceQueue;
 pub use snapshot::{ActiveSnapshot, GameSnapshot};
 pub use state_hash::stable_state_hash;

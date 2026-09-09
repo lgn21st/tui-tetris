@@ -77,6 +77,11 @@ pub fn stable_state_hash(snapshot: &GameSnapshot, event: Option<CoreLastEvent>) 
     ] {
         write(&mut hash, &value.to_le_bytes());
     }
+    write(&mut hash, &snapshot.combo.to_le_bytes());
+    write(
+        &mut hash,
+        &[u8::from(snapshot.back_to_back), snapshot.lock_reset_count],
+    );
     write(&mut hash, &[u8::from(event.is_some())]);
     if let Some(event) = event {
         write(&mut hash, &[u8::from(event.locked)]);
@@ -95,4 +100,29 @@ pub fn stable_state_hash(snapshot: &GameSnapshot, event: Option<CoreLastEvent>) 
         write(&mut hash, &[u8::from(event.back_to_back)]);
     }
     hash
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::GameState;
+
+    #[test]
+    fn hash_includes_combo_b2b_and_lock_reset() {
+        let mut game = GameState::new(1);
+        game.start();
+        let mut snap = game.snapshot();
+        let baseline = stable_state_hash(&snap, None);
+
+        snap.combo = 2;
+        assert_ne!(baseline, stable_state_hash(&snap, None));
+
+        snap.combo = game.snapshot().combo;
+        snap.back_to_back = true;
+        assert_ne!(baseline, stable_state_hash(&snap, None));
+
+        snap.back_to_back = false;
+        snap.lock_reset_count = 7;
+        assert_ne!(baseline, stable_state_hash(&snap, None));
+    }
 }

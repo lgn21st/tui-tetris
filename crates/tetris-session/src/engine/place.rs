@@ -159,6 +159,7 @@ fn apply_place_in_place(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tetris_core::core::PieceQueue;
     use tetris_core::types::{BOARD_HEIGHT, PieceKind};
 
     #[test]
@@ -337,5 +338,18 @@ mod tests {
 
         let err = apply_place(&mut gs, a.x, target_rot, false).unwrap_err();
         assert!(matches!(err, PlaceError::RotationBlocked));
+    }
+
+    #[test]
+    fn place_o_piece_east_succeeds() {
+        let seed = (1u32..50_000)
+            .find(|&seed| PieceQueue::new(seed).peek() == Some(PieceKind::O))
+            .expect("seed whose first piece is O");
+        let mut gs = GameState::new(seed);
+        gs.start();
+        let active = gs.active().expect("expected active piece");
+        assert_eq!(active.kind, PieceKind::O);
+        apply_place(&mut gs, active.x, Rotation::East, false).expect("O east is a no-op kick");
+        assert!(gs.active().is_some());
     }
 }

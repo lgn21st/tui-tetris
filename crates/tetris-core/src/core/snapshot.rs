@@ -43,10 +43,14 @@ pub struct GameSnapshot {
     pub episode_id: u32,
     pub seed: u32,
     pub piece_id: u32,
+    pub active_id: u32,
     pub step_in_piece: u32,
     pub score: u32,
     pub level: u32,
     pub lines: u32,
+    pub combo: i32,
+    pub back_to_back: bool,
+    pub lock_reset_count: u8,
     pub timers: TimersSnapshot,
 }
 
@@ -65,10 +69,14 @@ impl GameSnapshot {
         self.episode_id = 0;
         self.seed = 0;
         self.piece_id = 0;
+        self.active_id = 0;
         self.step_in_piece = 0;
         self.score = 0;
         self.level = 0;
         self.lines = 0;
+        self.combo = -1;
+        self.back_to_back = false;
+        self.lock_reset_count = 0;
         self.timers = TimersSnapshot {
             drop_ms: 0,
             lock_ms: 0,
@@ -97,10 +105,14 @@ impl Default for GameSnapshot {
             episode_id: 0,
             seed: 0,
             piece_id: 0,
+            active_id: 0,
             step_in_piece: 0,
             score: 0,
             level: 0,
             lines: 0,
+            combo: -1,
+            back_to_back: false,
+            lock_reset_count: 0,
             timers: TimersSnapshot {
                 drop_ms: 0,
                 lock_ms: 0,

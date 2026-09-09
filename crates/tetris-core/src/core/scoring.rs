@@ -7,11 +7,14 @@
 //! - B2B applies a 3/2 multiplier to the base clear points (before combo bonus).
 //! - Combo bonus is `combo_base * combo_index` with no level multiplier.
 
-use crate::types::{B2B_DENOMINATOR, B2B_NUMERATOR, COMBO_BASE, LINE_SCORES, TSpinKind};
+use crate::types::{
+    B2B_DENOMINATOR, B2B_NUMERATOR, COMBO_BASE, DROP_INTERVAL_FLOOR_MS, DROP_INTERVALS,
+    LINE_SCORES, TSpinKind,
+};
 
 /// Score calculation result
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ScoreResult {
+pub(crate) struct ScoreResult {
     /// Base points for the clear (includes B2B multiplier, excludes combo bonus).
     pub line_clear_score: u32,
     /// Combo bonus added on top of `line_clear_score`.
@@ -25,7 +28,7 @@ pub struct ScoreResult {
 /// Calculate line clear score (Classic rules)
 /// lines: number of lines cleared (1-4)
 /// level: current level (0-based)
-pub fn calculate_line_score(lines: usize, level: u32) -> u32 {
+pub(crate) fn calculate_line_score(lines: usize, level: u32) -> u32 {
     if lines == 0 || lines > 4 {
         return 0;
     }
@@ -34,7 +37,7 @@ pub fn calculate_line_score(lines: usize, level: u32) -> u32 {
 }
 
 /// Calculate T-spin score (Modern rules)
-pub fn calculate_tspin_score(tspin: TSpinKind, lines: usize, level: u32) -> u32 {
+pub(crate) fn calculate_tspin_score(tspin: TSpinKind, lines: usize, level: u32) -> u32 {
     let level_multiplier = level.saturating_add(1);
     match (tspin, lines) {
         (TSpinKind::Full, 0) => 400u32.saturating_mul(level_multiplier),
@@ -54,7 +57,7 @@ pub fn calculate_tspin_score(tspin: TSpinKind, lines: usize, level: u32) -> u32 
 /// - `-1`: no combo chain
 /// - `0`: first clear in chain (no bonus)
 /// - `1+`: bonus applies as `combo_base * combo_index`
-pub fn calculate_combo_bonus(combo_index: i32) -> u32 {
+pub(crate) fn calculate_combo_bonus(combo_index: i32) -> u32 {
     if combo_index <= 0 {
         return 0;
     }
@@ -63,7 +66,7 @@ pub fn calculate_combo_bonus(combo_index: i32) -> u32 {
 
 /// Check if this clear qualifies for back-to-back
 /// B2B applies to: T-spin full with any lines, or Tetris (4 lines)
-pub fn qualifies_for_b2b(tspin: TSpinKind, lines: usize) -> bool {
+pub(crate) fn qualifies_for_b2b(tspin: TSpinKind, lines: usize) -> bool {
     matches!(
         (tspin, lines),
         (TSpinKind::Full, 1..=4) | // T-spin full with lines
@@ -71,11 +74,7 @@ pub fn qualifies_for_b2b(tspin: TSpinKind, lines: usize) -> bool {
     )
 }
 
-// Re-export for use in game_state
-pub use self::qualifies_for_b2b as check_b2b_qualification;
-
-/// Apply the B2B multiplier (3/2) to a point value.
-pub fn apply_b2b_multiplier(points: u32) -> u32 {
+pub(crate) fn apply_b2b_multiplier(points: u32) -> u32 {
     points
         .saturating_mul(B2B_NUMERATOR)
         .saturating_div(B2B_DENOMINATOR)
@@ -87,7 +86,7 @@ pub fn apply_b2b_multiplier(points: u32) -> u32 {
 /// - T-Spin uses its table score instead of the classic line-clear score.
 /// - B2B applies a multiplier to the base clear points.
 /// - Combo bonus is added after the base clear points.
-pub fn calculate_score(
+pub(crate) fn calculate_score(
     lines: usize,
     level: u32,
     tspin: TSpinKind,
@@ -123,7 +122,7 @@ pub fn calculate_score(
 /// Calculate drop score
 /// soft_drop: +1 per cell
 /// hard_drop: +2 per cell
-pub fn calculate_drop_score(cells: u32, is_hard_drop: bool) -> u32 {
+pub(crate) fn calculate_drop_score(cells: u32, is_hard_drop: bool) -> u32 {
     if is_hard_drop {
         cells.saturating_mul(2)
     } else {
@@ -133,26 +132,23 @@ pub fn calculate_drop_score(cells: u32, is_hard_drop: bool) -> u32 {
 
 /// Level management
 /// Level increases every 10 lines cleared
-pub fn calculate_level(total_lines: u32) -> u32 {
+pub(crate) fn calculate_level(total_lines: u32) -> u32 {
     total_lines / 10
 }
 
 /// Get drop interval for a level (in milliseconds)
 /// Returns interval based on level, clamped at minimum
-pub fn get_drop_interval_ms(level: u32) -> u32 {
-    let intervals: [u32; 9] = [1000, 800, 650, 500, 400, 320, 250, 200, 160];
-
-    if (level as usize) < intervals.len() {
-        intervals[level as usize]
-    } else {
-        // After level 9, use 120ms floor
-        120
-    }
+pub(crate) fn get_drop_interval_ms(level: u32) -> u32 {
+    DROP_INTERVALS
+        .get(level as usize)
+        .copied()
+        .unwrap_or(DROP_INTERVAL_FLOOR_MS)
 }
 
 /// Calculate soft drop interval
 /// Base interval divided by soft drop multiplier
-pub fn get_soft_drop_interval_ms(base_interval: u32, multiplier: u32) -> u32 {
+#[cfg(test)]
+pub(crate) fn get_soft_drop_interval_ms(base_interval: u32, multiplier: u32) -> u32 {
     let interval = base_interval / multiplier;
     interval.max(1) // Minimum 1ms to avoid division issues
 }
@@ -345,6 +341,8 @@ mod tests {
         assert_eq!(get_drop_interval_ms(8), 160);
         assert_eq!(get_drop_interval_ms(9), 120);
         assert_eq!(get_drop_interval_ms(20), 120); // Floor at 120
+        assert_eq!(get_drop_interval_ms(8), DROP_INTERVALS[8]);
+        assert_eq!(get_drop_interval_ms(9), DROP_INTERVAL_FLOOR_MS);
     }
 
     #[test]

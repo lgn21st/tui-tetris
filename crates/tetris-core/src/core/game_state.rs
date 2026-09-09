@@ -3,14 +3,17 @@
 //! This module ties together all core components: board, pieces, RNG, and scoring.
 //! It handles game timing, piece movement, rotation, line clears, and game lifecycle.
 
+use arrayvec::ArrayVec;
+
 use crate::core::{
-    Board, PieceQueue, calculate_drop_score, calculate_score, get_shape,
-    scoring::get_drop_interval_ms, try_rotate,
+    Board, PieceQueue, get_shape,
+    scoring::{calculate_drop_score, calculate_level, calculate_score, get_drop_interval_ms},
+    try_rotate,
 };
 use crate::types::*;
 
 /// Active falling piece
-#[derive(Debug, Clone, Copy, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tetromino {
     pub kind: PieceKind,
     pub rotation: Rotation,
@@ -69,8 +72,8 @@ pub struct GameState {
     active_id: u32,
     /// Step counter within the current active piece (increments once per fixed tick).
     step_in_piece: u32,
-    /// Last lock/line-clear event (consumed by observers).
-    last_event: Option<CoreLastEvent>,
+    /// Ordered lock/line-clear events for the current transition (consumed by session).
+    last_events: ArrayVec<CoreLastEvent, MAX_CORE_EVENTS>,
     score: u32,
     level: u32,
     lines: u32,
@@ -108,7 +111,7 @@ impl GameState {
             piece_id: 0,
             active_id: 0,
             step_in_piece: 0,
-            last_event: None,
+            last_events: ArrayVec::new(),
             score: 0,
             level: 0,
             lines: 0,
@@ -238,10 +241,14 @@ impl GameState {
         out.episode_id = self.episode_id;
         out.seed = self.piece_queue.seed();
         out.piece_id = self.piece_id;
+        out.active_id = self.active_id;
         out.step_in_piece = self.step_in_piece;
         out.score = self.score;
         out.level = self.level;
         out.lines = self.lines;
+        out.combo = self.combo;
+        out.back_to_back = self.back_to_back;
+        out.lock_reset_count = self.lock_reset_count;
         out.timers = TimersSnapshot {
             drop_ms: self.drop_timer_ms,
             lock_ms: self.lock_timer_ms,
@@ -295,7 +302,7 @@ impl GameState {
     }
 
     /// Get current drop interval based on level
-    pub fn drop_interval_ms(&self) -> u32 {
+    pub(crate) fn drop_interval_ms(&self) -> u32 {
         let base = get_drop_interval_ms(self.level);
         if self.is_soft_dropping {
             // Soft drop is 10x faster
@@ -342,11 +349,6 @@ impl GameState {
         let Some(active) = self.active else {
             return false;
         };
-
-        // O piece doesn't rotate
-        if active.kind == PieceKind::O {
-            return false;
-        }
 
         let result = try_rotate(
             active.kind,
@@ -528,14 +530,16 @@ impl GameState {
         } else {
             None
         };
-        self.last_event = Some(CoreLastEvent {
-            locked: true,
-            lines_cleared: lines_cleared as u32,
-            line_clear_score,
-            tspin: tspin_opt,
-            combo: self.combo,
-            back_to_back: self.back_to_back,
-        });
+        if !self.last_events.is_full() {
+            self.last_events.push(CoreLastEvent {
+                locked: true,
+                lines_cleared: lines_cleared as u32,
+                line_clear_score,
+                tspin: tspin_opt,
+                combo: self.combo,
+                back_to_back: self.back_to_back,
+            });
+        }
 
         // Spawn next piece (unless game over)
         if !self.game_over {
@@ -543,9 +547,18 @@ impl GameState {
         }
     }
 
-    /// Take and clear the last lock/line-clear event.
+    /// Take and clear the oldest lock/line-clear event.
     pub fn take_last_event(&mut self) -> Option<CoreLastEvent> {
-        self.last_event.take()
+        if self.last_events.is_empty() {
+            None
+        } else {
+            Some(self.last_events.remove(0))
+        }
+    }
+
+    /// Drain every lock/line-clear event captured since the previous take.
+    pub fn take_events(&mut self) -> ArrayVec<CoreLastEvent, MAX_CORE_EVENTS> {
+        std::mem::take(&mut self.last_events)
     }
 
     /// Apply line-clear scoring and update combo/B2B/lines/level.
@@ -584,7 +597,7 @@ impl GameState {
 
         self.combo = combo_after_clear;
         self.lines = self.lines.saturating_add(lines_cleared as u32);
-        self.level = self.lines / 10;
+        self.level = calculate_level(self.lines);
         self.back_to_back = score_result.qualifies_for_b2b;
         self.score = self.score.saturating_add(score_result.total);
 

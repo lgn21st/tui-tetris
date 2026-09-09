@@ -80,7 +80,9 @@ This document is the source of truth for gameplay rules/timing constants.
 3→0 (W→N): [(0,0), (1,0), (-2,0), (1,-2), (-2,1)]
 ```
 
-**O Piece:** No kicks - [(0,0)]
+**O Piece:** Kick table is `[(0,0)]`. The rotation index still advances; the cells do not move.
+
+Kick offsets are stored in this project's board coordinates (x increases right, y increases down). Numeric pairs match the Tetris Wiki SRS tables without negating y, so wiki `+y` (up) is applied as board `+y` (down). These tables are authoritative for tui-tetris.
 
 ## Timing
 
@@ -280,6 +282,7 @@ enum GameAction {
 Notes:
 - While paused, gameplay actions (move/rotate/drop/hold) are ignored; only `Pause` (toggle) and `Restart` are accepted.
 - While game over, only `Restart` is accepted.
+- After a piece locks, the next piece is spawned immediately. `LINE_CLEAR_PAUSE_MS` pauses gravity only; the newly spawned piece can still move, rotate, hold, or drop. When `line_clear_ms` reaches `0` during a tick, gravity/lock resume in the same `tick()` call.
 
 ## References
 

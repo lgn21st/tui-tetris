@@ -11,7 +11,7 @@ use crate::types::PieceKind;
 /// Simple LCG (Linear Congruential Generator) RNG
 /// Uses constants from Numerical Recipes
 #[derive(Debug, Clone)]
-pub struct SimpleRng {
+pub(crate) struct SimpleRng {
     state: u32,
 }
 
@@ -167,11 +167,6 @@ impl PieceQueue {
         let piece = self.bag[self.bag_index];
         self.bag_index += 1;
         piece
-    }
-
-    /// Check if we can draw more pieces (always true, but maintains API compatibility)
-    pub fn can_draw(&self) -> bool {
-        true
     }
 
     /// Get current bag for testing/debugging

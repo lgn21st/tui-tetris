@@ -194,9 +194,7 @@ impl Board {
 
     /// Clear the entire board
     pub fn clear(&mut self) {
-        for cell in &mut self.cells {
-            *cell = None;
-        }
+        self.cells.fill(None);
     }
 
     /// Count the number of filled cells on the board

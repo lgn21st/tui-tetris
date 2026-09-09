@@ -49,12 +49,13 @@
 //! | 5 | 320ms |
 //! | 6 | 250ms |
 //! | 7 | 200ms |
-//! | 8+ | 160ms (floor at 120ms minimum, 100ms absolute minimum) |
+//! | 8 | 160ms |
+//! | 9+ | 120ms |
 //!
 //! # Examples
 //!
 //! ```
-//! use tui_tetris::types::{PieceKind, Rotation, GameAction, BOARD_WIDTH, BOARD_HEIGHT};
+//! use tetris_core::types::{PieceKind, Rotation, GameAction, BOARD_WIDTH, BOARD_HEIGHT};
 //!
 //! // Create a piece kind
 //! let piece = PieceKind::T;
@@ -119,16 +120,16 @@ pub const SOFT_DROP_DAS_MS: u32 = 0;
 /// Soft drop ARR in milliseconds.
 pub const SOFT_DROP_ARR_MS: u32 = 50;
 
-/// Drop intervals by level (milliseconds per row)
+/// Drop intervals by level (milliseconds per row).
 ///
-/// Index 0 = Level 0, Index 8 = Level 8+
+/// Index 0 = Level 0 … index 8 = Level 8. Level 9+ uses [`DROP_INTERVAL_FLOOR_MS`].
 pub const DROP_INTERVALS: [u32; 9] = [1000, 800, 650, 500, 400, 320, 250, 200, 160];
 
-/// Minimum drop interval floor (120ms)
+/// Gravity floor for level 9 and above (120ms).
 pub const DROP_INTERVAL_FLOOR_MS: u32 = 120;
 
-/// Absolute minimum drop interval (100ms)
-pub const DROP_INTERVAL_MIN_MS: u32 = 100;
+/// Maximum ordered lock/line-clear events retained for one core transition.
+pub const MAX_CORE_EVENTS: usize = 4;
 
 #[cfg(test)]
 mod tests {
@@ -148,6 +149,13 @@ mod tests {
         assert_eq!(DEFAULT_ARR_MS, 50);
         assert_eq!(SOFT_DROP_DAS_MS, 0);
         assert_eq!(SOFT_DROP_ARR_MS, 50);
+
+        assert_eq!(
+            DROP_INTERVALS,
+            [1000, 800, 650, 500, 400, 320, 250, 200, 160]
+        );
+        assert_eq!(DROP_INTERVAL_FLOOR_MS, 120);
+        assert_eq!(MAX_CORE_EVENTS, 4);
     }
 
     #[test]
@@ -193,7 +201,7 @@ impl PieceKind {
     /// # Examples
     ///
     /// ```
-    /// use tui_tetris::types::PieceKind;
+    /// use tetris_core::types::PieceKind;
     ///
     /// assert_eq!(PieceKind::I.as_str(), "i");
     /// assert_eq!(PieceKind::O.as_str(), "o");
@@ -258,7 +266,7 @@ impl Rotation {
     /// # Examples
     ///
     /// ```
-    /// use tui_tetris::types::Rotation;
+    /// use tetris_core::types::Rotation;
     ///
     /// assert_eq!(Rotation::North.rotate_cw(), Rotation::East);
     /// assert_eq!(Rotation::East.rotate_cw(), Rotation::South);
@@ -279,7 +287,7 @@ impl Rotation {
     /// # Examples
     ///
     /// ```
-    /// use tui_tetris::types::Rotation;
+    /// use tetris_core::types::Rotation;
     ///
     /// assert_eq!(Rotation::North.rotate_ccw(), Rotation::West);
     /// assert_eq!(Rotation::West.rotate_ccw(), Rotation::South);

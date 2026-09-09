@@ -8,11 +8,11 @@ use arrayvec::ArrayVec;
 
 use crate::engine::place::{PlaceError, apply_place};
 use tetris_core::core::{GameSnapshot, GameState};
-use tetris_core::types::{CoreLastEvent, GameAction, Rotation, TICK_MS};
+use tetris_core::types::{CoreLastEvent, GameAction, MAX_CORE_EVENTS, Rotation, TICK_MS};
 
 pub const MAX_COMMANDS_PER_STEP: usize = 32;
 pub const MAX_LOCAL_ACTIONS_PER_STEP: usize = 64;
-pub const MAX_EVENTS_PER_STEP: usize = 4;
+pub const MAX_EVENTS_PER_STEP: usize = MAX_CORE_EVENTS;
 
 /// A platform-neutral command accepted at a fixed-step boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,10 +155,7 @@ impl SessionRuntime {
         }
 
         let _ = self.game.tick(TICK_MS, false);
-        let mut events = ArrayVec::new();
-        if let Some(event) = self.game.take_last_event() {
-            events.push(event);
-        }
+        let events = self.game.take_events();
         self.logical_step = self.logical_step.wrapping_add(1);
         self.snapshots.refresh(&self.game);
         let changed = *self.snapshots.get() != before_snapshot || !events.is_empty();

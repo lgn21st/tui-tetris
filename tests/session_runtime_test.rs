@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use tetris_core::types::{GameAction, TICK_MS};
 use tetris_session::engine::session::{GameCommand, SessionRuntime, StepInput};
 
@@ -30,6 +31,22 @@ fn session_returns_each_core_event_once() {
 
     let next = session.transition(&StepInput::default());
     assert!(next.events.is_empty());
+}
+
+#[test]
+fn session_keeps_ordered_events_for_multiple_locks_in_one_step() {
+    let mut session = SessionRuntime::new(1);
+    let mut actions = ArrayVec::new();
+    actions.push(GameAction::HardDrop);
+    actions.push(GameAction::HardDrop);
+    let input = StepInput::default().with_remote(GameCommand::Actions {
+        actions,
+        restart_seed: None,
+    });
+
+    let result = session.transition(&input);
+    assert_eq!(result.events.len(), 2);
+    assert!(result.events.iter().all(|event| event.locked));
 }
 
 #[test]
