@@ -12,6 +12,7 @@ use tetris_adapter_protocol::protocol::{
 };
 use tetris_core::core::snapshot::{ActiveSnapshot, GameSnapshot, TimersSnapshot};
 use tetris_core::types::{BOARD_HEIGHT, BOARD_WIDTH, PieceKind, Rotation};
+use tetris_terminal::term::{HudOverlay, HudOverlayValue};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObserveConfig {
@@ -161,11 +162,8 @@ pub fn connect_observer_with_retry(
     ))
 }
 
-pub fn observe_status_lines(
-    config: &ObserveConfig,
-    obs: Option<&ObservationMessage>,
-) -> [String; 5] {
-    let (state, ep, piece, step, seed) = match obs {
+pub fn observe_hud_overlay(config: &ObserveConfig, obs: Option<&ObservationMessage>) -> HudOverlay {
+    let (state, ep, seed) = match obs {
         Some(o) => {
             let state = if o.game_over {
                 "GAME_OVER"
@@ -176,30 +174,26 @@ pub fn observe_status_lines(
             } else {
                 "IDLE"
             };
+            let ep = format!(
+                "{} PIECE {} STEP {}",
+                o.episode_id, o.piece_id, o.step_in_piece
+            );
             (
-                state.to_string(),
-                o.episode_id.to_string(),
-                o.piece_id.to_string(),
-                o.step_in_piece.to_string(),
-                o.seed.to_string(),
+                state,
+                HudOverlayValue::text(&ep),
+                HudOverlayValue::U32(o.seed),
             )
         }
-        None => (
-            "WAITING".to_string(),
-            "-".to_string(),
-            "-".to_string(),
-            "-".to_string(),
-            "-".to_string(),
-        ),
+        None => ("WAITING", HudOverlayValue::Dash, HudOverlayValue::Dash),
     };
-
-    [
-        "MODE OBSERVE".to_string(),
-        format!("TARGET {}:{}", config.host, config.port),
-        format!("STATE {}", state),
-        format!("EP {} PIECE {} STEP {}", ep, piece, step),
-        format!("SEED {}", seed),
-    ]
+    let target = format!("{}:{}", config.host, config.port);
+    HudOverlay::from_rows([
+        ("MODE", HudOverlayValue::text("OBSERVE")),
+        ("TARGET", HudOverlayValue::text(&target)),
+        ("STATE", HudOverlayValue::text(state)),
+        ("EP", ep),
+        ("SEED", seed),
+    ])
 }
 
 pub fn snapshot_from_observation(obs: &ObservationMessage) -> GameSnapshot {
@@ -457,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn observe_status_lines_include_mode_target_and_episode_fields() {
+    fn observe_hud_overlay_includes_mode_target_and_episode_fields() {
         let cfg = ObserveConfig {
             host: "127.0.0.1".to_string(),
             port: 7780,
@@ -504,12 +498,17 @@ mod tests {
             },
         };
 
-        let lines = observe_status_lines(&cfg, Some(&obs));
-        assert_eq!(lines[0], "MODE OBSERVE");
-        assert_eq!(lines[1], "TARGET 127.0.0.1:7780");
-        assert_eq!(lines[2], "STATE PLAY");
-        assert_eq!(lines[3], "EP 7 PIECE 9 STEP 1");
-        assert_eq!(lines[4], "SEED 123");
+        let overlay = observe_hud_overlay(&cfg, Some(&obs));
+        assert_eq!(overlay.label(0), "MODE");
+        assert_eq!(overlay.value(0).as_text(), Some("OBSERVE"));
+        assert_eq!(overlay.label(1), "TARGET");
+        assert_eq!(overlay.value(1).as_text(), Some("127.0.0.1:7780"));
+        assert_eq!(overlay.label(2), "STATE");
+        assert_eq!(overlay.value(2).as_text(), Some("PLAY"));
+        assert_eq!(overlay.label(3), "EP");
+        assert_eq!(overlay.value(3).as_text(), Some("7 PIECE 9 STEP 1"));
+        assert_eq!(overlay.label(4), "SEED");
+        assert_eq!(overlay.value(4).as_u32(), Some(123));
     }
 
     #[test]

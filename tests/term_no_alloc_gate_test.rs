@@ -49,7 +49,7 @@ fn with_alloc_counting<F: FnOnce()>(f: F) -> usize {
 }
 
 #[test]
-fn term_game_view_render_is_allocation_free_after_warmup() {
+fn terminal_hot_paths_are_allocation_free_after_warmup() {
     let _gate = ALLOC_GATE.lock().expect("alloc gate");
     let view = GameView::default();
     let viewport = Viewport::new(80, 24);
@@ -70,7 +70,7 @@ fn term_game_view_render_is_allocation_free_after_warmup() {
     gs.snapshot_meta_into(&mut snap);
     view.render_into(&snap, viewport, &mut fb);
 
-    let allocs = with_alloc_counting(|| {
+    let render_allocs = with_alloc_counting(|| {
         for _ in 0..200 {
             if gs.board_id() != last_board_id {
                 last_board_id = gs.board_id();
@@ -80,13 +80,7 @@ fn term_game_view_render_is_allocation_free_after_warmup() {
             view.render_into(&snap, viewport, &mut fb);
         }
     });
-
-    assert!(allocs == 0);
-}
-
-#[test]
-fn encode_diff_into_is_allocation_free_after_warmup() {
-    let _gate = ALLOC_GATE.lock().expect("alloc gate");
+    assert_eq!(render_allocs, 0);
     let mut prev = FrameBuffer::new(80, 24);
     let mut next = FrameBuffer::new(80, 24);
     next.set(

@@ -21,11 +21,11 @@ use tetris_session::engine::session::SessionRuntime;
 use tetris_terminal::input::{InputCommand, InputHandler, map_input_command};
 use tetris_terminal::term::AdapterStatusView;
 use tetris_terminal::term::{
-    AnchorY, CellStyle, GameView, GameViewModel, RenderThrottle, Rgb, TerminalRenderer, Viewport,
+    AnchorY, GameView, GameViewModel, HudOverlay, RenderThrottle, TerminalRenderer, Viewport,
 };
 use tui_tetris::app_cli::{AppCommand, diagnostic_report, parse_app_args, run_batch_headless};
 use tui_tetris::observe::{
-    ObserveEvent, ObserveReconnectPolicy, connect_observer_with_retry, observe_status_lines,
+    ObserveEvent, ObserveReconnectPolicy, connect_observer_with_retry, observe_hud_overlay,
     parse_observe_args, snapshot_from_observation,
 };
 use tui_tetris::replay_cli::{parse_replay_args, run_replay_command};
@@ -83,7 +83,7 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
     let (mut rx, first_obs) = connect_observer_with_retry(&config, reconnect_policy)?;
 
     with_terminal(|term| {
-        let view = game_view_from_env();
+        let mut view = game_view_from_env();
         let mut fb = tetris_terminal::term::FrameBuffer::new(80, 24);
         let mut latest_obs = first_obs;
         let mut snap = latest_obs
@@ -124,29 +124,17 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
             let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
             if (w, h) != last_term_size {
                 last_term_size = (w, h);
+                view = game_view_from_env();
                 term.invalidate();
                 dirty = true;
             }
 
             if dirty {
-                let model = GameViewModel::new(snap, None);
+                let model = GameViewModel::new(
+                    snap,
+                    Some(observe_hud_overlay(&config, latest_obs.as_ref())),
+                );
                 view.render_model_into(&model, Viewport::new(w, h), &mut fb);
-                let observe_label = CellStyle {
-                    fg: Rgb::new(220, 220, 220),
-                    bg: Rgb::new(0, 0, 0),
-                    bold: true,
-                    dim: false,
-                };
-                for (i, line) in observe_status_lines(&config, latest_obs.as_ref())
-                    .iter()
-                    .enumerate()
-                {
-                    let y = i as u16;
-                    if y >= h {
-                        break;
-                    }
-                    fb.put_str(0, y, line, observe_label);
-                }
                 term.draw_swap(&mut fb)?;
                 dirty = false;
             }
@@ -223,7 +211,7 @@ fn run_headless(seed: u32) -> Result<()> {
 fn run(term: &mut TerminalRenderer) -> Result<()> {
     let mut session = SessionRuntime::new(1);
 
-    let view = game_view_from_env();
+    let mut view = game_view_from_env();
     let mut fb = tetris_terminal::term::FrameBuffer::new(80, 24);
     let mut input_handler = InputHandler::new();
     if let Ok(s) = std::env::var("TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS")
@@ -297,6 +285,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
         let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
         if (w, h) != last_term_size {
             last_term_size = (w, h);
+            view = game_view_from_env();
             term.invalidate();
         }
 
@@ -305,7 +294,10 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
         let fingerprint = render_fingerprint(session.game(), &adapter_view, Viewport::new(w, h));
 
         if render_throttle.should_render(now_ms, fingerprint, is_static) {
-            let model = GameViewModel::new(*session.snapshot(), Some(adapter_view));
+            let model = GameViewModel::new(
+                *session.snapshot(),
+                Some(HudOverlay::from_adapter(&adapter_view)),
+            );
             view.render_model_into(&model, Viewport::new(w, h), &mut fb);
             term.draw_swap(&mut fb)?;
         }
@@ -503,7 +495,24 @@ fn game_view_from_env() -> GameView {
             _ => AnchorY::Center,
         })
         .unwrap_or(AnchorY::Center);
-    GameView::default().with_anchor_y(anchor_y)
+
+    let override_w = std::env::var("TUI_TETRIS_CELL_W")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .filter(|w| *w >= 1);
+    let override_h = std::env::var("TUI_TETRIS_CELL_H")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .filter(|h| *h >= 1);
+
+    let mut view = match (override_w, override_h) {
+        (Some(w), Some(h)) => GameView::new(w, h),
+        _ => tetris_terminal::term::detect_cell_pixels()
+            .map(|(px_w, px_h)| GameView::from_cell_pixels(px_w, px_h))
+            .unwrap_or_default(),
+    };
+    view = view.with_anchor_y(anchor_y);
+    view
 }
 
 #[cfg(test)]

@@ -27,7 +27,8 @@ app (`tui-tetris`)
 - `input` translates terminal key state into queued `GameAction` values. It never
   mutates game state.
 - `term` renders immutable `GameViewModel` values through a framebuffer and
-  diff flush. It never mutates game rules.
+  diff flush. Play and observe inject the same five-line `HudOverlay`. It
+  never mutates game rules.
 - `adapter` owns TCP framing, the client broker, per-client mailboxes,
   observation scheduling, and the sync/async bridge; wire types live in the
   separate adapter-protocol crate.

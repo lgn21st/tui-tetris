@@ -13,6 +13,12 @@ SPEC. This engine stores kicks with **+x right, +y down** (negate wiki `dy`).
 - Spawn `(3, 0)` on the visible field
 - Next queue length: 5
 - Engine level: `floor(lines / 10)`, starting at 0
+- HUD shows guideline level (`engine_level + 1`)
+- Minos are background-filled terminal cells. Default 2×1; at runtime the
+  pixel size of a cell is measured and `(cell_w, cell_h)` is chosen to be as
+  square as possible. Override with `TUI_TETRIS_CELL_W` / `TUI_TETRIS_CELL_H`.
+- Hold/next HUD minos are packed at half size: one column per mino and two
+  mino rows per terminal row (`▀`/`▄`) so they stay square.
 
 ## Timing
 

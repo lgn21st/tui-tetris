@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tetris_core::core::GameState;
 use tetris_core::types::GameAction;
 use tetris_terminal::input::{InputCommand, map_input_command};
-use tetris_terminal::term::{AdapterStatusView, GameViewModel};
+use tetris_terminal::term::{AdapterStatusView, GameViewModel, HudOverlay};
 
 #[test]
 fn terminal_projection_owns_an_immutable_render_model() {
@@ -17,10 +17,11 @@ fn terminal_projection_owns_an_immutable_render_model() {
         pid: 7,
         listen_addr: None,
     };
-    let model = GameViewModel::new(snapshot, Some(adapter));
+    let overlay = HudOverlay::from_adapter(&adapter);
+    let model = GameViewModel::new(snapshot, Some(overlay));
 
     assert_eq!(model.snapshot().seed, 1);
-    assert_eq!(model.adapter(), Some(&adapter));
+    assert_eq!(model.overlay(), Some(&overlay));
 }
 
 #[test]
