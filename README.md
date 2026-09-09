@@ -37,7 +37,7 @@ cargo run -- observe --host 127.0.0.1 --port 7777
 TETRIS_AI_DISABLED=1 cargo run
 
 # Run tests
-cargo test
+cargo test --workspace
 ```
 
 ## Features
@@ -117,25 +117,22 @@ tui-tetris/
 ## Testing
 
 ```bash
-# Run all tests
-cargo test
+# Run all workspace tests (root package plus tetris-* crates)
+cargo test --workspace
 
 # Treat all Clippy findings as errors
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# Run specific tests
-cargo test board
-cargo test pieces
-cargo test game_state
-
-# Coverage (requires cargo-tarpaulin)
-cargo tarpaulin --out Html
+# Crate-local suites
+cargo test -p tetris-core
+cargo test -p tetris-adapter --lib
 ```
 
-Current status: `cargo test` passes.
+Current status: `cargo test --workspace` passes.
 
 Useful test suites:
 - `cargo test --test adapter_acceptance_test`
+- `cargo test --test adapter_e2e_test`
 - `cargo test --test adapter_closed_loop_test`
 - `cargo test --test no_alloc_gate_test`
 

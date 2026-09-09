@@ -1,0 +1,4 @@
+interface:
+  display_name: "TUI Tetris Development"
+  short_description: "Develop and review deterministic Rust Tetris changes"
+  default_prompt: "Use $tui-tetris-dev to implement and validate a scoped change in this project."

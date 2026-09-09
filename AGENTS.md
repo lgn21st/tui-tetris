@@ -9,33 +9,36 @@
 - `docs/rules-spec.md`: authoritative rules/timing constants
 - `docs/feature-matrix.md`: feature checklist
 - `docs/roadmap.md`: goals and validation checklist
+- `docs/architecture.md`: crate boundaries and runtime flow
+- `docs/development-workflow.md`: change order and local validation
 - `protocol/adapter/SPEC.md`: current, implementation-neutral AI protocol
 - `protocol/adapter/schema.json`: machine-readable protocol schema
 - `docs/adapter.md`: adapter documentation index
 - `docs/adapter-tui-tetris.md`: tui-tetris implementation profile
 
 ## Architecture Expectations
-- `core` owns board, pieces, RNG, scoring, timing, and actions (NO external deps)
-- `adapter` handles AI protocol (TCP socket, JSON line protocol)
-- `term` is crossterm-only: terminal framebuffer + renderer flush (no ratatui widgets)
-- `input` handles key mapping and DAS/ARR (works with terminals without key-release events)
-- Rendering should use diff-based updates for performance (dirty-cells / dirty-rects)
+- `tetris-core` owns board, pieces, RNG, scoring, timing, snapshots, and actions. It may use container crates such as `arrayvec`, but not terminal, network, serde, or async dependencies
+- `tetris-session` owns `SessionRuntime`, fixed-step accounting, atomic place, and replay TTR2
+- `tetris-adapter-protocol` owns wire types; `tetris-adapter` owns TCP, broker, mailboxes, and scheduling
+- `tetris-terminal` is crossterm-only: input mapping/DAS/ARR plus framebuffer diff flush (no ratatui widgets)
+- Root `tui-tetris` is composition/CLI only (`main`, observe, replay, diagnostic). Import APIs from the owning crate; do not reexport dependency layers
+- Rendering uses diff-based updates for performance (dirty-cells / dirty-rects)
 
 ## Working Agreements
 - Follow strict TDD: write tests first, then implement
 - Core changes first; UI changes come after logic is stable
 - If behavior changes, update `docs/rules-spec.md` and `docs/feature-matrix.md`
-- Zero-allocation in hot paths (tick, render)
+- Zero-allocation in hot paths (tick, render, observation build/serialize, diff encode)
 - Fixed timestep: 16ms logic updates
 
 ## Testing Strategy
-- Core tests: rule compliance, timing, edge cases (>90% coverage)
-- Adapter tests: protocol parsing, connection handling (>80% coverage)
+- Core tests: rule compliance, timing, edge cases
+- Adapter tests: protocol parsing, connection handling, backpressure, closed-loop
 - Renderer tests: snapshot-style framebuffer tests for critical paths
-- Run `cargo test` before every commit
+- Run `cargo test --workspace` before every commit
 
 ## Dependencies
-- Core: pure Rust, no std library dependencies beyond containers
+- Core: pure Rust plus container crates (`arrayvec`); no terminal/network/serde/async
 - Adapter: tokio, serde, serde_json (async networking)
 - Terminal: crossterm (I/O), custom framebuffer renderer (no ratatui)
 
@@ -43,3 +46,12 @@
 - AI protocol 100% compatible with `protocol/adapter/SPEC.md` and its selected TCP profile
 - Same environment variables: `TETRIS_AI_HOST`, `TETRIS_AI_PORT`, `TETRIS_AI_DISABLED`
 - Same JSON message format and error codes
+
+## Validate
+
+```bash
+cargo test --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```

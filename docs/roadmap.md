@@ -67,10 +67,12 @@ This file is the current, maintained roadmap for tui-tetris.
 
 ## Validation Checklist
 
-- `cargo test`
-- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --workspace`
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - Adapter acceptance: `cargo test --test adapter_acceptance_test`
 - Adapter e2e: `cargo test --test adapter_e2e_test`
+- Adapter docs: `cargo test --test adapter_docs_test`
+- Adapter stress: `cargo test --test adapter_stress_test`
 - Closed-loop stability: `cargo test --test adapter_closed_loop_test`
 - Long-run gate (optional): `cargo test --test adapter_closed_loop_test -- --ignored`
 - Core allocation gate: `cargo test --test no_alloc_gate_test`

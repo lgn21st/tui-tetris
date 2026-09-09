@@ -159,6 +159,8 @@ fn workspace_members_do_not_reexport_dependency_layers() {
             for forbidden in [
                 "pub use tetris_core::{core, types};",
                 "pub use tetris_session::engine;",
+                "pub use tetris_adapter_protocol::protocol;",
+                "pub use tetris_session::engine::session::GameCommand as ClientCommand;",
             ] {
                 assert!(
                     !source.lines().any(|line| line.trim() == forbidden),
@@ -175,6 +177,7 @@ fn workspace_members_do_not_reexport_dependency_layers() {
         "pub use tetris_core::{core, types};",
         "pub use tetris_session::engine;",
         "pub use tetris_terminal::{input, term};",
+        "pub use tetris_adapter_protocol::protocol;",
     ] {
         assert!(!app.lines().any(|line| line.trim() == forbidden));
     }
@@ -248,6 +251,36 @@ fn product_contract_separates_goals_from_replaceable_policies() {
 fn maintained_roadmap_does_not_claim_known_hot_path_allocations() {
     let roadmap = fs::read_to_string("docs/roadmap.md").unwrap();
     assert!(!roadmap.contains("remove remaining per-frame allocations"));
+}
+
+#[test]
+fn root_src_does_not_keep_pre_split_module_directories() {
+    for path in [
+        "src/core",
+        "src/adapter",
+        "src/engine",
+        "src/input",
+        "src/term",
+        "src/bin",
+    ] {
+        assert!(
+            !Path::new(path).exists(),
+            "{path} is a leftover pre-split directory"
+        );
+    }
+}
+
+#[test]
+fn agents_and_workflow_require_workspace_validation() {
+    let agents = fs::read_to_string("AGENTS.md").unwrap();
+    let workflow = fs::read_to_string("docs/development-workflow.md").unwrap();
+    for source in [&agents, &workflow] {
+        assert!(source.contains("cargo test --workspace"));
+        assert!(source.contains("cargo clippy --workspace"));
+    }
+    assert!(agents.contains("tetris-core"));
+    assert!(agents.contains("tetris-session"));
+    assert!(agents.contains("tetris-adapter-protocol"));
 }
 
 #[test]

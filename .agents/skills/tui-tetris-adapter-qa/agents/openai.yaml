@@ -1,0 +1,4 @@
+interface:
+  display_name: "TUI Tetris Adapter QA"
+  short_description: "Audit adapter protocol, lifecycle, and backpressure"
+  default_prompt: "Use $tui-tetris-adapter-qa to audit and validate an adapter change against its contract."

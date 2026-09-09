@@ -6,7 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Unhandshaken TCP sockets are no longer promotion candidates for controller
+- O-piece rotation/place now advances SRS rotation with a `(0,0)` kick
+- Core retains up to four ordered lock events per step instead of overwriting
+- Welcome `features_always` includes `events` and `logical_step`; `features` is a unique union
+- Gravity uses `DROP_INTERVALS` / level-9 floor of 120ms; dead 100ms constant removed
+- Repeat-release timeout min/max environment variables apply independently
+- Clippy `manual_slice_fill` on board clear
+- Observation cadence is skipped entirely when no streaming subscriber exists
+- `encode_diff_into` / `encode_full_into` write ANSI CSI without allocating
+- State hash includes combo, back-to-back, and lock-reset count (`tui-guideline-2026.2`)
+
+### Changed
+- Local validation commands are `cargo test --workspace` and `cargo clippy --workspace`
+- Adapter internals import `tetris_adapter_protocol` directly instead of reexporting it
+- Line-clear pause is documented as gravity-only; the next piece is already spawned
+- Replay ruleset version is `tui-guideline-2026.2`
+
 ### Added
+- `.gitignore`, MIT `LICENSE`, and `rust-version = "1.85"`
+- Lock-reset-limit freeze coverage and independent repeat-timeout bounds tests
+- TCP coverage for unhandshaken promotion and reliable-output overflow isolation
 - Replay TTR2 with ruleset metadata, complete transition hashes,
   record/verify/inspect CLI, and minimal failing-prefix diagnostics
 - Source-owning `tetris-core`, `tetris-session`, `tetris-adapter-protocol`,
@@ -76,7 +97,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Adapter state hashes use canonical field encodings rather than Rust `Hash`
 - Allocation gates for core, input, adapter observation, rendering, and the no-I/O end-to-end path
 - Criterion regression gates for game logic, adapter serialization, and renderer pipelines
-- Clippy clean with warnings treated as errors
+- Clippy clean with warnings treated as errors (`cargo clippy --workspace`)
 - Shared deterministic adapter command draining and observation scheduling
 - Incrementally bounded 64 KiB adapter input framing
 - Per-client bounded reliable output queues with latest-observation coalescing
@@ -96,7 +117,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - 114 unit tests
 - Architecture documentation
 - Performance benchmarks
-
----
-
-**Enjoy the game!** 🎮

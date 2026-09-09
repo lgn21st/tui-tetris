@@ -46,6 +46,7 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Injectable renderer output backend ✅
 - Snapshot-style renderer tests ✅
 - GameView allocation-free gate ✅
+- Diff encode allocation-free gate ✅
 - Remote observer renderer mode (`cargo run -- observe ...`) ✅
 - Immutable terminal `GameViewModel` and platform-neutral `InputCommand` ✅
 
@@ -72,8 +73,11 @@ Legend: ✅ implemented, ⚠️ partial, ❌ missing
 - Single-variant latest-only global observation bridge ✅
 - Single broker controller source of truth ✅
 - Canonical field-by-field state hash encoding ✅
+- State hash covers combo, back-to-back, and lock-reset count ✅
 - Protocol v3 causal `logical_step`, `events[]`, and applied-state ack ✅
 - Disconnect-storm, slow-client, and 32-observer stress gates ✅
+- Unhandshaken clients are not auto-promoted ✅
+- Reliable-output overflow closes only the slow client (TCP) ✅
 
 ## Performance
 

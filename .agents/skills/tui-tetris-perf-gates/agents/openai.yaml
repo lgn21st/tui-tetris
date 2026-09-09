@@ -1,0 +1,4 @@
+interface:
+  display_name: "TUI Tetris Performance Gates"
+  short_description: "Measure and guard Tetris hot-path performance"
+  default_prompt: "Use $tui-tetris-perf-gates to measure a hot path and enforce its performance gates."

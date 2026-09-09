@@ -2,8 +2,7 @@
 
 This document describes the current dependency boundaries and runtime flows.
 Rule details belong in `rules-spec.md`; wire compatibility belongs in
-`adapter.md`. The completed redesign is recorded in
-`reimplementation-plan.md`.
+`adapter.md`.
 
 ## Dependency Boundaries
 
@@ -53,7 +52,7 @@ Every interactive and headless 16 ms step calls the same path:
 3. Apply queued local press and DAS/ARR actions.
 4. Tick `GameState` exactly once with `TICK_MS`.
 5. Capture zero to four ordered core events into `Transition` and observation
-   scheduling.
+   scheduling. Core retains a bounded event list (not a single overwrite slot).
 6. Refresh `SnapshotStore` (board only on `board_id` change, metadata always).
 7. Deliver correlated replies and publish an observation when due.
 
@@ -69,9 +68,10 @@ an obsolete board. `Transition.changed` compares coherent before/after snapshots
 and therefore includes timer and step-counter-only changes.
 
 Core lock/line-clear events are captured once at the session boundary and
-copied into `Transition`. Adapter scheduling consumes that result rather than
-reaching into `GameState`, so additional replay or diagnostic consumers can use
-the same transition.
+copied into `Transition`. Adapter cadence uses the coherent `GameSnapshot`
+(including `active_id`) plus those events rather than reading `GameState`
+getters, so additional replay or diagnostic consumers can use the same
+transition.
 
 ## Adapter Concurrency and Backpressure
 
@@ -108,11 +108,14 @@ step, and resulting state hash.
 ## Performance Contracts
 
 - Core tick, unified session/input/observation/render no-I/O flow, adapter
-  observation build/serialization, and terminal rendering have allocation gates.
+  observation build/serialization, terminal `GameView` rendering, and
+  `encode_diff_into` have allocation gates.
 - Framebuffer output remains diff-based and skips unchanged writes/flushes.
 - Observation construction is skipped when no streaming subscriber exists.
 - Criterion covers active tick, snapshot paths, observation serialization,
   command parsing, diff encoding, render pipelines, and injected writer dispatch.
 
-Run `cargo test` for correctness and allocation gates. Run `cargo bench` followed
-by `python3 scripts/bench_gate.py` for absolute performance regression checks.
+Run `cargo test --workspace` for correctness and allocation gates. Run
+`cargo clippy --workspace --all-targets --all-features -- -D warnings` before
+handoff. Run `cargo bench` followed by `python3 scripts/bench_gate.py` for
+absolute performance regression checks.
