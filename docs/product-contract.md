@@ -23,6 +23,13 @@ quality under a deliberately generous input model and excludes motor precision
 by construction. The per-step limits that bound this are implementation policy,
 not a claim of human-equivalent dexterity.
 
+Observation `seed` stays observable. A controller that supplies `restart.seed`
+already knows the value, so withholding the echo would add no integrity; a bare
+`restart` derives a fresh seed for which the observation is the client's only
+source. Evaluating an untrusted agent under a seed it cannot know is a different
+product shape — "hidden seed" custody with an independent judge — and is out of
+scope for this benchmark.
+
 ## Replaceable policies
 
 The following are design choices, not product invariants:
