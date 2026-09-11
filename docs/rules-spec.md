@@ -1,7 +1,7 @@
 # tui-tetris Rules Implementation Profile
 
 Portable rules: [`protocol/rules/SPEC.md`](../protocol/rules/SPEC.md).
-Replay id: `guideline-ds-1.1.0+tui-tetris-timing-1.0.0`. The portable ruleset
+Replay id: `guideline-ds-1.1.0+tui-tetris-timing-1.1.0`. The portable ruleset
 version and this profile's timing id are recorded together; the composite is
 what decides whether a replay can be verified.
 
@@ -37,14 +37,15 @@ SPEC. This engine stores kicks with **+x right, +y down** (negate wiki `dy`).
 
 `DROP_INTERVALS` follows the Guideline gravity formula
 `(0.8 - (level - 1) * 0.007) ^ (level - 1)` seconds per row, rounded to whole
-milliseconds for engine levels 0..16:
+milliseconds for engine levels 0..14:
 
-1000, 793, 618, 473, 355, 262, 190, 135, 94, 64, 43, 28, 18, 11, 7, 4, 3
+1000, 793, 618, 473, 355, 262, 190, 135, 94, 64, 43, 28, 18, 11, 7
 
-Level 17+ uses `DROP_INTERVAL_FLOOR_MS` (1 ms). The formula is below one
-millisecond there, so the floor is what the 16 ms tick can actually deliver:
-16 rows per step, the 20G endgame. Gravity therefore keeps accelerating past
-level 9 instead of plateauing.
+Level 15+ uses `DROP_INTERVAL_FLOOR_MS` (7 ms ≈ 2.4G). Official games keep
+normal modes near speed level 15 and reserve 20G for level 19+ or a separate
+high-level mode; 20G is only playable there because those modes add Infinity or
+a decreasing lock delay. The portable ruleset forbids Infinity (§6) and this
+profile keeps a fixed lock delay, so the normal-mode curve must not run to 20G.
 
 Soft drop divides the interval by `SOFT_DROP_MULTIPLIER` and MUST clamp to at
 least 1 ms; a zero interval would make the gravity accumulator loop forever.
@@ -59,9 +60,9 @@ least 1 ms; a zero interval would make the gravity accumulator loop forever.
 ## Timing profile id
 
 The portable ruleset excludes gravity and tick timing (`protocol/rules/SPEC.md`
-§10), so this profile carries its own id, `tui-tetris-timing-1.0.0`. Replay
+§10), so this profile carries its own id, `tui-tetris-timing-1.1.0`. Replay
 metadata and `welcome.ruleset_id` record the composite
-`guideline-ds-1.1.0+tui-tetris-timing-1.0.0`. Changing any constant in this
+`guideline-ds-1.1.0+tui-tetris-timing-1.1.0`. Changing any constant in this
 section changes deterministic trajectories and MUST bump the timing profile id.
 
 ## DAS/ARR

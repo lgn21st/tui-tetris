@@ -30,6 +30,13 @@ source. Evaluating an untrusted agent under a seed it cannot know is a different
 product shape — "hidden seed" custody with an independent judge — and is out of
 scope for this benchmark.
 
+Comparisons use a **bounded budget**, not unbounded survival. Score grows with
+level, and gravity is capped at a normal-mode ceiling, so a policy that merely
+avoids topping out converges on the same score as a strong one. A run is
+therefore scored at a fixed line or piece budget (`--budget-lines`,
+`--budget-pieces`, `replay eval`) — the same shape as an official 150-line
+Marathon. An unbounded score is not a ranking metric.
+
 ## Replaceable policies
 
 The following are design choices, not product invariants:

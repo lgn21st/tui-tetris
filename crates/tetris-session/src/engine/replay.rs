@@ -13,7 +13,7 @@ pub const RULESET_VERSION: &str = "guideline-ds-1.1.0";
 /// The portable ruleset deliberately excludes gravity and tick timing, so a
 /// replay is reproducible only when both parts match. This is the id written to
 /// replay metadata and reported as `welcome.ruleset_id`.
-pub const EFFECTIVE_RULESET_ID: &str = "guideline-ds-1.1.0+tui-tetris-timing-1.0.0";
+pub const EFFECTIVE_RULESET_ID: &str = "guideline-ds-1.1.0+tui-tetris-timing-1.1.0";
 
 const HASH_PRIME: u64 = 0x100000001b3;
 

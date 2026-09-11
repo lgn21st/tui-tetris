@@ -2,8 +2,9 @@
 
 ## [Unreleased]
 
-- Gravity follows the Guideline curve instead of plateauing: the drop interval now accelerates to a 1 ms floor (≈20G) by level 17, and soft drop clamps to at least 1 ms
-- Local timing profile `tui-tetris-timing-1.0.0` is recorded with the portable ruleset as `<ruleset>+<timing>` in replay metadata, `welcome.ruleset_id`, and `diagnostic`
+- Gravity follows the Guideline curve to a normal-mode ceiling of 7 ms/row (≈2.4G) from level 15, instead of plateauing at 120 ms; soft drop clamps to at least 1 ms
+- Local timing profile `tui-tetris-timing-1.1.0` is recorded with the portable ruleset as `<ruleset>+<timing>` in replay metadata, `welcome.ruleset_id`, and `diagnostic`
+- Bounded-budget evaluation: `headless --budget-lines` / `--budget-pieces` and `replay eval` report a run's score at a fixed budget instead of relying on unbounded survival
 - Adapter protocol `3.2.0`: `welcome` reports `ruleset_id` so clients can detect a ruleset change that leaves `protocol_version` unchanged
 - Terminal HUD: tetromino previews, guideline level, combo/B2B, pause/game-over banners
 - Play and observe share one five-line `HudOverlay`; the HUD next queue always shows five pieces

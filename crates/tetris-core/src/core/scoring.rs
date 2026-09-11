@@ -348,9 +348,9 @@ mod tests {
         assert_eq!(get_drop_interval_ms(5), 262);
         assert_eq!(get_drop_interval_ms(8), 94);
         assert_eq!(get_drop_interval_ms(9), 64);
-        assert_eq!(get_drop_interval_ms(16), DROP_INTERVALS[16]);
-        assert_eq!(get_drop_interval_ms(17), DROP_INTERVAL_FLOOR_MS);
-        assert_eq!(get_drop_interval_ms(20), 1); // 20G floor
+        assert_eq!(get_drop_interval_ms(14), DROP_INTERVALS[14]);
+        assert_eq!(get_drop_interval_ms(15), DROP_INTERVAL_FLOOR_MS);
+        assert_eq!(get_drop_interval_ms(20), 7); // normal-mode ceiling
     }
 
     #[test]

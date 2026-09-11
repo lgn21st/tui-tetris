@@ -23,7 +23,10 @@ use tetris_terminal::term::AdapterStatusView;
 use tetris_terminal::term::{
     AnchorY, GameView, GameViewModel, HudOverlay, RenderThrottle, TerminalRenderer, Viewport,
 };
-use tui_tetris::app_cli::{AppCommand, diagnostic_report, parse_app_args, run_batch_headless};
+use tui_tetris::app_cli::{
+    AppCommand, Budget, HeadlessConfig, diagnostic_report, parse_app_args, run_batch_headless,
+    run_report,
+};
 use tui_tetris::observe::{
     ObserveEvent, ObserveReconnectPolicy, connect_observer_with_retry, observe_hud_overlay,
     parse_observe_args, snapshot_from_observation,
@@ -55,7 +58,7 @@ fn main() -> Result<()> {
                     );
                     return Ok(());
                 }
-                return run_headless(config.seed);
+                return run_headless(config);
             }
         }
     }
@@ -64,7 +67,11 @@ fn main() -> Result<()> {
     }
 
     if headless_enabled() {
-        return run_headless(1);
+        return run_headless(HeadlessConfig {
+            seed: 1,
+            steps: None,
+            budget: Budget::default(),
+        });
     }
 
     with_terminal(run)
@@ -168,8 +175,8 @@ fn headless_enabled() -> bool {
         .unwrap_or(false)
 }
 
-fn run_headless(seed: u32) -> Result<()> {
-    let mut session = SessionRuntime::new(seed);
+fn run_headless(config: HeadlessConfig) -> Result<()> {
+    let mut session = SessionRuntime::new(config.seed);
 
     let mut adapter = Adapter::start_from_env()?;
     let mut adapter_streaming_count: u16 = 0;
@@ -204,6 +211,13 @@ fn run_headless(seed: u32) -> Result<()> {
                 &[],
                 adapter_streaming_count > 0,
             );
+            // A live run is bounded by its budget (or by game over) so an
+            // external policy is scored at a fixed budget rather than by
+            // unbounded survival.
+            if config.budget.is_reached(session.game()) || session.game().game_over() {
+                println!("{}", run_report(config, &session));
+                return Ok(());
+            }
         }
     }
 }

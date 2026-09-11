@@ -410,12 +410,12 @@ fn test_drop_interval_ms() {
 }
 
 #[test]
-fn test_gravity_keeps_accelerating_past_level_nine() {
+fn test_high_level_gravity_drops_multiple_rows_per_tick() {
     let mut state = GameState::new(12345);
     state.start();
 
-    // Beyond the table the 1 ms floor is active, so one 16 ms step must carry
-    // the piece many rows instead of the old 120 ms plateau.
+    // Level 20 sits on the 7 ms cap, so one 16 ms step must still move the piece
+    // more than one row. The old 120 ms plateau moved it zero rows.
     state.level = 20;
     state.active = Some(Tetromino {
         kind: PieceKind::O,
@@ -427,8 +427,8 @@ fn test_gravity_keeps_accelerating_past_level_nine() {
 
     let active = state.active.expect("active piece");
     assert!(
-        active.y >= 16,
-        "the 20G floor should drop many rows per tick, got y={}",
+        active.y >= 2,
+        "the capped curve should still drop several rows per tick, got y={}",
         active.y
     );
 }

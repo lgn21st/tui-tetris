@@ -10,11 +10,17 @@ High-performance TUI Tetris with external AI control.
 cargo run
 TUI_TETRIS_HEADLESS=1 cargo run
 cargo run -- headless --seed 7 --steps 10000
+cargo run -- headless --seed 7 --budget-lines 150
 cargo run -- replay record /tmp/game.ttr --seed 7 --steps 1000
+cargo run -- replay eval /tmp/game.ttr --budget-lines 150
 cargo run -- observe --host 127.0.0.1 --port 7777
 TETRIS_AI_DISABLED=1 cargo run
 cargo test --workspace
 ```
+
+Score grows with level and gravity is capped at a normal-mode ceiling, so
+unbounded survival is not a ranking metric. Compare policies by scoring a run at
+a fixed `--budget-lines` / `--budget-pieces` instead.
 
 ## Controls
 
