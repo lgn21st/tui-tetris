@@ -1914,6 +1914,48 @@ fn test_lateral_move_clears_final_kick_tracking() {
 }
 
 #[test]
+fn test_final_kick_promotion_survives_gravity_only_descent() {
+    let mut state = GameState::new(12345);
+    state.start();
+
+    // Force the N->E rotation to succeed only on the final 1x2 kick:
+    // (5,1) rejects (0,0), (3,0) rejects (-1,0), (5,3) rejects (0,2), and
+    // (-1,-1) is already invalid because y = -1 is off the board.
+    state.board.set(5, 1, Some(PieceKind::I));
+    state.board.set(3, 0, Some(PieceKind::I));
+    state.board.set(5, 3, Some(PieceKind::I));
+    state.active = Some(Tetromino {
+        kind: PieceKind::T,
+        rotation: Rotation::North,
+        x: 3,
+        y: 0,
+    });
+
+    assert!(state.try_rotate(true));
+    assert!(state.last_rotate_used_final_kick);
+
+    // Gravity is not a maneuver, so a gravity-only descent must not clear the
+    // rotation tracking. Level 0 drops one row per 1000 ms.
+    state.tick(1000, false);
+    let fallen = state.active.expect("active T after gravity");
+    assert_eq!((fallen.x, fallen.y), (2, 3));
+    assert!(state.last_action_was_rotate);
+    assert!(state.last_rotate_used_final_kick);
+
+    // Corners around the descended T: back (2,3) and (2,5), one front (4,3).
+    // Occupancy alone is a Mini; the retained promotion makes it Full.
+    state.board.set(fallen.x, fallen.y, Some(PieceKind::I));
+    state.board.set(fallen.x, fallen.y + 2, Some(PieceKind::I));
+    state.board.set(fallen.x + 2, fallen.y, Some(PieceKind::I));
+
+    assert_eq!(state.t_spin_kind(&fallen), TSpinKind::Full);
+
+    let score_before = state.score;
+    state.lock_piece();
+    assert_eq!(state.score - score_before, 400); // Full 0-line table value
+}
+
+#[test]
 fn test_landing_flash_is_set_on_lock_without_line_clear() {
     let mut state = GameState::new(12345);
     state.start();
