@@ -1,5 +1,14 @@
 # Adapter Protocol Changelog
 
+## 3.2.0
+
+- Welcome carries `ruleset_id`: the implementation-defined stable identifier of
+  the authoritative ruleset and its version, for example `guideline-ds-1.1.0`
+- `protocol_version` covers the wire and lifecycle contract only. A ruleset
+  change may leave it unchanged, so a client that pins expected gameplay
+  behavior must compare `ruleset_id`
+- Purely additive field: 3.1 clients that ignore unknown fields stay compatible
+
 ## 3.1.0
 
 - Observations include current HUD chain state: `combo` and `back_to_back`

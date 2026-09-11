@@ -3,12 +3,14 @@
 use std::net::SocketAddr;
 
 use tetris_adapter_protocol::protocol::PROTOCOL_VERSION;
+use tetris_session::engine::replay::RULESET_VERSION;
 
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub protocol_version: String,
+    pub ruleset_id: String,
     pub max_pending_commands: usize,
     pub log_path: Option<String>,
     pub log_every_n: u64,
@@ -21,6 +23,7 @@ impl Default for ServerConfig {
             host: "127.0.0.1".to_string(),
             port: 7777,
             protocol_version: PROTOCOL_VERSION.to_string(),
+            ruleset_id: RULESET_VERSION.to_string(),
             max_pending_commands: 10,
             log_path: None,
             log_every_n: 1,
@@ -59,6 +62,7 @@ impl ServerConfig {
             host,
             port,
             protocol_version: PROTOCOL_VERSION.to_string(),
+            ruleset_id: RULESET_VERSION.to_string(),
             max_pending_commands,
             log_path,
             log_every_n,

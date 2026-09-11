@@ -12,6 +12,17 @@ The project is defined by outcomes, not by its current implementation.
 
 Correctness includes explicit overflow, invalid-input, disconnect, and version-mismatch behavior.
 
+## Benchmark scope
+
+The game can serve as a benchmark for **decision quality**, not for input
+dexterity. An authorized controller may submit a full action list, or a single
+`place` command, inside one logical step: remote commands are deliberately not
+rate-limited by the local DAS/ARR timing that constrains a human at the
+terminal. Comparing a client against human play therefore measures decision
+quality under a deliberately generous input model and excludes motor precision
+by construction. The per-step limits that bound this are implementation policy,
+not a claim of human-equivalent dexterity.
+
 ## Replaceable policies
 
 The following are design choices, not product invariants:

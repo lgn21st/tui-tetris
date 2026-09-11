@@ -12,6 +12,7 @@ use tetris_adapter::adapter::{InboundCommand, OutboundMessage};
 use tetris_adapter_protocol::protocol::create_hello;
 use tetris_core::core::GameState;
 use tetris_core::types::GameAction;
+use tetris_session::engine::replay::RULESET_VERSION;
 
 mod support;
 use support::{read_json_line, spawn_server};
@@ -584,6 +585,7 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
         welcome["capabilities"]["control_policy"]["promotion_order"],
         "lowest_client_id"
     );
+    assert_eq!(welcome["ruleset_id"], RULESET_VERSION);
 
     let obs = read_json_line(&mut lines).await;
     assert_eq!(obs["type"], "observation");
@@ -595,6 +597,44 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
 
     server_handle.abort();
     engine_handle.abort();
+}
+
+#[tokio::test]
+async fn acceptance_welcome_reports_authoritative_ruleset_id() {
+    let config = support::server_config();
+
+    let (cmd_tx, _cmd_rx) = mpsc::channel::<InboundCommand>(8);
+    let (_out_tx, out_rx) = mpsc::unbounded_channel::<OutboundMessage>();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let server_handle = tokio::spawn(async move {
+        let _ = run_server(config, cmd_tx, out_rx, Some(ready_tx), None).await;
+    });
+
+    let addr = tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let (mut lines, mut write_half) = support::connect(addr).await;
+    support::write_json_line(&mut write_half, &create_hello(1, "ruleset-probe", "3.0.0")).await;
+
+    let welcome = read_json_line(&mut lines).await;
+    assert_eq!(welcome["type"], "welcome");
+    assert_eq!(
+        welcome["protocol_version"],
+        tetris_adapter_protocol::protocol::PROTOCOL_VERSION
+    );
+    // The ruleset id must identify the authoritative ruleset even when the
+    // protocol version did not change.
+    assert_eq!(welcome["ruleset_id"], RULESET_VERSION);
+    assert!(
+        welcome["ruleset_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+    );
+
+    server_handle.abort();
 }
 
 #[tokio::test]

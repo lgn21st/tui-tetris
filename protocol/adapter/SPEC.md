@@ -1,4 +1,4 @@
-# Tetris AI Adapter Protocol 3.1.0
+# Tetris AI Adapter Protocol 3.2.0
 
 This document is the normative, implementation-neutral contract between a
 Tetris game adapter and an AI client. The key words MUST, MUST NOT, SHOULD,
@@ -10,7 +10,9 @@ by a selected profile such as `profiles/tcp-json-lines.md`.
 ## 1. Versioning and compatibility
 
 - Every hello and welcome contains `protocol_version` as semantic version text.
-- Implementations of this release report `3.1.0` in welcome messages.
+- Implementations of this release report `3.2.0` in welcome messages.
+- `protocol_version` identifies the wire and lifecycle contract only. It does
+  not identify gameplay rules; `welcome.ruleset_id` does.
 - Version 3.0.0 intentionally replaces the ambiguous v2 event and ack shapes.
 - A server MUST reject an incompatible major version with `protocol_mismatch`.
 - A server MUST reject malformed semantic versions.
@@ -48,20 +50,26 @@ Example:
 {"type":"hello","seq":1,"ts":1738291200000,"client":{"name":"tetris-ai","version":"0.1.0"},"protocol_version":"3.0.0","formats":["json"],"requested":{"stream_observations":true,"command_mode":"place","role":"auto"}}
 ```
 
-Welcome requires `type`, `seq`, `ts`, `protocol_version`, `game_id`,
-`capabilities`, `client_id`, `role`, and `controller_id`.
+Welcome requires `type`, `seq`, `ts`, `protocol_version`, `ruleset_id`,
+`game_id`, `capabilities`, `client_id`, `role`, and `controller_id`.
 
 - `welcome.seq` echoes `hello.seq`.
 - `client_id` is stable for the connection and unique among concurrent clients.
 - `role` reports the role assigned at handshake time.
 - `controller_id` is the active controller id or null.
+- `ruleset_id` is the implementation-defined stable identifier of the
+  authoritative ruleset and its version, for example `guideline-ds-1.1.0`. It
+  MUST be a non-empty string. A ruleset change MAY leave `protocol_version`
+  unchanged, so a client that pins expected gameplay behavior MUST compare
+  `ruleset_id` and MUST NOT infer a compatible ruleset from a compatible
+  `protocol_version`.
 - `capabilities.features` is the union of `features_always` and
   `features_optional`.
 
 Example:
 
 ```json
-{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"3.1.0","client_id":1,"role":"controller","controller_id":1,"game_id":"example-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","events","logical_step","state_hash","score","timers","combo","back_to_back"],"features_always":["next","next_queue","can_hold","board_id","events","logical_step","state_hash","score","timers","combo","back_to_back"],"features_optional":["hold","ghost_y"],"control_policy":{"auto_promote_on_disconnect":true,"promotion_order":"lowest_client_id"}}}
+{"type":"welcome","seq":1,"ts":1738291200100,"protocol_version":"3.2.0","ruleset_id":"guideline-ds-1.1.0","client_id":1,"role":"controller","controller_id":1,"game_id":"example-game","capabilities":{"formats":["json"],"command_modes":["action","place"],"features":["hold","next","next_queue","can_hold","ghost_y","board_id","events","logical_step","state_hash","score","timers","combo","back_to_back"],"features_always":["next","next_queue","can_hold","board_id","events","logical_step","state_hash","score","timers","combo","back_to_back"],"features_optional":["hold","ghost_y"],"control_policy":{"auto_promote_on_disconnect":true,"promotion_order":"lowest_client_id"}}}
 ```
 
 ## 4. Sequencing and correlation
@@ -198,6 +206,8 @@ Example:
 - Equal implementation, ruleset, seed, initial state, and command sequence MUST
   produce identical gameplay trajectories.
 - Cross-implementation state hashes and piece sequences need not match.
+- Scores, replays, and state hashes are comparable only within one
+  implementation and one `ruleset_id`.
 
 ## 9. Delivery and backpressure
 

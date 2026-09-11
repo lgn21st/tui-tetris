@@ -1,6 +1,6 @@
 # AI Adapter Documentation
 
-tui-tetris implements Tetris AI Adapter Protocol 3.1.0.
+tui-tetris implements Tetris AI Adapter Protocol 3.2.0.
 
 ## Shared current protocol
 

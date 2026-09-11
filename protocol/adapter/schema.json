@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Tetris AI Adapter Protocol 3.1.0",
+  "title": "Tetris AI Adapter Protocol 3.2.0",
   "type": "object",
   "oneOf": [
     { "$ref": "#/definitions/hello" },
@@ -242,6 +242,7 @@
             { "type": "null" }
           ]
         },
+        "ruleset_id": { "type": "string", "minLength": 1 },
         "game_id": { "type": "string" },
         "capabilities": { "$ref": "#/definitions/capabilities" }
       },
@@ -253,6 +254,7 @@
         "client_id",
         "role",
         "controller_id",
+        "ruleset_id",
         "game_id",
         "capabilities"
       ]

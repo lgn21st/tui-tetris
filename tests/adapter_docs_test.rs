@@ -23,6 +23,7 @@ fn current_protocol_package_matches_runtime_version() {
 
     assert_eq!(version.trim(), PROTOCOL_VERSION);
     assert!(spec.contains(&format!("Protocol {PROTOCOL_VERSION}")));
+    assert!(spec.contains("welcome.ruleset_id"));
     assert!(readme.contains("single current protocol package"));
     assert!(readme.contains("notify dependent projects"));
     assert!(!project_path("protocol/adapter/v2.1.1").exists());
@@ -82,6 +83,20 @@ fn protocol_schema_is_standalone_and_matches_core_contract() {
         strict_v3_semver
     );
 
+    let welcome_required = schema["definitions"]["welcome"]["required"]
+        .as_array()
+        .expect("welcome.required");
+    assert!(
+        welcome_required
+            .iter()
+            .any(|value| value.as_str() == Some("ruleset_id")),
+        "welcome must require ruleset_id so clients can detect a ruleset-only change"
+    );
+    assert_eq!(
+        schema["definitions"]["welcome"]["properties"]["ruleset_id"]["minLength"],
+        1
+    );
+
     for command in schema["definitions"]["command"]["oneOf"]
         .as_array()
         .expect("command.oneOf")
@@ -133,6 +148,7 @@ fn tui_tetris_index_and_profile_are_separate_from_shared_spec() {
     assert!(index.contains("docs/adapter-tui-tetris.md"));
     assert!(!index.contains("protocol-v3-migration"));
     assert!(profile.contains("fixed-step phase accumulator"));
+    assert!(profile.contains("ruleset_id"));
     assert!(profile.contains(&format!(
         "reliable queue capacity: `{CLIENT_RELIABLE_QUEUE_CAPACITY}`"
     )));
@@ -155,8 +171,10 @@ fn protocol_package_contains_upgrade_and_notification_guidance() {
     let changelog = read(&format!("{PROTOCOL_ROOT}/CHANGELOG.md"));
     let readme = read(&format!("{PROTOCOL_ROOT}/README.md"));
 
+    assert!(changelog.contains("## 3.2.0"));
     assert!(changelog.contains("## 3.1.0"));
     assert!(changelog.contains("## 3.0.0"));
+    assert!(changelog.contains("ruleset_id"));
     assert!(changelog.contains("events"));
     assert!(changelog.contains("logical_step"));
     assert!(changelog.contains("correlation_seq"));

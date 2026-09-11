@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stdlib-only conformance client for Tetris AI Adapter Protocol 3.1.0."""
+"""Stdlib-only conformance client for Tetris AI Adapter Protocol 3.2.0."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-PROTOCOL_VERSION = "3.1.0"
+PROTOCOL_VERSION = "3.2.0"
 
 
 class AdapterClient:
@@ -65,6 +65,9 @@ class AdapterClient:
             }
         )
         welcome = self.wait_for(lambda message: message.get("type") == "welcome")
+        ruleset_id = welcome.get("ruleset_id")
+        if not isinstance(ruleset_id, str) or not ruleset_id:
+            raise RuntimeError(f"welcome is missing a non-empty ruleset_id: {welcome}")
         observation = None
         if stream:
             observation = self.wait_for(lambda message: message.get("type") == "observation")

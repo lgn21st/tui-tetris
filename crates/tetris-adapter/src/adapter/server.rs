@@ -672,6 +672,7 @@ async fn handle_client(
                 let welcome = create_welcome(
                     hello.seq,
                     &state.config.protocol_version,
+                    &state.config.ruleset_id,
                     client_id as u64,
                     assigned_role,
                     controller_id.map(|id| id as u64),

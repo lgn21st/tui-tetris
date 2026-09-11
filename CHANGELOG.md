@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Adapter protocol `3.2.0`: `welcome` reports `ruleset_id` so clients can detect a ruleset change that leaves `protocol_version` unchanged
 - Terminal HUD: tetromino previews, guideline level, combo/B2B, pause/game-over banners
 - Play and observe share one five-line `HudOverlay`; the HUD next queue always shows five pieces
 - Hold/next previews pack two mino rows per cell (`▀`/`▄`) so they stay square at half size

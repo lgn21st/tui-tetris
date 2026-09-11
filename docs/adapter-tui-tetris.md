@@ -5,7 +5,11 @@ This profile documents tui-tetris behavior for the shared current protocol at
 
 ## Protocol and transport
 
-- Protocol version: `3.1.0`.
+- Protocol version: `3.2.0`.
+- Welcome reports `ruleset_id` from the runtime ruleset version
+  (`guideline-ds-1.1.0`). The protocol version does not change when only the
+  ruleset changes, so clients pinned to ruleset semantics must compare
+  `ruleset_id`.
 - TCP profile: `protocol/adapter/profiles/tcp-json-lines.md`.
 - Default endpoint: `127.0.0.1:7777`.
 - Maximum inbound payload: 65,536 bytes, excluding newline.

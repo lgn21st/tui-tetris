@@ -10,7 +10,7 @@ use tetris_core::types::{CoreLastEvent, PieceKind, Rotation, TSpinKind};
 use arrayvec::ArrayVec;
 
 /// Protocol version implemented by both the adapter server and bundled clients.
-pub const PROTOCOL_VERSION: &str = "3.1.0";
+pub const PROTOCOL_VERSION: &str = "3.2.0";
 
 // ============== Client -> Game Messages ==============
 
@@ -404,6 +404,12 @@ pub struct WelcomeMessage {
     pub seq: u64,
     pub ts: u64,
     pub protocol_version: String,
+    /// Implementation-defined stable identifier of the authoritative ruleset
+    /// and its version.
+    ///
+    /// A ruleset change may leave `protocol_version` unchanged, so clients
+    /// pinned to gameplay semantics MUST compare this value.
+    pub ruleset_id: String,
     /// Stable per connection; unique among concurrently connected clients.
     pub client_id: u64,
     /// Assigned role for this connection.
@@ -910,6 +916,7 @@ pub fn create_hello(seq: u64, client_name: &str, protocol_version: &str) -> Hell
 pub fn create_welcome(
     seq: u64,
     protocol_version: &str,
+    ruleset_id: &str,
     client_id: u64,
     role: AssignedRole,
     controller_id: Option<u64>,
@@ -919,6 +926,7 @@ pub fn create_welcome(
         seq,
         ts: current_timestamp_ms(),
         protocol_version: protocol_version.to_string(),
+        ruleset_id: ruleset_id.to_string(),
         client_id,
         role,
         controller_id,
@@ -1032,7 +1040,7 @@ mod tests {
 
     #[test]
     fn protocol_version_matches_adapter_spec() {
-        assert_eq!(PROTOCOL_VERSION, "3.1.0");
+        assert_eq!(PROTOCOL_VERSION, "3.2.0");
     }
     use tetris_core::types::CoreLastEvent;
 
@@ -1085,10 +1093,18 @@ mod tests {
 
     #[test]
     fn test_create_welcome() {
-        let welcome = create_welcome(1, PROTOCOL_VERSION, 7, AssignedRole::Controller, Some(7));
+        let welcome = create_welcome(
+            1,
+            PROTOCOL_VERSION,
+            "guideline-ds-1.1.0",
+            7,
+            AssignedRole::Controller,
+            Some(7),
+        );
         assert_eq!(welcome.msg_type, WelcomeType::Welcome);
         assert_eq!(welcome.seq, 1);
         assert_eq!(welcome.protocol_version, PROTOCOL_VERSION);
+        assert_eq!(welcome.ruleset_id, "guideline-ds-1.1.0");
         assert_eq!(welcome.client_id, 7);
         assert_eq!(welcome.role, AssignedRole::Controller);
         assert_eq!(welcome.controller_id, Some(7));
