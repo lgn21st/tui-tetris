@@ -1,7 +1,10 @@
 //! Top-level non-interactive application commands.
 
 use tetris_adapter_protocol::protocol::PROTOCOL_VERSION;
-use tetris_session::engine::replay::{REPLAY_FORMAT_VERSION, RULESET_VERSION, transition_hash};
+use tetris_core::types::TIMING_PROFILE_ID;
+use tetris_session::engine::replay::{
+    EFFECTIVE_RULESET_ID, REPLAY_FORMAT_VERSION, RULESET_VERSION, transition_hash,
+};
 use tetris_session::engine::session::{SessionRuntime, StepInput};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +66,6 @@ pub fn run_batch_headless(config: HeadlessConfig) -> Result<String, String> {
 
 pub fn diagnostic_report() -> String {
     format!(
-        "protocol={PROTOCOL_VERSION}\nreplay=TTR{REPLAY_FORMAT_VERSION}\nruleset={RULESET_VERSION}\narchitecture=core,session,adapter-protocol,adapter,terminal,app"
+        "protocol={PROTOCOL_VERSION}\nreplay=TTR{REPLAY_FORMAT_VERSION}\nruleset={EFFECTIVE_RULESET_ID}\nportable_ruleset={RULESET_VERSION}\ntiming={TIMING_PROFILE_ID}\narchitecture=core,session,adapter-protocol,adapter,terminal,app"
     )
 }

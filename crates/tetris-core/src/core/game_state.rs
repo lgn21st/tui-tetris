@@ -8,7 +8,10 @@ use arrayvec::ArrayVec;
 use crate::core::{
     Board, PieceQueue, get_shape,
     pieces::is_final_kick_offset,
-    scoring::{calculate_drop_score, calculate_level, calculate_score, get_drop_interval_ms},
+    scoring::{
+        calculate_drop_score, calculate_level, calculate_score, get_drop_interval_ms,
+        soft_drop_interval_ms,
+    },
     try_rotate,
 };
 use crate::types::*;
@@ -311,8 +314,8 @@ impl GameState {
     pub(crate) fn drop_interval_ms(&self) -> u32 {
         let base = get_drop_interval_ms(self.level);
         if self.is_soft_dropping {
-            // Soft drop is 10x faster
-            base / SOFT_DROP_MULTIPLIER
+            // Soft drop is 10x faster, clamped so the interval is never zero.
+            soft_drop_interval_ms(base)
         } else {
             base
         }

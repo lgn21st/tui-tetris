@@ -1,7 +1,9 @@
 # tui-tetris Rules Implementation Profile
 
 Portable rules: [`protocol/rules/SPEC.md`](../protocol/rules/SPEC.md).
-Replay id: `guideline-ds-1.1.0`.
+Replay id: `guideline-ds-1.1.0+tui-tetris-timing-1.0.0`. The portable ruleset
+version and this profile's timing id are recorded together; the composite is
+what decides whether a replay can be verified.
 
 This file is local policy only. Other stacks may differ. Shared geometry,
 SRS (wiki Y-up), scoring, lock delay, T-Spin, B2B, and combo live in the
@@ -33,7 +35,19 @@ SPEC. This engine stores kicks with **+x right, +y down** (negate wiki `dy`).
 | LINE_CLEAR_PAUSE_MS | 180 |
 | LANDING_FLASH_MS | 120 |
 
-`DROP_INTERVALS`: 1000, 800, 650, 500, 400, 320, 250, 200, 160; level 9+ is 120 ms.
+`DROP_INTERVALS` follows the Guideline gravity formula
+`(0.8 - (level - 1) * 0.007) ^ (level - 1)` seconds per row, rounded to whole
+milliseconds for engine levels 0..16:
+
+1000, 793, 618, 473, 355, 262, 190, 135, 94, 64, 43, 28, 18, 11, 7, 4, 3
+
+Level 17+ uses `DROP_INTERVAL_FLOOR_MS` (1 ms). The formula is below one
+millisecond there, so the floor is what the 16 ms tick can actually deliver:
+16 rows per step, the 20G endgame. Gravity therefore keeps accelerating past
+level 9 instead of plateauing.
+
+Soft drop divides the interval by `SOFT_DROP_MULTIPLIER` and MUST clamp to at
+least 1 ms; a zero interval would make the gravity accumulator loop forever.
 
 - Fixed step `TICK_MS`; retain backlog, at most 8 catch-up steps per outer loop
 - Per step: remote commands, then local DAS/ARR, then one tick
@@ -41,6 +55,14 @@ SPEC. This engine stores kicks with **+x right, +y down** (negate wiki `dy`).
 - When `line_clear_ms` hits 0, gravity/lock resume in the same `tick()`
 - Gravity accumulator may drop multiple rows in one tick
 - Lock timer runs only while grounded; grounded moves/rotates reset it up to `LOCK_RESET_LIMIT`
+
+## Timing profile id
+
+The portable ruleset excludes gravity and tick timing (`protocol/rules/SPEC.md`
+§10), so this profile carries its own id, `tui-tetris-timing-1.0.0`. Replay
+metadata and `welcome.ruleset_id` record the composite
+`guideline-ds-1.1.0+tui-tetris-timing-1.0.0`. Changing any constant in this
+section changes deterministic trajectories and MUST bump the timing profile id.
 
 ## DAS/ARR
 

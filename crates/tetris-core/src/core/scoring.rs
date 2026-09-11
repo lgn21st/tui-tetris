@@ -10,7 +10,7 @@
 
 use crate::types::{
     B2B_DENOMINATOR, B2B_NUMERATOR, COMBO_BASE, DROP_INTERVAL_FLOOR_MS, DROP_INTERVALS,
-    LINE_SCORES, TSpinKind,
+    LINE_SCORES, SOFT_DROP_MULTIPLIER, TSpinKind,
 };
 
 /// Score calculation result
@@ -147,12 +147,13 @@ pub(crate) fn get_drop_interval_ms(level: u32) -> u32 {
         .unwrap_or(DROP_INTERVAL_FLOOR_MS)
 }
 
-/// Calculate soft drop interval
-/// Base interval divided by soft drop multiplier
-#[cfg(test)]
-pub(crate) fn get_soft_drop_interval_ms(base_interval: u32, multiplier: u32) -> u32 {
-    let interval = base_interval / multiplier;
-    interval.max(1) // Minimum 1ms to avoid division issues
+/// Soft drop interval: the base interval divided by the soft drop multiplier.
+///
+/// Clamped to at least 1 ms. The gravity floor is 1 ms, so an unclamped
+/// division would yield 0 and make the gravity accumulator loop in
+/// `GameState::tick` spin forever.
+pub(crate) fn soft_drop_interval_ms(base_interval: u32) -> u32 {
+    (base_interval / SOFT_DROP_MULTIPLIER).max(1)
 }
 
 #[cfg(test)]
@@ -344,17 +345,19 @@ mod tests {
     #[test]
     fn test_drop_intervals() {
         assert_eq!(get_drop_interval_ms(0), 1000);
-        assert_eq!(get_drop_interval_ms(8), 160);
-        assert_eq!(get_drop_interval_ms(9), 120);
-        assert_eq!(get_drop_interval_ms(20), 120); // Floor at 120
-        assert_eq!(get_drop_interval_ms(8), DROP_INTERVALS[8]);
-        assert_eq!(get_drop_interval_ms(9), DROP_INTERVAL_FLOOR_MS);
+        assert_eq!(get_drop_interval_ms(5), 262);
+        assert_eq!(get_drop_interval_ms(8), 94);
+        assert_eq!(get_drop_interval_ms(9), 64);
+        assert_eq!(get_drop_interval_ms(16), DROP_INTERVALS[16]);
+        assert_eq!(get_drop_interval_ms(17), DROP_INTERVAL_FLOOR_MS);
+        assert_eq!(get_drop_interval_ms(20), 1); // 20G floor
     }
 
     #[test]
     fn test_soft_drop_interval() {
-        assert_eq!(get_soft_drop_interval_ms(1000, 10), 100);
-        assert_eq!(get_soft_drop_interval_ms(100, 10), 10);
-        assert_eq!(get_soft_drop_interval_ms(5, 10), 1); // Minimum 1ms
+        assert_eq!(soft_drop_interval_ms(1000), 100);
+        assert_eq!(soft_drop_interval_ms(100), 10);
+        assert_eq!(soft_drop_interval_ms(5), 1); // Minimum 1ms
+        assert_eq!(soft_drop_interval_ms(1), 1); // Never zero
     }
 }

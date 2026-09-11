@@ -1,7 +1,7 @@
-use tetris_core::types::{CoreLastEvent, GameAction, TSpinKind};
+use tetris_core::types::{CoreLastEvent, GameAction, TIMING_PROFILE_ID, TSpinKind};
 use tetris_session::engine::replay::{
-    REPLAY_FORMAT_VERSION, RULESET_VERSION, ReplayMismatch, ReplayTape, StepRecord,
-    replay_and_verify, transition_hash,
+    EFFECTIVE_RULESET_ID, REPLAY_FORMAT_VERSION, RULESET_VERSION, ReplayMismatch, ReplayTape,
+    StepRecord, replay_and_verify, transition_hash,
 };
 use tetris_session::engine::session::{GameCommand, SessionRuntime, StepInput};
 
@@ -62,13 +62,39 @@ fn replay_header_versions_the_container_and_ruleset() {
     let tape = ReplayTape::record(7, sample_batches());
     let encoded = String::from_utf8(tape.encode()).unwrap();
     assert!(encoded.starts_with(&format!(
-        "TTR{REPLAY_FORMAT_VERSION}\t{RULESET_VERSION}\t7\n"
+        "TTR{REPLAY_FORMAT_VERSION}\t{EFFECTIVE_RULESET_ID}\t7\n"
     )));
-    assert_eq!(tape.ruleset_version(), RULESET_VERSION);
+    assert_eq!(tape.ruleset_version(), EFFECTIVE_RULESET_ID);
 
-    let incompatible = encoded.replacen(RULESET_VERSION, "incompatible-rules", 1);
+    let incompatible = encoded.replacen(EFFECTIVE_RULESET_ID, "incompatible-rules", 1);
     assert!(
         ReplayTape::decode(incompatible.as_bytes())
+            .unwrap_err()
+            .contains("unsupported ruleset")
+    );
+}
+
+#[test]
+fn effective_ruleset_id_covers_ruleset_and_local_timing() {
+    // Gravity lives in the local timing profile, not the portable ruleset, so
+    // the recorded id must combine both. A timing-only change then rejects old
+    // tapes explicitly instead of surfacing as a bare hash mismatch.
+    assert_eq!(
+        EFFECTIVE_RULESET_ID,
+        format!("{RULESET_VERSION}+{TIMING_PROFILE_ID}")
+    );
+}
+
+#[test]
+fn tape_recorded_without_the_timing_profile_is_rejected() {
+    let tape = ReplayTape::record(7, sample_batches());
+    let encoded = String::from_utf8(tape.encode()).unwrap();
+
+    // The bare portable ruleset id is what a tape predating the timing profile
+    // carries. It must fail with a clear ruleset error, not a hash mismatch.
+    let legacy = encoded.replacen(EFFECTIVE_RULESET_ID, RULESET_VERSION, 1);
+    assert!(
+        ReplayTape::decode(legacy.as_bytes())
             .unwrap_err()
             .contains("unsupported ruleset")
     );

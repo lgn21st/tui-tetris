@@ -400,13 +400,51 @@ fn test_drop_interval_ms() {
     // Level 0 should be 1000ms
     assert_eq!(state.drop_interval_ms(), 1000);
 
-    // Set level to 5
+    // Level 5 follows the Guideline curve (262 ms, not a flat table entry).
     state.level = 5;
-    assert_eq!(state.drop_interval_ms(), 320);
+    assert_eq!(state.drop_interval_ms(), 262);
 
-    // Test soft drop (10x multiplier: 320 / 10 = 32)
+    // Test soft drop (10x multiplier: 262 / 10 = 26)
     state.is_soft_dropping = true;
-    assert_eq!(state.drop_interval_ms(), 32);
+    assert_eq!(state.drop_interval_ms(), 26);
+}
+
+#[test]
+fn test_gravity_keeps_accelerating_past_level_nine() {
+    let mut state = GameState::new(12345);
+    state.start();
+
+    // Beyond the table the 1 ms floor is active, so one 16 ms step must carry
+    // the piece many rows instead of the old 120 ms plateau.
+    state.level = 20;
+    state.active = Some(Tetromino {
+        kind: PieceKind::O,
+        rotation: Rotation::North,
+        x: 3,
+        y: 0,
+    });
+    state.tick(TICK_MS, false);
+
+    let active = state.active.expect("active piece");
+    assert!(
+        active.y >= 16,
+        "the 20G floor should drop many rows per tick, got y={}",
+        active.y
+    );
+}
+
+#[test]
+fn test_soft_drop_interval_never_reaches_zero() {
+    let mut state = GameState::new(12345);
+    state.start();
+    state.is_soft_dropping = true;
+
+    // A zero interval would make the gravity accumulator loop in tick() spin
+    // forever, so the soft-drop division must clamp to at least 1 ms.
+    for level in 0..=30 {
+        state.level = level;
+        assert!(state.drop_interval_ms() >= 1, "level {level}");
+    }
 }
 
 #[test]

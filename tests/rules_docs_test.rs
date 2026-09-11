@@ -2,8 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use tetris_core::core::pieces::get_kick_table;
-use tetris_core::types::{LINE_SCORES, LOCK_DELAY_MS, LOCK_RESET_LIMIT, PieceKind};
-use tetris_session::engine::replay::RULESET_VERSION;
+use tetris_core::types::{
+    LINE_SCORES, LOCK_DELAY_MS, LOCK_RESET_LIMIT, PieceKind, TIMING_PROFILE_ID,
+};
+use tetris_session::engine::replay::{EFFECTIVE_RULESET_ID, RULESET_VERSION};
 
 const RULES_ROOT: &str = "protocol/rules";
 
@@ -121,6 +123,24 @@ fn local_rules_profile_points_at_shared_spec() {
     assert!(profile.contains("LOCK_DELAY_MS"));
     assert!(profile.contains("DROP_INTERVALS"));
     assert!(profile.contains("DAS"));
+}
+
+#[test]
+fn local_timing_profile_is_versioned_and_documented() {
+    let profile = read("docs/rules-spec.md");
+
+    // Gravity is local policy, so it needs its own id; the profile must record
+    // both parts because either one changes deterministic trajectories.
+    assert!(profile.contains(TIMING_PROFILE_ID));
+    assert!(profile.contains(EFFECTIVE_RULESET_ID));
+    assert_eq!(
+        EFFECTIVE_RULESET_ID,
+        format!("{RULESET_VERSION}+{TIMING_PROFILE_ID}")
+    );
+
+    // The curve is documented as the Guideline formula, not a flat table.
+    assert!(profile.contains("Guideline gravity formula"));
+    assert!(profile.contains("DROP_INTERVAL_FLOOR_MS"));
 }
 
 #[test]

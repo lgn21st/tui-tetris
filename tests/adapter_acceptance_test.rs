@@ -12,7 +12,7 @@ use tetris_adapter::adapter::{InboundCommand, OutboundMessage};
 use tetris_adapter_protocol::protocol::create_hello;
 use tetris_core::core::GameState;
 use tetris_core::types::GameAction;
-use tetris_session::engine::replay::RULESET_VERSION;
+use tetris_session::engine::replay::EFFECTIVE_RULESET_ID;
 
 mod support;
 use support::{read_json_line, spawn_server};
@@ -585,7 +585,7 @@ async fn acceptance_ready_probe_welcome_then_playable_observation() {
         welcome["capabilities"]["control_policy"]["promotion_order"],
         "lowest_client_id"
     );
-    assert_eq!(welcome["ruleset_id"], RULESET_VERSION);
+    assert_eq!(welcome["ruleset_id"], EFFECTIVE_RULESET_ID);
 
     let obs = read_json_line(&mut lines).await;
     assert_eq!(obs["type"], "observation");
@@ -627,7 +627,7 @@ async fn acceptance_welcome_reports_authoritative_ruleset_id() {
     );
     // The ruleset id must identify the authoritative ruleset even when the
     // protocol version did not change.
-    assert_eq!(welcome["ruleset_id"], RULESET_VERSION);
+    assert_eq!(welcome["ruleset_id"], EFFECTIVE_RULESET_ID);
     assert!(
         welcome["ruleset_id"]
             .as_str()

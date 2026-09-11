@@ -37,20 +37,18 @@
 //!
 //! # Drop Intervals by Level
 //!
-//! Gravity increases with level (milliseconds per row):
+//! Gravity follows the Guideline formula
+//! `(0.8 - (level - 1) * 0.007) ^ (level - 1)` seconds per row, rounded to
+//! milliseconds (milliseconds per row):
 //!
 //! | Level | Interval |
 //! |-------|----------|
 //! | 0 | 1000ms |
-//! | 1 | 800ms |
-//! | 2 | 650ms |
-//! | 3 | 500ms |
-//! | 4 | 400ms |
-//! | 5 | 320ms |
-//! | 6 | 250ms |
-//! | 7 | 200ms |
-//! | 8 | 160ms |
-//! | 9+ | 120ms |
+//! | 4 | 355ms |
+//! | 8 | 94ms |
+//! | 12 | 18ms |
+//! | 16 | 3ms |
+//! | 17+ | 1ms (16 rows per 16 ms step ≈ 20G) |
 //!
 //! # Examples
 //!
@@ -120,13 +118,26 @@ pub const SOFT_DROP_DAS_MS: u32 = 0;
 /// Soft drop ARR in milliseconds.
 pub const SOFT_DROP_ARR_MS: u32 = 50;
 
-/// Drop intervals by level (milliseconds per row).
+/// Drop intervals by engine level (milliseconds per row).
 ///
-/// Index 0 = Level 0 … index 8 = Level 8. Level 9+ uses [`DROP_INTERVAL_FLOOR_MS`].
-pub const DROP_INTERVALS: [u32; 9] = [1000, 800, 650, 500, 400, 320, 250, 200, 160];
+/// Derived from the Guideline gravity formula
+/// `(0.8 - (level - 1) * 0.007) ^ (level - 1)` seconds per row, rounded to
+/// whole milliseconds. Index 0 = Level 0 … index 16 = Level 16; level 17+ uses
+/// [`DROP_INTERVAL_FLOOR_MS`].
+pub const DROP_INTERVALS: [u32; 17] = [
+    1000, 793, 618, 473, 355, 262, 190, 135, 94, 64, 43, 28, 18, 11, 7, 4, 3,
+];
 
-/// Gravity floor for level 9 and above (120ms).
-pub const DROP_INTERVAL_FLOOR_MS: u32 = 120;
+/// Gravity floor from level 17 (1 ms per row, delivered as 16 rows per tick).
+pub const DROP_INTERVAL_FLOOR_MS: u32 = 1;
+
+/// Version of this local core timing profile.
+///
+/// The portable ruleset excludes gravity and tick timing
+/// (`protocol/rules/SPEC.md` §10), so deterministic trajectories depend on this
+/// profile as well. Replay metadata and the adapter welcome record it together
+/// with the portable ruleset id.
+pub const TIMING_PROFILE_ID: &str = "tui-tetris-timing-1.0.0";
 
 /// Maximum ordered lock/line-clear events retained for one core transition.
 pub const MAX_CORE_EVENTS: usize = 4;
@@ -153,10 +164,35 @@ mod tests {
 
         assert_eq!(
             DROP_INTERVALS,
-            [1000, 800, 650, 500, 400, 320, 250, 200, 160]
+            [
+                1000, 793, 618, 473, 355, 262, 190, 135, 94, 64, 43, 28, 18, 11, 7, 4, 3
+            ]
         );
-        assert_eq!(DROP_INTERVAL_FLOOR_MS, 120);
+        assert_eq!(DROP_INTERVAL_FLOOR_MS, 1);
         assert_eq!(MAX_CORE_EVENTS, 4);
+    }
+
+    #[test]
+    fn drop_intervals_follow_the_guideline_gravity_formula() {
+        // The portable ruleset excludes gravity tables (protocol/rules/SPEC.md
+        // §10); this local profile adopts the Guideline curve rather than a
+        // table that plateaus.
+        for (level, &actual) in DROP_INTERVALS.iter().enumerate() {
+            let l = level as f64;
+            let seconds = (0.8 - l * 0.007).powf(l);
+            let expected = (seconds * 1000.0).round().max(1.0) as u32;
+            assert_eq!(actual, expected, "level {level}");
+        }
+
+        // Past the table the formula rounds to the 1 ms floor, and is strictly
+        // sub-millisecond from level 18 on, so the floor is what the 16 ms tick
+        // can deliver: 16 rows per step.
+        let at_17 = (0.8 - 17.0 * 0.007f64).powf(17.0) * 1000.0;
+        assert_eq!(at_17.round() as u32, DROP_INTERVAL_FLOOR_MS);
+        for level in 18..=20 {
+            let l = level as f64;
+            assert!((0.8 - l * 0.007).powf(l) * 1000.0 < DROP_INTERVAL_FLOOR_MS as f64);
+        }
     }
 
     #[test]

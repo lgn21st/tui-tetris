@@ -8,6 +8,13 @@ use tetris_core::types::{GameAction, Rotation};
 pub const REPLAY_FORMAT_VERSION: u16 = 2;
 pub const RULESET_VERSION: &str = "guideline-ds-1.1.0";
 
+/// Authoritative gameplay profile: portable ruleset plus local timing profile.
+///
+/// The portable ruleset deliberately excludes gravity and tick timing, so a
+/// replay is reproducible only when both parts match. This is the id written to
+/// replay metadata and reported as `welcome.ruleset_id`.
+pub const EFFECTIVE_RULESET_ID: &str = "guideline-ds-1.1.0+tui-tetris-timing-1.0.0";
+
 const HASH_PRIME: u64 = 0x100000001b3;
 
 fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
@@ -102,8 +109,9 @@ impl ReplayTape {
         self.seed
     }
 
+    /// Gameplay profile this tape was recorded under.
     pub fn ruleset_version(&self) -> &'static str {
-        RULESET_VERSION
+        EFFECTIVE_RULESET_ID
     }
 
     pub fn final_snapshot(&self) -> &GameSnapshot {
@@ -124,7 +132,7 @@ impl ReplayTape {
 
     pub fn encode(&self) -> Vec<u8> {
         let mut output = format!(
-            "TTR{REPLAY_FORMAT_VERSION}\t{RULESET_VERSION}\t{}\n",
+            "TTR{REPLAY_FORMAT_VERSION}\t{EFFECTIVE_RULESET_ID}\t{}\n",
             self.seed
         );
         for record in &self.records {
@@ -172,7 +180,7 @@ impl ReplayTape {
             return Err(format!("unsupported replay format: {format}"));
         }
         let ruleset = header.next().ok_or("missing replay ruleset")?;
-        if ruleset != RULESET_VERSION {
+        if ruleset != EFFECTIVE_RULESET_ID {
             return Err(format!("unsupported ruleset: {ruleset}"));
         }
         let seed = header
@@ -275,4 +283,20 @@ pub fn replay_and_verify(tape: &ReplayTape) -> Result<SessionRuntime, ReplayMism
         }
     }
     Ok(session)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tetris_core::types::TIMING_PROFILE_ID;
+
+    #[test]
+    fn effective_ruleset_id_combines_portable_ruleset_and_timing_profile() {
+        // Gravity and tick timing are local policy, so the recorded profile must
+        // cover both parts; either one alone is not enough to verify a replay.
+        assert_eq!(
+            EFFECTIVE_RULESET_ID,
+            format!("{RULESET_VERSION}+{TIMING_PROFILE_ID}")
+        );
+    }
 }
