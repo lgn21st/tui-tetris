@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "replay_id": "guideline-ds-1.0.0",
+  "version": "1.1.0",
+  "replay_id": "guideline-ds-1.1.0",
   "board_width": 10,
   "visible_height": 20,
   "spawn_x": 3,
@@ -13,6 +13,8 @@
   "combo_base": 50,
   "b2b_numerator": 3,
   "b2b_denominator": 2,
+  "b2b_zero_line_neutral": true,
+  "tspin_mini_promotes_on_final_kick": true,
   "level_zero_based": true,
   "guideline_level": "engine_level + 1",
   "soft_drop_points_per_cell": 1,

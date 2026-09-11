@@ -9,11 +9,11 @@
 - Empty well is a flat fill; the per-cell `·` grid is gone
 - Minos are 2×1 background fills so they stay square without `█` glyph distortion
 - Mino cell size is chosen from measured terminal cell pixels (`TUI_TETRIS_CELL_W`/`H` override)
-- Portable ruleset `guideline-ds-1.0.0` in `protocol/rules/`
+- Portable ruleset `guideline-ds-1.1.0`: a 0-line lock is neutral for back-to-back, and a Mini T-Spin reached with the final SRS 1×2 kick scores as Full
 - SRS kicks negate wiki `dy` on this Y-down board
 - Lock delay 500 ms / 15 Extended Placement resets
 - Guideline DS/Friends scoring: 100/300/500/800, Mini-with-lines B2B, combo × guideline level
 - A 0-line T-Spin no longer breaks back-to-back
-- Replay id `guideline-ds-1.0.0`; adapter protocol 3.1.0 adds observation `combo` / `back_to_back`
+- Replay id `guideline-ds-1.1.0`; adapter protocol 3.1.0 adds observation `combo` / `back_to_back`
 - `GameState::take_last_event` is test-only; production drains `take_events`
 - Adapter TCP line read/write lives in `framing`

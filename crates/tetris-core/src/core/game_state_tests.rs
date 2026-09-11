@@ -1613,6 +1613,65 @@ fn test_tspin_no_line_clear_awards_points_and_resets_chains_mini() {
 }
 
 #[test]
+fn test_zero_line_lock_is_neutral_for_back_to_back() {
+    let mut state = GameState::new(12345);
+    state.start();
+
+    state.level = 0;
+    state.lines = 0;
+    state.combo = 3;
+    state.back_to_back = true;
+
+    let score_before = state.score;
+    let base = state.apply_line_clear(0, TSpinKind::None);
+
+    // A lock that clears nothing awards no points, resets combo, and leaves the
+    // back-to-back chain untouched.
+    assert_eq!(base, 0);
+    assert_eq!(state.score, score_before);
+    assert_eq!(state.combo, -1);
+    assert!(state.back_to_back);
+}
+
+#[test]
+fn test_zero_line_lock_does_not_start_back_to_back() {
+    let mut state = GameState::new(12345);
+    state.start();
+
+    state.back_to_back = false;
+    state.combo = 0;
+
+    state.apply_line_clear(0, TSpinKind::None);
+
+    // Neutral means the chain is neither broken nor started.
+    assert!(!state.back_to_back);
+    assert_eq!(state.combo, -1);
+}
+
+#[test]
+fn test_locked_piece_without_line_clear_keeps_back_to_back_chain() {
+    let mut state = GameState::new(12345);
+    state.start();
+
+    state.back_to_back = true;
+    state.combo = 2;
+
+    // An O piece on an otherwise empty board locks without clearing a row.
+    state.active = Some(Tetromino {
+        kind: PieceKind::O,
+        rotation: Rotation::North,
+        x: 3,
+        y: 0,
+    });
+    state.lock_piece();
+    let event = state.take_last_event().expect("expected lock event");
+
+    assert_eq!(event.lines_cleared, 0);
+    assert_eq!(event.combo, -1);
+    assert!(event.back_to_back);
+}
+
+#[test]
 fn test_lock_piece_tspin_no_lines_awards_points_but_last_event_omits_tspin_full() {
     let mut state = GameState::new(12345);
     state.start();
@@ -1775,6 +1834,83 @@ fn test_t_spin_front_corner_mapping_west_full_vs_mini() {
         &[(0, 0), (0, 2), (2, 0), (2, 2)],
         TSpinKind::Full,
     );
+}
+
+#[test]
+fn test_mini_tspin_promotes_to_full_when_final_srs_kick_was_used() {
+    let mut state = GameState::new(12345);
+
+    // T at (3,0) North. CW rotation tries the N->E kicks in order:
+    // (0,0), (-1,0), (-1,-1), (0,2), (-1,2).
+    // Block the first, second, and fourth candidates so only the final 1x2
+    // offset fits. (-1,-1) is already invalid because y = -1 is off the board.
+    state.board.set(4, 0, Some(PieceKind::I));
+    state.board.set(3, 0, Some(PieceKind::I));
+    state.board.set(4, 4, Some(PieceKind::I));
+    state.active = Some(Tetromino {
+        kind: PieceKind::T,
+        rotation: Rotation::North,
+        x: 3,
+        y: 0,
+    });
+
+    assert!(state.try_rotate(true));
+    let kicked = state.active.expect("rotated T");
+    assert_eq!(kicked.rotation, Rotation::East);
+    assert_eq!((kicked.x, kicked.y), (2, 2));
+
+    // Corners around the rotated T: back (2,2) and (2,4), one front (4,4).
+    // Occupancy alone is a Mini, but the final 1x2 kick makes it Full.
+    state.board.set(2, 2, Some(PieceKind::I));
+    state.board.set(2, 4, Some(PieceKind::I));
+
+    assert_eq!(state.t_spin_kind(&kicked), TSpinKind::Full);
+
+    let score_before = state.score;
+    state.lock_piece();
+    assert_eq!(state.score - score_before, 400); // Full 0-line table value
+}
+
+#[test]
+fn test_mini_tspin_stays_mini_without_the_final_srs_kick() {
+    let mut state = GameState::new(12345);
+
+    // Blocking (4,0) rejects the no-kick candidate, so the T lands at (2,0)
+    // East via the second offset. That is not the final SRS offset.
+    state.board.set(4, 0, Some(PieceKind::I));
+    state.active = Some(Tetromino {
+        kind: PieceKind::T,
+        rotation: Rotation::North,
+        x: 3,
+        y: 0,
+    });
+
+    assert!(state.try_rotate(true));
+    let kicked = state.active.expect("rotated T");
+    assert_eq!((kicked.x, kicked.y), (2, 0));
+
+    // Back corners (2,0) and (2,2) plus one front corner (4,0) is a Mini, and
+    // no final kick was used, so it stays a Mini.
+    state.board.set(2, 0, Some(PieceKind::I));
+    state.board.set(2, 2, Some(PieceKind::I));
+
+    assert_eq!(state.t_spin_kind(&kicked), TSpinKind::Mini);
+}
+
+#[test]
+fn test_lateral_move_clears_final_kick_tracking() {
+    let mut state = GameState::new(12345);
+    state.start();
+
+    state.last_action_was_rotate = true;
+    state.last_rotate_used_final_kick = true;
+
+    // A lateral move ends the rotation maneuver, so a stale kick promotion
+    // must not survive into the next lock.
+    assert!(state.try_move(-1, 0) || state.try_move(1, 0));
+
+    assert!(!state.last_action_was_rotate);
+    assert!(!state.last_rotate_used_final_kick);
 }
 
 #[test]

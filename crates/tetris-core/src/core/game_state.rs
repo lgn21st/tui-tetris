@@ -7,6 +7,7 @@ use arrayvec::ArrayVec;
 
 use crate::core::{
     Board, PieceQueue, get_shape,
+    pieces::is_final_kick_offset,
     scoring::{calculate_drop_score, calculate_level, calculate_score, get_drop_interval_ms},
     try_rotate,
 };
@@ -89,6 +90,10 @@ pub struct GameState {
     started: bool,
     can_hold: bool,
     last_action_was_rotate: bool,
+    /// Whether the last successful rotation used the final SRS 1×2 kick.
+    ///
+    /// Only meaningful while `last_action_was_rotate` is true.
+    last_rotate_used_final_kick: bool,
     // Tracking for soft drop grace period
     soft_drop_timer_ms: u32,
     is_soft_dropping: bool,
@@ -127,6 +132,7 @@ impl GameState {
             started: false,
             can_hold: true,
             last_action_was_rotate: false,
+            last_rotate_used_final_kick: false,
             soft_drop_timer_ms: 0,
             is_soft_dropping: false,
         }
@@ -293,7 +299,7 @@ impl GameState {
         self.can_hold = true;
         self.lock_timer_ms = 0;
         self.lock_reset_count = 0;
-        self.last_action_was_rotate = false;
+        self.clear_last_rotation();
 
         // Update next queue preview
         self.next_queue = self.piece_queue.peek_5();
@@ -335,7 +341,7 @@ impl GameState {
 
             // Movement clears the "last action was rotate" flag
             if dx != 0 {
-                self.last_action_was_rotate = false;
+                self.clear_last_rotation();
             }
 
             return true;
@@ -360,6 +366,9 @@ impl GameState {
         );
 
         if let Some((_new_shape, new_rotation, (dx, dy))) = result {
+            let used_final_kick =
+                is_final_kick_offset(active.kind, active.rotation, clockwise, (dx, dy));
+
             self.active = Some(Tetromino {
                 rotation: new_rotation,
                 x: active.x + dx,
@@ -369,6 +378,7 @@ impl GameState {
 
             self.handle_lock_reset();
             self.last_action_was_rotate = true;
+            self.last_rotate_used_final_kick = used_final_kick;
 
             return true;
         }
@@ -390,6 +400,12 @@ impl GameState {
             self.lock_timer_ms = 0;
             self.lock_reset_count += 1;
         }
+    }
+
+    /// Clear the rotation tracking used for T-Spin detection.
+    fn clear_last_rotation(&mut self) {
+        self.last_action_was_rotate = false;
+        self.last_rotate_used_final_kick = false;
     }
 
     /// Hard drop the active piece to the bottom
@@ -471,7 +487,7 @@ impl GameState {
         self.can_hold = false;
         self.lock_timer_ms = 0;
         self.lock_reset_count = 0;
-        self.last_action_was_rotate = false;
+        self.clear_last_rotation();
 
         true
     }
@@ -568,13 +584,11 @@ impl GameState {
     fn apply_line_clear(&mut self, lines_cleared: usize, tspin: TSpinKind) -> u32 {
         if lines_cleared == 0 {
             self.combo = -1;
-            if tspin == TSpinKind::None {
-                self.back_to_back = false;
-            }
 
-            // Award points for T-Spin "no lines". Combo still resets. A T-Spin
-            // with 0 lines does not break an existing B2B chain and does not
-            // start one. Adapter events omit tspin when lines_cleared is 0.
+            // A lock that clears nothing is neutral for back-to-back: it
+            // neither breaks an existing chain nor starts one, whether or not
+            // it is a T-Spin. A T-Spin still awards its 0-line table points.
+            // Adapter events omit tspin when lines_cleared is 0.
             let tspin_points = match tspin {
                 TSpinKind::Full => {
                     crate::core::scoring::calculate_tspin_score(TSpinKind::Full, 0, self.level)
@@ -656,7 +670,9 @@ impl GameState {
                 })
                 .count();
 
-            if front_filled == 2 {
+            // The Guideline promotes a Mini to Full when the final 1×2 SRS
+            // kick is what put the T into this slot.
+            if front_filled == 2 || self.last_rotate_used_final_kick {
                 TSpinKind::Full
             } else {
                 TSpinKind::Mini
@@ -791,12 +807,12 @@ impl GameState {
                 }
                 self.is_soft_dropping = true;
                 self.soft_drop_timer_ms = SOFT_DROP_GRACE_MS;
-                self.last_action_was_rotate = false;
+                self.clear_last_rotation();
                 moved
             }
             GameAction::HardDrop => {
                 // Hard drop is an action, so it clears the rotate flag before lock.
-                self.last_action_was_rotate = false;
+                self.clear_last_rotation();
                 let drop_score = self.hard_drop();
                 self.score = self.score.saturating_add(drop_score);
                 true

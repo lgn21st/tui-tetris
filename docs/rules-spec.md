@@ -1,7 +1,7 @@
 # tui-tetris Rules Implementation Profile
 
 Portable rules: [`protocol/rules/SPEC.md`](../protocol/rules/SPEC.md).
-Replay id: `guideline-ds-1.0.0`.
+Replay id: `guideline-ds-1.1.0`.
 
 This file is local policy only. Other stacks may differ. Shared geometry,
 SRS (wiki Y-up), scoring, lock delay, T-Spin, B2B, and combo live in the

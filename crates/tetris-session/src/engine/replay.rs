@@ -6,7 +6,7 @@ use tetris_core::core::{GameSnapshot, stable_state_hash};
 use tetris_core::types::{GameAction, Rotation};
 
 pub const REPLAY_FORMAT_VERSION: u16 = 2;
-pub const RULESET_VERSION: &str = "guideline-ds-1.0.0";
+pub const RULESET_VERSION: &str = "guideline-ds-1.1.0";
 
 const HASH_PRIME: u64 = 0x100000001b3;
 

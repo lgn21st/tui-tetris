@@ -14,7 +14,7 @@ certification suite and it does not cover every Guideline-era variant
 - `SPEC.md`: normative geometry, 7-bag, lock delay, scoring, and T-Spin/B2B/combo
 - `constants.json`: machine-readable tables (kicks are wiki Y-up)
 - `CHANGELOG.md`: ruleset changes for implementers
-- `VERSION`: current ruleset version (`guideline-ds-1.0.0` in replay metadata)
+- `VERSION`: current ruleset version (`guideline-ds-1.1.0` in replay metadata)
 
 ## Upgrade policy
 

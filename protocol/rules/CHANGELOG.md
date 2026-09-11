@@ -1,8 +1,23 @@
 # Ruleset Changelog
 
+## 1.1.0
+
+Guideline-conformance corrections. Tables and scoring formulas are unchanged;
+two classification/application rules now match the published Guideline, so
+scores can differ from 1.0.0 and stored 1.0.0 replays are not expected to
+re-verify.
+
+- A lock that clears 0 lines is neutral for back-to-back, whether or not it is
+  a T-Spin. 1.0.0 broke the chain on a 0-line non-T-Spin lock, which penalised
+  the ordinary stacking that builds a Tetris or T-Spin.
+- A T-Spin that would otherwise be Mini is scored as Full when the last
+  successful rotation used the final SRS kick offset (the 1×2 kick).
+
+Replay id: `guideline-ds-1.1.0`.
+
 ## 1.0.0
 
-Current portable snapshot (Tetris Guideline DS / Friends):
+Portable snapshot (Tetris Guideline DS / Friends):
 
 - SRS wall kicks, wiki Y-up; Y-down engines negate `dy`
 - Full 7-bag, hold once per piece

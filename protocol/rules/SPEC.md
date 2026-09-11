@@ -1,4 +1,4 @@
-# Tetris Guideline DS/Friends Ruleset 1.0.0
+# Tetris Guideline DS/Friends Ruleset 1.1.0
 
 This document is the normative, implementation-neutral contract for the
 portable ruleset frozen in this directory. The key words MUST, MUST NOT,
@@ -14,7 +14,7 @@ suite.
 ## 1. Versioning
 
 - The ruleset version is semantic version text in `VERSION`.
-- Implementations MUST record the replay metadata id `guideline-ds-1.0.0`
+- Implementations MUST record the replay metadata id `guideline-ds-1.1.0`
   for this release.
 - Patch releases preserve tables and scoring formulas.
 - This package is independent of the AI adapter protocol in
@@ -184,10 +184,12 @@ A clear QUALIFIES when:
 A consecutive qualifying clear MUST multiply the base clear points by
 `3/2` before combo is added.
 
-A T-Spin (Full or Mini) that locks with 0 lines MUST NOT break an existing
-back-to-back chain and MUST NOT start one.
+A lock that clears 0 lines MUST leave the back-to-back chain unchanged: it
+MUST NOT break an existing chain and MUST NOT start one. This holds whether or
+not the lock is a T-Spin.
 
-A lock with 0 lines and no T-Spin MUST reset the back-to-back chain.
+A lock that clears lines without QUALIFYING (a Single, Double, or Triple with
+no T-Spin) MUST reset the back-to-back chain.
 
 ### Combo
 
@@ -220,11 +222,15 @@ completed rows are removed.
 
 - **Full**: both front corners (facing the T stem) are occupied.
 - **Mini**: three corners occupied, but not both front corners.
+- **Kick promotion**: a lock that would otherwise be Mini MUST be scored as
+  Full when the last successful rotation reached its final position with the
+  final offset of the SRS kick table (the 1×2 kick), which is tried last for
+  every JLSTZ transition.
 
 Immobile T locks that were not preceded by a rotation MUST NOT score as a
 T-Spin.
 
-## 10. Out of scope for 1.0.0
+## 10. Out of scope for 1.1.0
 
 Implementations MAY choose local values for gravity tables, DAS/ARR,
 line-clear animation pause, landing flash, tick length, next-queue length,

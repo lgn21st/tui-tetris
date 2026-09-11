@@ -158,6 +158,9 @@ const I_KICKS: KickTable = [
     [(0, 0), (1, 0), (-2, 0), (1, 2), (-2, -1)],
 ];
 
+/// Number of wall-kick offsets SRS tries for one rotation transition.
+const KICK_TESTS: usize = 5;
+
 /// Get the kick index for a rotation transition
 fn get_kick_index(from: Rotation, clockwise: bool) -> usize {
     match (from, clockwise) {
@@ -170,6 +173,20 @@ fn get_kick_index(from: Rotation, clockwise: bool) -> usize {
         (Rotation::West, false) => 6,  // W->S
         (Rotation::West, true) => 7,   // W->N
     }
+}
+
+/// Whether `offset` is the final wall-kick test SRS tries for this rotation.
+///
+/// Every JLSTZ row ends with a 1×2 offset. The Guideline scores a T-Spin that
+/// would otherwise be Mini as a proper (Full) T-Spin when the last successful
+/// rotation reached its slot with that final offset.
+pub(crate) fn is_final_kick_offset(
+    kind: PieceKind,
+    from: Rotation,
+    clockwise: bool,
+    offset: (i8, i8),
+) -> bool {
+    get_kick_table(kind)[get_kick_index(from, clockwise)][KICK_TESTS - 1] == offset
 }
 
 /// Try to rotate a piece with wall kicks
