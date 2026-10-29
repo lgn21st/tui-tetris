@@ -6,6 +6,7 @@ use tetris_core::core::{Board, GameSnapshot, GameState};
 use tetris_core::types::{GameAction, PieceKind};
 use tetris_session::engine::replay::transition_hash;
 use tetris_session::engine::session::{SessionRuntime, StepInput};
+use tetris_terminal::term::kitty::{KittySupport, WellGeometry, WellRenderer};
 use tetris_terminal::term::{FrameBuffer, GameView, TerminalRenderer, Viewport, encode_diff_into};
 
 #[derive(Default)]
@@ -368,6 +369,105 @@ fn bench_renderer_backend_changed_frame(c: &mut Criterion) {
     });
 }
 
+/// A mid-game well: a ragged stack plus a falling piece and its ghost.
+fn kitty_bench_snapshot() -> GameSnapshot {
+    let mut snap = GameSnapshot::default();
+    for (y, row) in snap.board.iter_mut().enumerate() {
+        let height = 19usize.saturating_sub(y / 2);
+        for (x, cell) in row.iter_mut().enumerate().take(10) {
+            let filled = y + height / 2 >= 8 && (x + y) % 7 != 0;
+            *cell = if filled { (x % 7 + 1) as u8 } else { 0 };
+        }
+    }
+    snap.active = Some(tetris_core::core::ActiveSnapshot {
+        kind: PieceKind::T,
+        rotation: tetris_core::types::Rotation::North,
+        x: 3,
+        y: 4,
+    });
+    snap.ghost_y = Some(12);
+    snap
+}
+
+fn bench_kitty_board_layer(c: &mut Criterion) {
+    let geometry = WellGeometry::new(2, 1, (8, 17));
+    let mut snap = kitty_bench_snapshot();
+    let mut well = WellRenderer::new(
+        KittySupport {
+            tmux_passthrough: false,
+        },
+        geometry,
+    );
+    let mut out = Vec::with_capacity(256 * 1024);
+    well.sync(&snap, geometry, (19, 1), &mut out).unwrap();
+
+    c.bench_function("kitty_board_layer_emit", |b| {
+        b.iter(|| {
+            // Alternate one settled cell: only the opaque board layer resends.
+            snap.board[0][0] = if snap.board[0][0] == 0 { 1 } else { 0 };
+            out.clear();
+            black_box(
+                well.sync(black_box(&snap), geometry, (19, 1), black_box(&mut out))
+                    .unwrap(),
+            );
+            black_box(out.len());
+        })
+    });
+}
+
+fn bench_kitty_motion_layer(c: &mut Criterion) {
+    let geometry = WellGeometry::new(2, 1, (8, 17));
+    let mut snap = kitty_bench_snapshot();
+    let mut well = WellRenderer::new(
+        KittySupport {
+            tmux_passthrough: false,
+        },
+        geometry,
+    );
+    let mut out = Vec::with_capacity(256 * 1024);
+    well.sync(&snap, geometry, (19, 1), &mut out).unwrap();
+    let mut y = 4i8;
+
+    c.bench_function("kitty_motion_layer_emit", |b| {
+        b.iter(|| {
+            // One row of fall: only the transparent motion layer resends.
+            y = if y > 14 { 4 } else { y + 1 };
+            if let Some(active) = snap.active.as_mut() {
+                active.y = y;
+            }
+            out.clear();
+            black_box(
+                well.sync(black_box(&snap), geometry, (19, 1), black_box(&mut out))
+                    .unwrap(),
+            );
+            black_box(out.len());
+        })
+    });
+}
+
+fn bench_kitty_well_skip(c: &mut Criterion) {
+    let geometry = WellGeometry::new(2, 1, (8, 17));
+    let snap = kitty_bench_snapshot();
+    let mut well = WellRenderer::new(
+        KittySupport {
+            tmux_passthrough: false,
+        },
+        geometry,
+    );
+    let mut out = Vec::with_capacity(256 * 1024);
+    well.sync(&snap, geometry, (19, 1), &mut out).unwrap();
+    out.clear();
+
+    c.bench_function("kitty_well_skip", |b| {
+        b.iter(|| {
+            black_box(
+                well.sync(black_box(&snap), geometry, (19, 1), black_box(&mut out))
+                    .unwrap(),
+            );
+        })
+    });
+}
+
 fn bench_parse_command_action(c: &mut Criterion) {
     // Representative action-mode command from tetris-ai.
     let json = r#"{"type":"command","seq":7,"ts":1730000001300,"mode":"action","actions":["rotateCw","moveLeft","hardDrop"]}"#;
@@ -399,6 +499,9 @@ criterion_group!(
     bench_renderer_pipeline_changed_frame,
     bench_renderer_backend_noop,
     bench_renderer_backend_changed_frame,
+    bench_kitty_board_layer,
+    bench_kitty_motion_layer,
+    bench_kitty_well_skip,
     bench_parse_command_action
 );
 criterion_main!(benches);
