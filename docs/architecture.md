@@ -26,9 +26,17 @@ app (`tui-tetris`)
   steps.
 - `input` translates terminal key state into queued `GameAction` values. It never
   mutates game state.
-- `term` renders immutable `GameViewModel` values through a framebuffer and
-  diff flush. Play and observe inject the same five-line `HudOverlay`. It
-  never mutates game rules.
+- `term` renders immutable `GameViewModel` values: typography (HUD, side panel,
+  borders, banners) through a framebuffer and diff flush, and the playfield
+  through the pixel layers. Play and observe inject the same five-line
+  `HudOverlay`. It never mutates game rules.
+- `term::kitty` owns the playfield: `WellRenderer` paints an opaque board layer
+  (`z=0`) and a transparent motion layer (`z=1`), retransmits each only when its
+  own content hash changes, and encodes the escapes (zlib, chunking, tmux
+  passthrough). There is no cell-based board renderer.
+- `graphics` (root crate) is composition only: it resolves the backend, measures
+  the cell grid, and hands the escapes to `TerminalRenderer::write_raw` after the
+  text pass. It refuses to start when the terminal cannot render pixels.
 - `adapter` owns TCP framing/writer, the client broker, per-client mailboxes,
   observation scheduling, and the sync/async bridge; wire types live in the
   separate adapter-protocol crate. Line read/write lives in `framing`.
@@ -113,6 +121,10 @@ step, and resulting state hash.
   observation build/serialization, terminal `GameView` rendering, and
   `encode_diff_into` have allocation gates.
 - Framebuffer output remains diff-based and skips unchanged writes/flushes.
+- Well layers are retransmitted only on a content-hash change, re-deflate into
+  reused buffers, and are skipped entirely when their pixels are unchanged
+  (`kitty_well_skip`). The board layer (~3 KB, 184 µs) is only resent on a lock
+  or a clear; the motion layer (~0.4 KB, 42 µs) on each piece movement.
 - Observation construction is skipped when no streaming subscriber exists.
 - Criterion covers active tick, snapshot paths, observation serialization,
   command parsing, diff encoding, render pipelines, and injected writer dispatch.

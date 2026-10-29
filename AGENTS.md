@@ -14,6 +14,7 @@
 - `docs/development-workflow.md`: change order and local validation
 - `protocol/adapter/SPEC.md`: current, implementation-neutral AI protocol
 - `protocol/adapter/schema.json`: machine-readable protocol schema
+- `docs/kitty-graphics.md`: pixel rendering backend (Kitty graphics) design, tmux caveat, cost
 - `docs/adapter.md`: adapter documentation index
 - `docs/adapter-tui-tetris.md`: tui-tetris implementation profile
 

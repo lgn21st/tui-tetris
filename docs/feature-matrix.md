@@ -4,6 +4,7 @@ Current: ruleset `guideline-ds-1.1.0`, adapter protocol 3.2.0.
 
 - Core: 10×20, 7-bag, SRS (Y-down wiki kicks), hold, 500 ms / 15 lock, Guideline scoring, Guideline gravity curve capped at 7 ms (≈2.4G) from level 15, 0-line B2B neutrality, final-kick Mini→Full promotion
 - Session: 16 ms fixed step, TTR2 replay with `guideline-ds-1.1.0+tui-tetris-timing-1.1.0` profile id, bounded-budget evaluation
-- Terminal: DAS/ARR, framebuffer diff flush, tetromino HUD, half-size hold/next previews, shared play/observe overlay, combo/B2B, pause/retry banners
+- Terminal: DAS/ARR, framebuffer diff flush for text only, pixel HOLD/NEXT previews (half-mino, display-scaled) + text HUD, half-size hold/next previews, shared play/observe overlay, combo/B2B, pause/retry banners
+- Graphics: the playfield is pixels only (no cell board renderer): layered board (`z=0`, RGB, retransmitted on lock/clear) + motion (`z=1`, RGBA, per movement) images over the Kitty protocol, zlib payload, exactly square minos with bevel/grout, drop shadow, outline ghost, lock-delay tint, line-clear flash, pause dim, tmux passthrough envelope; the game refuses to start without a pixel backend
 - Adapter: TCP JSON-lines, controller/observer, causal `events` / acks, `welcome.ruleset_id`
 - Gates: workspace tests, clippy `-D warnings`, allocation gates, Criterion

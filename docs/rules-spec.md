@@ -16,11 +16,13 @@ SPEC. This engine stores kicks with **+x right, +y down** (negate wiki `dy`).
 - Next queue length: 5
 - Engine level: `floor(lines / 10)`, starting at 0
 - HUD shows guideline level (`engine_level + 1`)
-- Minos are background-filled terminal cells. Default 2×1; at runtime the
-  pixel size of a cell is measured and `(cell_w, cell_h)` is chosen to be as
-  square as possible. Override with `TUI_TETRIS_CELL_W` / `TUI_TETRIS_CELL_H`.
-- Hold/next HUD minos are packed at half size: one column per mino and two
-  mino rows per terminal row (`▀`/`▄`) so they stay square.
+- Minos are pixels, not terminal cells: the well is rendered through the Kitty
+  graphics protocol and the game refuses to start without it. See
+  `docs/kitty-graphics.md`. Rendering only, no rule effect.
+- Hold/next HUD minos are pixel sprites at half a board mino each (8x8 device px
+  on an 8x17 cell, 16x16 on a Retina cell, i.e. they scale with the display),
+  placed by the graphics backend rather than half-block glyphs, so their shape
+  does not depend on the terminal font.
 
 ## Timing
 

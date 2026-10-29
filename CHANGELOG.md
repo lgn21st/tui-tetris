@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+- Terminal graphics: on Kitty-graphics terminals (Ghostty 1.4+, kitty, WezTerm, Rio) the well renders as a zlib-compressed pixel image with square minos, bevels, grout lines, a blended ghost, line-clear flash and a paused/game-over dim
+- Minos are drawn as true squares: a centered square is letterboxed inside the mino box and the box ratio comes from the fractional cell size, removing the 5-19% stretch the integer-cell renderer is limited to
+- The well image is retransmitted only when a rendered pixel changes, reusing a stable image and placement id; `tests/term_no_alloc_gate_test.rs` gates it allocation-free after warm-up
+- The playfield is pixels only: the cell-based board renderer is gone, and the game refuses to start without a Kitty-graphics terminal. Text (HUD, side panel, borders, banners) stays text
+- Two well layers split by change frequency: an opaque board (`z=0`, RGB) re-sent only on a lock or clear, and a transparent motion layer (`z=1`, RGBA) re-sent per piece movement — 184 µs/3.0 KB and 42 µs/0.4 KB respectively, versus 115 µs/3.0 KB on every change before
+- New motion-layer effects: soft drop shadow (alpha 118, 1x2 offset), translucent ghost silhouette, brighter bevel on the falling piece, lock-delay whitening, line-clear flash bands, pause/game-over dim
+- The mino grid is laid out in bands that tile the well box, so the bottom row meets the frame instead of floating above it
+- One painter for the whole playfield: a falling piece and the same piece after it locks are pixel identical (region fill + rim only on the region boundary), so settling no longer restyles the piece
+- Cells fill their band edge to edge, so no background ever shows between cells (a test scans the board for backdrop pixels trapped between coloured ones)
+- The well backdrop is a subtle vertical gradient with a one pixel inset edge instead of a flat fill
+- HOLD and NEXT are pixel sprites instead of half-block glyphs, so the preview minos are exactly square instead of ~17% too tall. A preview mino is half a board mino *derived from the device pixel size* (8 px on an 8x17 cell, 16 px on a Retina 16x34 cell), so the previews scale with the display; `GameView::panel_layout` bottom-anchors them (combo/B2B never move them) and gives both the text pass and the sprite layers the same anchors
+- The side panel keeps the cell renderer's composition: stats stacked on the right (`SCORE` label with its value on the next row, `LEVEL`, `LINES`, `COMBO`, `B2B`), then HOLD and NEXT below, with a blank half slot between NEXT entries
+- The frame hugs the pixel grid: 20 square minos need only 19 text rows on an 8x17 cell, so minos are exactly 16x16, the image is sent at device resolution (scale factor 1) and nothing is resampled or left with a margin
+- `cargo run --release --example well_layers -- <dir>` dumps the two well layers as raw pixels for offline inspection
+- `TUI_TETRIS_CELL_PX_W`/`_H`, `TUI_TETRIS_TMUX_PASSTHROUGH`, and `TUI_TETRIS_TMUX_CLIENT` tune the geometry and the tmux probe
+- Inside tmux every graphics command is wrapped in a `DCS tmux;` passthrough envelope with doubled escapes and repeated `q=2`
+- `tui-tetris diagnostic` reports the resolved backend (`graphics=kitty,direct,verified` / `graphics=off`)
+- `scripts/kitty_smoke_test.py` verifies the emitted image and envelopes on a pseudo-terminal without a real terminal
 - Gravity follows the Guideline curve to a normal-mode ceiling of 7 ms/row (≈2.4G) from level 15, instead of plateauing at 120 ms; soft drop clamps to at least 1 ms
 - Local timing profile `tui-tetris-timing-1.1.0` is recorded with the portable ruleset as `<ruleset>+<timing>` in replay metadata, `welcome.ruleset_id`, and `diagnostic`
 - Bounded-budget evaluation: `headless --budget-lines` / `--budget-pieces` and `replay eval` report a run's score at a fixed budget instead of relying on unbounded survival
