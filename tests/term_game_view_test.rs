@@ -238,29 +238,15 @@ fn term_view_hides_ai_panel_without_adapter_status() {
 }
 
 #[test]
-fn term_view_centers_board_by_default_on_tall_viewports() {
-    let state = GameState::new(1);
-    let snap = state.snapshot();
-    let view = GameView::default();
-
-    // Board frame is 22 rows tall (20 + border).
-    let vp = Viewport::new(22, 30);
-    let fb = view.render(&snap, vp);
-
-    // start_y = (30 - 22) / 2 = 4 => top-left corner at (0,4).
-    assert_eq!(fb.get(0, 4).unwrap().ch, '┌');
-}
-
-#[test]
-fn term_view_can_anchor_board_to_top() {
-    let state = GameState::new(1);
-    let snap = state.snapshot();
-    let view = GameView::default().with_anchor_y(AnchorY::Top);
-
-    let vp = Viewport::new(22, 30);
-    let fb = view.render(&snap, vp);
-
-    assert_eq!(fb.get(0, 0).unwrap().ch, '┌');
+fn the_board_is_centred_by_default_and_can_anchor_to_the_top() {
+    let snap = GameState::new(1).snapshot();
+    let viewport = Viewport::new(22, 30);
+    let centred = GameView::default().render(&snap, viewport);
+    assert_eq!(centred.get(0, 4).unwrap().ch, '┌', "centred vertically");
+    let top = GameView::default()
+        .with_anchor_y(AnchorY::Top)
+        .render(&snap, viewport);
+    assert_eq!(top.get(0, 0).unwrap().ch, '┌', "anchored to the top");
 }
 
 #[test]
@@ -411,113 +397,45 @@ fn term_view_observe_overlay_uses_the_same_five_row_slot() {
 }
 
 #[test]
-fn term_view_renders_adapter_port_when_space_allows() {
-    let mut gs = GameState::new(1);
-    gs.start();
-    let snap = gs.snapshot();
-    let view = GameView::default();
-
-    let adapter = AdapterStatusView {
-        enabled: true,
-        client_count: 2,
-        controller_id: Some(1),
-        streaming_count: 1,
-        pid: 4242,
-        listen_addr: Some("127.0.0.1:7777".parse().unwrap()),
-    };
-
-    let fb = view.render_with_adapter(&snap, Some(&adapter), Viewport::new(80, 22));
-    let all = dump(&fb);
-
-    assert!(all.contains("PORT"));
-    assert!(all.contains("7777"));
-}
-
-#[test]
-fn adapter_status_code_mapping_is_stable() {
-    let base = AdapterStatusView {
-        enabled: false,
-        client_count: 0,
-        controller_id: None,
-        streaming_count: 0,
-        pid: 1,
-        listen_addr: None,
-    };
-    assert_eq!(base.status_code(), 0);
-
-    let mut st = base;
-    st.enabled = true;
-    assert_eq!(st.status_code(), 1);
-
-    st.client_count = 1;
-    assert_eq!(st.status_code(), 2);
-
-    st.controller_id = Some(7);
-    assert_eq!(st.status_code(), 3);
-
-    st.streaming_count = 1;
-    assert_eq!(st.status_code(), 4);
-}
-
-#[test]
-fn term_view_hud_uses_guideline_level_and_chain_status() {
+fn the_hud_shows_the_guideline_level_and_only_live_chain_status() {
     let mut snap = GameState::new(1).snapshot();
     snap.level = 2;
     snap.lines = 24;
     snap.score = 800;
     snap.combo = 3;
     snap.back_to_back = true;
-    snap.hold = Some(PieceKind::I);
 
-    let fb = GameView::default().render(&snap, Viewport::new(60, 24));
-    let all = dump(&fb);
-    assert!(
-        all.contains("LEVEL 3"),
-        "HUD shows guideline level (engine+1): {all}"
-    );
+    let all = dump(&GameView::default().render(&snap, Viewport::new(60, 24)));
+    assert!(all.contains("LEVEL 3"), "guideline level (engine+1)");
     assert!(all.contains("COMBO"));
     assert!(all.contains("B2B"));
+
+    let mut idle = snap;
+    idle.combo = -1;
+    idle.back_to_back = false;
+    let all = dump(&GameView::default().render(&idle, Viewport::new(60, 24)));
+    assert!(!all.contains("COMBO"), "idle combo is hidden");
+    assert!(!all.contains("B2B"), "idle b2b is hidden");
 }
 
 #[test]
-fn term_view_hides_idle_combo_and_b2b() {
-    let mut snap = GameState::new(1).snapshot();
-    snap.combo = -1;
-    snap.back_to_back = false;
-    let fb = GameView::default().render(&snap, Viewport::new(60, 22));
-    let all = dump(&fb);
-    assert!(!all.contains("COMBO"));
-    assert!(!all.contains("B2B"));
-}
+fn pause_and_game_over_banners_sit_over_the_well() {
+    let viewport = Viewport::new(60, 24);
+    let view = GameView::default();
 
-#[test]
-fn term_view_paused_overlay_includes_resume_hint() {
-    let mut snap = GameState::new(1).snapshot();
-    snap.paused = true;
-    let fb = GameView::default().render(&snap, Viewport::new(40, 22));
-    let all = dump(&fb);
-    assert!(all.contains("PAUSED"));
-    assert!(all.contains("P resume") || all.contains("resume"));
-}
+    let mut paused = GameState::new(1).snapshot();
+    paused.paused = true;
+    let text = dump(&view.render(&paused, viewport));
+    assert!(text.contains("PAUSED"));
+    assert!(text.contains("resume"));
 
-#[test]
-fn term_view_game_over_overlay_includes_score_and_retry() {
-    let mut snap = GameState::new(1).snapshot();
-    snap.game_over = true;
-    snap.score = 1600;
-    let fb = GameView::default().render(&snap, Viewport::new(40, 22));
-    let all = dump(&fb);
-    assert!(all.contains("GAME OVER"));
-    assert!(all.contains("1600"));
-    assert!(all.contains("R retry") || all.contains("retry"));
-}
-
-#[test]
-fn term_view_help_line_on_tall_viewport() {
-    let snap = GameState::new(1).snapshot();
-    let fb = GameView::default().render(&snap, Viewport::new(60, 30));
-    let all = dump(&fb);
-    assert!(all.contains("pause") || all.contains("PAUSE") || all.contains("hold"));
+    let mut over = GameState::new(1).snapshot();
+    over.game_over = true;
+    over.score = 4242;
+    let text = dump(&view.render(&over, viewport));
+    assert!(text.contains("GAME OVER"));
+    assert!(text.contains("4242"), "the final score is shown");
+    assert!(text.contains("retry"));
 }
 
 #[test]

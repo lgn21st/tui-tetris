@@ -6,10 +6,6 @@
 
 use crate::term::fb::Rgb;
 
-/// Bytes per pixel of one canvas.
-pub const RGB: u8 = 3;
-pub const RGBA: u8 = 4;
-
 /// Wire format for a canvas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PixelFormat {
@@ -22,8 +18,8 @@ pub enum PixelFormat {
 impl PixelFormat {
     pub fn channels(self) -> u8 {
         match self {
-            Self::Rgb => RGB,
-            Self::Rgba => RGBA,
+            Self::Rgb => 3,
+            Self::Rgba => 4,
         }
     }
 

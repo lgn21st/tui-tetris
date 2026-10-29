@@ -140,7 +140,7 @@ fn terminal_hot_paths_are_allocation_free_after_warmup() {
 
 #[test]
 fn kitty_well_sync_is_allocation_free_after_warmup() {
-    let geometry = WellGeometry::new(2, 1, (8, 17));
+    let geometry = WellGeometry::new((20, 19), (160, 323));
     let mut well = WellRenderer::new(
         KittySupport {
             tmux_passthrough: true,

@@ -390,7 +390,7 @@ fn kitty_bench_snapshot() -> GameSnapshot {
 }
 
 fn bench_kitty_board_layer(c: &mut Criterion) {
-    let geometry = WellGeometry::new(2, 1, (8, 17));
+    let geometry = WellGeometry::new((20, 19), (160, 323));
     let mut snap = kitty_bench_snapshot();
     let mut well = WellRenderer::new(
         KittySupport {
@@ -416,7 +416,7 @@ fn bench_kitty_board_layer(c: &mut Criterion) {
 }
 
 fn bench_kitty_motion_layer(c: &mut Criterion) {
-    let geometry = WellGeometry::new(2, 1, (8, 17));
+    let geometry = WellGeometry::new((20, 19), (160, 323));
     let mut snap = kitty_bench_snapshot();
     let mut well = WellRenderer::new(
         KittySupport {
@@ -446,7 +446,7 @@ fn bench_kitty_motion_layer(c: &mut Criterion) {
 }
 
 fn bench_kitty_well_skip(c: &mut Criterion) {
-    let geometry = WellGeometry::new(2, 1, (8, 17));
+    let geometry = WellGeometry::new((20, 19), (160, 323));
     let snap = kitty_bench_snapshot();
     let mut well = WellRenderer::new(
         KittySupport {

@@ -50,16 +50,9 @@ pub fn detect_window_metrics() -> Option<((u32, u32), (u32, u32))> {
 
 /// Pixel size of one terminal cell from the tty ioctl, if the emulator fills it.
 pub fn detect_cell_pixels() -> Option<(u16, u16)> {
-    let ws = crossterm::terminal::window_size().ok()?;
-    if ws.columns == 0 || ws.rows == 0 || ws.width == 0 || ws.height == 0 {
-        return None;
-    }
-    let px_w = ws.width / ws.columns;
-    let px_h = ws.height / ws.rows;
-    if px_w == 0 || px_h == 0 {
-        return None;
-    }
-    Some((px_w, px_h))
+    let ((px_w, px_h), (cols, rows)) = detect_window_metrics()?;
+    let cell = ((px_w / cols) as u16, (px_h / rows) as u16);
+    (cell.0 > 0 && cell.1 > 0).then_some(cell)
 }
 
 #[cfg(test)]

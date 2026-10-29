@@ -60,7 +60,7 @@ const LOCK_TINT_ALPHA: u8 = 84;
 const FLASH_BUCKETS: u32 = 4;
 
 /// How many NEXT previews the HUD shows.
-pub const NEXT_SLOTS: usize = 5;
+const NEXT_SLOTS: usize = 5;
 
 const IMAGE_BOARD: u32 = 0x7454_5253;
 const IMAGE_MOTION: u32 = 0x7454_5254;
@@ -68,20 +68,20 @@ const PLACEMENT: u32 = 1;
 
 /// A grid of square mino cells inside one layer image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Grid {
+pub(crate) struct Grid {
     /// Top-left pixel of the grid inside the layer.
-    pub origin: (u32, u32),
+    pub(crate) origin: (u32, u32),
     /// Pixel size of one cell band.
-    pub band: (u32, u32),
+    pub(crate) band: (u32, u32),
 }
 
 impl Grid {
-    pub const fn new(origin: (u32, u32), band: (u32, u32)) -> Self {
+    pub(crate) const fn new(origin: (u32, u32), band: (u32, u32)) -> Self {
         Self { origin, band }
     }
 
     /// Top-left pixel of one cell.
-    pub fn cell(&self, x: u16, y: u16) -> (u32, u32) {
+    pub(crate) fn cell(&self, x: u16, y: u16) -> (u32, u32) {
         (
             self.origin.0 + u32::from(x) * self.band.0,
             self.origin.1 + u32::from(y) * self.band.1,
@@ -89,144 +89,61 @@ impl Grid {
     }
 }
 
-/// Pixel geometry of the well.
+/// Geometry of the well: the terminal cell box the frame reserved and the
+/// device-pixel box the layer images fill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WellGeometry {
-    /// Terminal cells per mino, horizontal.
-    pub cell_w: u16,
-    /// Terminal cells per mino, vertical.
-    pub cell_h: u16,
-    /// Integer pixel size of one terminal cell.
-    pub cell_px_w: u16,
-    /// Integer pixel size of one terminal cell.
-    pub cell_px_h: u16,
-    /// Layer image size in device pixels.
-    pub layer_w: u32,
-    /// Layer image size in device pixels.
-    pub layer_h: u32,
-    /// Terminal cells the frame reserves for the well, used for `c=`/`r=`.
-    ///
-    /// Normally `10 x 20` times the cells per mino, but the frame can hug the
-    /// pixel grid instead (19 rows for 20 square minos on an 8x17 cell), which
-    /// keeps the terminal's scale factor at exactly 1.
-    pub box_cols: u16,
-    pub box_rows: u16,
-}
-
-impl Default for WellGeometry {
-    fn default() -> Self {
-        Self::new(2, 1, (8, 17))
-    }
+    box_cells: (u16, u16),
+    box_px: (u32, u32),
 }
 
 impl WellGeometry {
-    pub fn new(cell_w: u16, cell_h: u16, cell_px: (u16, u16)) -> Self {
-        let cell_w = cell_w.clamp(1, 16);
-        let cell_h = cell_h.clamp(1, 32);
-        let cell_px_w = cell_px.0.clamp(1, 256);
-        let cell_px_h = cell_px.1.clamp(1, 256);
-        let cols = BOARD_WIDTH as u32 * u32::from(cell_w);
-        let rows = BOARD_HEIGHT as u32 * u32::from(cell_h);
+    pub fn new(box_cells: (u16, u16), box_px: (u32, u32)) -> Self {
         Self {
-            cell_w,
-            cell_h,
-            cell_px_w,
-            cell_px_h,
-            layer_w: cols * u32::from(cell_px_w),
-            layer_h: rows * u32::from(cell_px_h),
-            box_cols: cols as u16,
-            box_rows: rows as u16,
+            box_cells: (box_cells.0.max(1), box_cells.1.max(1)),
+            box_px: (box_px.0.max(1), box_px.1.max(1)),
         }
     }
 
-    /// Declare the cell box the frame actually reserved for the well.
-    pub fn with_box_cells(mut self, (cols, rows): (u16, u16)) -> Self {
-        if cols > 0 && rows > 0 {
-            self.box_cols = cols;
-            self.box_rows = rows;
-        }
-        self
-    }
-
-    /// Override the layer size with the measured device-pixel box.
-    ///
-    /// The window reports whole pixels for the whole grid, so this is more
-    /// accurate than `cells * integer cell size` and keeps the scale factor at
-    /// ~1 when the terminal draws the image into the cell box.
-    pub fn with_layer_pixels(mut self, width: u32, height: u32) -> Self {
-        if width > 0 && height > 0 {
-            self.layer_w = width;
-            self.layer_h = height;
-        }
-        self
-    }
-
-    /// Terminal cell box covered by the well.
+    /// Terminal cell box covered by the well, used for `c=`/`r=`.
     pub fn cells(&self) -> (u16, u16) {
-        (self.box_cols, self.box_rows)
+        self.box_cells
     }
 
     /// Layer image size in device pixels.
     pub fn pixels(&self) -> (u32, u32) {
-        (self.layer_w, self.layer_h)
+        self.box_px
     }
 
-    /// Device pixel size of one grid band (one board cell).
+    /// Pixel rectangle `(x, y, width, height)` of one board cell.
     ///
-    /// Bands tile the whole layer, so the grid spans the well's cell box exactly
-    /// and the bottom row touches the frame instead of floating above it.
-    pub fn band_pixels(&self) -> (u32, u32) {
-        (
-            self.layer_w / BOARD_WIDTH as u32,
-            self.layer_h / BOARD_HEIGHT as u32,
-        )
+    /// Bands tile the box, so the grid spans it exactly and the bottom row
+    /// touches the frame.
+    pub fn cell_rect(&self, x: u16, y: u16) -> (u32, u32, u32, u32) {
+        let grid = self.grid();
+        let (x0, y0) = grid.cell(x, y);
+        (x0, y0, grid.band.0, grid.band.1)
     }
 
-    /// Device pixel side of one mino: the largest square that fits a band.
-    pub fn mino_side(&self) -> u32 {
-        let (band_w, band_h) = self.band_pixels();
-        band_w.min(band_h)
-    }
-
-    /// Top-left pixel of the grid inside the layer (sub-band rounding leftover).
-    pub fn grid_origin(&self) -> (u32, u32) {
-        let (band_w, band_h) = self.band_pixels();
-        (
-            (self.layer_w - band_w * BOARD_WIDTH as u32) / 2,
-            (self.layer_h - band_h * BOARD_HEIGHT as u32) / 2,
-        )
-    }
-
-    /// The well's cell grid.
-    pub fn grid(&self) -> Grid {
-        Grid::new(self.grid_origin(), self.band_pixels())
-    }
-
-    /// Top-left pixel of the square mino drawn in board cell `(x, y)`.
-    ///
-    /// The square is centred inside its band, so minos stay square at any cell
-    /// aspect ratio while the bands keep the grid flush with the frame.
-    pub fn mino_origin(&self, x: u16, y: u16) -> (u32, u32) {
-        let (band_w, band_h) = self.band_pixels();
-        let side = self.mino_side();
-        let (ox, oy) = self.grid_origin();
-        (
-            ox + u32::from(x) * band_w + (band_w - side) / 2,
-            oy + u32::from(y) * band_h + (band_h - side) / 2,
-        )
+    fn grid(&self) -> Grid {
+        let band = (
+            self.box_px.0 / BOARD_WIDTH as u32,
+            self.box_px.1 / BOARD_HEIGHT as u32,
+        );
+        let origin = (
+            (self.box_px.0 - band.0 * BOARD_WIDTH as u32) / 2,
+            (self.box_px.1 - band.1 * BOARD_HEIGHT as u32) / 2,
+        );
+        Grid::new(origin, band)
     }
 
     fn salt(&self) -> u64 {
         let mut hash = FNV_OFFSET;
         for value in [
-            u64::from(self.cell_w),
-            u64::from(self.cell_h),
-            u64::from(self.cell_px_w),
-            u64::from(self.cell_px_h),
-            u64::from(self.layer_w),
-            u64::from(self.layer_h),
-            u64::from(self.box_cols),
-            u64::from(self.box_rows),
+            u64::from(self.box_cells.0),
+            u64::from(self.box_cells.1),
+            u64::from(self.box_px.0),
+            u64::from(self.box_px.1),
         ] {
             hash = fnv_step(hash, value);
         }
@@ -322,51 +239,29 @@ struct Layer {
     image_id: u32,
     z: i32,
     canvas: PixelCanvas,
-    drawn: Option<(u64, WellGeometry)>,
-    anchor: Option<(u16, u16)>,
+    /// Content hash plus a layout key (geometry salt or cell anchor).
+    drawn: Option<(u64, u64)>,
 }
 
 impl Layer {
-    fn new_sized(image_id: u32, size: (u32, u32)) -> Self {
-        Self {
-            image_id,
-            z: 1,
-            canvas: PixelCanvas::new(size.0, size.1, PixelFormat::Rgba),
-            drawn: None,
-            anchor: None,
-        }
-    }
-
-    fn needs_at(&self, hash: u64, anchor: (u16, u16)) -> bool {
-        self.drawn != Some((hash, WellGeometry::default())) || self.anchor != Some(anchor)
-    }
-
-    fn mark_at(&mut self, hash: u64, anchor: (u16, u16)) {
-        self.drawn = Some((hash, WellGeometry::default()));
-        self.anchor = Some(anchor);
-    }
-
-    fn new(image_id: u32, z: i32, format: PixelFormat, geometry: WellGeometry) -> Self {
-        let (width, height) = geometry.pixels();
+    fn new(image_id: u32, z: i32, width: u32, height: u32, format: PixelFormat) -> Self {
         Self {
             image_id,
             z,
             canvas: PixelCanvas::new(width, height, format),
             drawn: None,
-            anchor: None,
         }
     }
 
-    fn needs(&self, hash: u64, geometry: WellGeometry) -> bool {
-        self.drawn != Some((hash, geometry))
+    fn needs(&self, hash: u64, layout: u64) -> bool {
+        self.drawn != Some((hash, layout))
     }
 
-    fn mark(&mut self, hash: u64, geometry: WellGeometry) {
-        self.drawn = Some((hash, geometry));
+    fn mark(&mut self, hash: u64, layout: u64) {
+        self.drawn = Some((hash, layout));
     }
 
-    fn resize(&mut self, geometry: WellGeometry) {
-        let (width, height) = geometry.pixels();
+    fn resize(&mut self, width: u32, height: u32) {
         self.canvas.resize(width, height);
     }
 }
@@ -384,11 +279,22 @@ pub struct WellRenderer {
 
 impl WellRenderer {
     pub fn new(support: KittySupport, geometry: WellGeometry) -> Self {
-        let geometry = geometry.normalized();
         Self {
             writer: KittyEscapeWriter::new(support),
-            board: Layer::new(IMAGE_BOARD, 0, PixelFormat::Rgb, geometry),
-            motion: Layer::new(IMAGE_MOTION, 1, PixelFormat::Rgba, geometry),
+            board: Layer::new(
+                IMAGE_BOARD,
+                0,
+                geometry.pixels().0,
+                geometry.pixels().1,
+                PixelFormat::Rgb,
+            ),
+            motion: Layer::new(
+                IMAGE_MOTION,
+                1,
+                geometry.pixels().0,
+                geometry.pixels().1,
+                PixelFormat::Rgba,
+            ),
             geometry,
             live: false,
         }
@@ -421,19 +327,20 @@ impl WellRenderer {
         cursor: (u16, u16),
         out: &mut Vec<u8>,
     ) -> Result<bool> {
-        let geometry = geometry.normalized();
         if geometry != self.geometry {
-            self.board.resize(geometry);
-            self.motion.resize(geometry);
+            let (width, height) = geometry.pixels();
+            self.board.resize(width, height);
+            self.motion.resize(width, height);
             self.board.drawn = None;
             self.motion.drawn = None;
             self.geometry = geometry;
         }
+        let layout = geometry.salt();
 
         let mut emitted = false;
 
         let hash = board_hash(snap);
-        if self.board.needs(hash, geometry) {
+        if self.board.needs(hash, layout) {
             paint_board(&mut self.board.canvas, snap, geometry);
             self.writer.transmit_and_place(
                 &self.board.canvas,
@@ -444,12 +351,12 @@ impl WellRenderer {
                 cursor,
                 out,
             )?;
-            self.board.mark(hash, geometry);
+            self.board.mark(hash, layout);
             emitted = true;
         }
 
         let hash = motion_hash(snap, geometry);
-        if self.motion.needs(hash, geometry) {
+        if self.motion.needs(hash, layout) {
             paint_motion(&mut self.motion.canvas, snap, geometry);
             self.writer.transmit_and_place(
                 &self.motion.canvas,
@@ -460,7 +367,7 @@ impl WellRenderer {
                 cursor,
                 out,
             )?;
-            self.motion.mark(hash, geometry);
+            self.motion.mark(hash, layout);
             emitted = true;
         }
 
@@ -487,16 +394,6 @@ impl WellRenderer {
         self.live = false;
         self.board.drawn = None;
         self.motion.drawn = None;
-    }
-}
-
-impl WellGeometry {
-    /// Clamp to something renderable.
-    pub fn normalized(self) -> Self {
-        let geometry = Self::new(self.cell_w, self.cell_h, (self.cell_px_w, self.cell_px_h));
-        geometry
-            .with_layer_pixels(self.layer_w, self.layer_h)
-            .with_box_cells((self.box_cols, self.box_rows))
     }
 }
 
@@ -555,7 +452,8 @@ fn paint_backdrop(canvas: &mut PixelCanvas, geometry: WellGeometry) {
 
 fn paint_motion(canvas: &mut PixelCanvas, snap: &GameSnapshot, geometry: WellGeometry) {
     canvas.clear();
-    if geometry.mino_side() == 0 {
+    let grid = geometry.grid();
+    if grid.band.0 == 0 || grid.band.1 == 0 {
         return;
     }
 
@@ -593,16 +491,15 @@ fn paint_motion(canvas: &mut PixelCanvas, snap: &GameSnapshot, geometry: WellGeo
 
     if let Some(active) = snap.active {
         let color = piece_color(active.kind);
-        let (band_w, band_h) = geometry.band_pixels();
         // An offset drop shadow sells the piece as a physical block above the
         // board instead of a flat fill.
         for &(x, y) in cells.iter() {
-            let (mx, my) = geometry.mino_origin(x as u16, y as u16);
+            let (mx, my) = grid.cell(x as u16, y as u16);
             canvas.blend_rect(
                 mx + SHADOW_OFFSET.0,
                 my + SHADOW_OFFSET.1,
-                band_w,
-                band_h,
+                grid.band.0,
+                grid.band.1,
                 BLACK,
                 SHADOW_ALPHA,
             );
@@ -621,8 +518,8 @@ fn paint_motion(canvas: &mut PixelCanvas, snap: &GameSnapshot, geometry: WellGeo
         let tint = lock_tint(snap.timers.lock_ms);
         if tint > 0 {
             for &(x, y) in cells.iter() {
-                let (mx, my) = geometry.mino_origin(x as u16, y as u16);
-                canvas.blend_rect(mx, my, band_w, band_h, WHITE, tint);
+                let (mx, my) = grid.cell(x as u16, y as u16);
+                canvas.blend_rect(mx, my, grid.band.0, grid.band.1, WHITE, tint);
             }
         }
     }
@@ -630,16 +527,15 @@ fn paint_motion(canvas: &mut PixelCanvas, snap: &GameSnapshot, geometry: WellGeo
     if snap.timers.line_clear_ms > 0 {
         let alpha =
             u32::from(FLASH_ALPHA) * flash_bucket(snap.timers.line_clear_ms) / FLASH_BUCKETS;
-        let (band_w, band_h) = geometry.band_pixels();
-        let (ox, oy) = geometry.grid_origin();
         for (y, row) in snap.board.iter().enumerate() {
             if row.iter().all(|cell| *cell != 0) {
                 // Flash the whole band so a cleared row reads as one line.
+                let (x0, y0) = grid.cell(0, y as u16);
                 canvas.blend_rect(
-                    ox,
-                    oy + y as u32 * band_h,
-                    band_w * BOARD_WIDTH as u32,
-                    band_h,
+                    x0,
+                    y0,
+                    grid.band.0 * BOARD_WIDTH as u32,
+                    grid.band.1,
                     WHITE,
                     alpha as u8,
                 );
@@ -748,8 +644,8 @@ impl PreviewRenderer {
             writer: KittyEscapeWriter::new(support),
             mino,
             gap,
-            hold: Layer::new_sized(IMAGE_HOLD, hold_size),
-            next: Layer::new_sized(IMAGE_NEXT, next_size),
+            hold: Layer::new(IMAGE_HOLD, 1, hold_size.0, hold_size.1, PixelFormat::Rgba),
+            next: Layer::new(IMAGE_NEXT, 1, next_size.0, next_size.1, PixelFormat::Rgba),
             live: false,
         }
     }
@@ -791,7 +687,7 @@ impl PreviewRenderer {
         let gap = self.gap;
 
         let hash = hold_hash(snap);
-        if self.hold.needs_at(hash, hold_anchor) {
+        if self.hold.needs(hash, anchor_key(hold_anchor)) {
             paint_preview(
                 &mut self.hold.canvas,
                 mino,
@@ -807,12 +703,12 @@ impl PreviewRenderer {
                 hold_anchor,
                 out,
             )?;
-            self.hold.mark_at(hash, hold_anchor);
+            self.hold.mark(hash, anchor_key(hold_anchor));
             emitted = true;
         }
 
         let hash = next_hash(snap);
-        if self.next.needs_at(hash, next_anchor) {
+        if self.next.needs(hash, anchor_key(next_anchor)) {
             paint_preview(
                 &mut self.next.canvas,
                 mino,
@@ -828,7 +724,7 @@ impl PreviewRenderer {
                 next_anchor,
                 out,
             )?;
-            self.next.mark_at(hash, next_anchor);
+            self.next.mark(hash, anchor_key(next_anchor));
             emitted = true;
         }
 
@@ -852,6 +748,10 @@ impl PreviewRenderer {
         self.hold.drawn = None;
         self.next.drawn = None;
     }
+}
+
+fn anchor_key((x, y): (u16, u16)) -> u64 {
+    (u64::from(x) << 16) | u64::from(y)
 }
 
 fn cell_box(width: u32, height: u32, cell_px: (u16, u16)) -> (u16, u16) {

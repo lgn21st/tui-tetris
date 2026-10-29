@@ -21,10 +21,9 @@ mod well;
 
 pub use apc::{BASE64_CHUNK, KittyEscapeWriter};
 pub use canvas::{PixelCanvas, PixelFormat};
-pub use capability::{GraphicsChoice, KittySupport, detect};
+pub use capability::{KittySupport, detect};
 pub use well::{
-    Grid, NEXT_SLOTS, PREVIEW_COLS, PreviewRenderer, WELL_BG, WellGeometry, WellRenderer,
-    board_hash, motion_hash,
+    PREVIEW_COLS, PreviewRenderer, WELL_BG, WellGeometry, WellRenderer, board_hash, motion_hash,
 };
 
 pub use crate::term::fb::Rgb;

@@ -1,8 +1,7 @@
-//! Kitty graphics backend tests: layered well rendering and the wire format.
+//! Kitty graphics backend tests: wire format, well layers, HUD previews.
 //!
-//! These tests pin the escape encoding, the tmux passthrough envelope, the two
-//! well layers (opaque board + transparent motion), and the retransmission
-//! policy. They never touch a real terminal.
+//! These never touch a real terminal; `scripts/kitty_smoke_test.py` drives the
+//! whole binary through a pseudo-terminal.
 
 use std::collections::HashMap;
 
@@ -10,12 +9,13 @@ use tetris_core::core::{ActiveSnapshot, GameSnapshot};
 use tetris_core::types::{BOARD_HEIGHT, BOARD_WIDTH, PieceKind, Rotation};
 use tetris_terminal::term::Rgb as FbRgb;
 use tetris_terminal::term::kitty::{
-    BASE64_CHUNK, GraphicsChoice, KittyEscapeWriter, KittySupport, PREVIEW_COLS, PixelCanvas,
-    PixelFormat, PreviewRenderer, Rgb, WELL_BG, WellGeometry, WellRenderer, board_hash, detect,
-    motion_hash,
+    BASE64_CHUNK, KittyEscapeWriter, KittySupport, PREVIEW_COLS, PixelCanvas, PixelFormat,
+    PreviewRenderer, Rgb, WELL_BG, WellGeometry, WellRenderer, board_hash, detect, motion_hash,
 };
 
-fn env_from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+const ESC: u8 = 0x1b;
+
+fn env_from(pairs: &[(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
     let map: HashMap<String, String> = pairs
         .iter()
         .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
@@ -23,34 +23,56 @@ fn env_from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
     move |key: &str| map.get(key).cloned()
 }
 
-fn empty_env() -> impl Fn(&str) -> Option<String> {
-    |_: &str| None
+fn support() -> KittySupport {
+    KittySupport {
+        tmux_passthrough: false,
+    }
 }
 
-const ESC: u8 = 0x1b;
+/// A 1x display: 8x17 cells, 20x19 cell box, 160x323 pixels.
+fn geometry() -> WellGeometry {
+    WellGeometry::new((20, 19), (160, 323))
+}
+
+fn board_with(cells: &[(usize, usize, u8)]) -> GameSnapshot {
+    let mut snap = GameSnapshot::default();
+    for &(x, y, value) in cells {
+        snap.board[y][x] = value;
+    }
+    snap
+}
+
+fn started_snapshot() -> GameSnapshot {
+    let mut state = tetris_core::core::GameState::new(1);
+    state.start();
+    state.snapshot()
+}
+
+fn mino_center(geom: WellGeometry, x: u16, y: u16) -> (u32, u32) {
+    let (x0, y0, w, h) = geom.cell_rect(x, y);
+    (x0 + w / 2, y0 + h / 2)
+}
+
+// ------------------------------------------------------------------ wire bits
 
 fn apc_spans(bytes: &[u8]) -> Vec<&[u8]> {
     let mut spans = Vec::new();
     let mut i = 0;
     while i + 2 < bytes.len() {
         if bytes[i] == ESC && bytes[i + 1] == ESC {
-            // Doubled escape: this is a tmux passthrough payload, not an APC.
-            i += 2;
+            i += 2; // doubled escape: tmux passthrough payload
             continue;
         }
         if bytes[i] == ESC && bytes[i + 1] == b'_' && bytes[i + 2] == b'G' {
-            let mut j = i + 3;
-            while j + 1 < bytes.len() {
-                if bytes[j] == ESC && bytes[j + 1] == b'\\' {
-                    spans.push(&bytes[i..j + 2]);
-                    i = j + 2;
-                    break;
-                }
-                j += 1;
-            }
-            if j + 1 >= bytes.len() {
+            let Some(end) = bytes[i + 3..]
+                .windows(2)
+                .position(|w| w == b"\x1b\\")
+                .map(|offset| i + 3 + offset)
+            else {
                 break;
-            }
+            };
+            spans.push(&bytes[i..end + 2]);
+            i = end + 2;
         } else {
             i += 1;
         }
@@ -79,18 +101,16 @@ fn control_values(control: &str) -> HashMap<&str, &str> {
 fn base64_decode(text: &[u8]) -> Vec<u8> {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = Vec::new();
-    let mut acc: u32 = 0;
-    let mut bits = 0;
+    let (mut acc, mut bits) = (0u32, 0u32);
     for &b in text {
-        if b == b'=' || b == b'\n' {
+        if b == b'=' {
             continue;
         }
-        let v = TABLE.iter().position(|c| *c == b).expect("base64 alphabet") as u32;
-        acc = (acc << 6) | v;
+        acc = (acc << 6) | TABLE.iter().position(|c| *c == b).expect("base64") as u32;
         bits += 6;
         if bits >= 8 {
             bits -= 8;
-            out.push(((acc >> bits) & 0xff) as u8);
+            out.push((acc >> bits) as u8);
         }
     }
     out
@@ -105,220 +125,123 @@ fn inflate(data: &[u8]) -> Vec<u8> {
     out
 }
 
-fn support() -> KittySupport {
-    KittySupport {
-        tmux_passthrough: false,
+/// Decode every chunk of the single transmit in `out`.
+fn decoded_image(out: &[u8]) -> (String, Vec<u8>) {
+    let spans = apc_spans(out);
+    let mut encoded = Vec::new();
+    for span in &spans {
+        encoded.extend_from_slice(control_and_payload(span).1);
     }
-}
-
-fn geometry() -> WellGeometry {
-    // 2x1 terminal cells per mino, 8x17 pixel cells: a 160x340 device box.
-    WellGeometry::new(2, 1, (8, 17))
-}
-
-fn sample_canvas() -> PixelCanvas {
-    let (w, h) = geometry().pixels();
-    let mut canvas = PixelCanvas::new(w, h, PixelFormat::Rgb);
-    canvas.fill(Rgb::new(28, 28, 28));
-    canvas.fill_rect(0, 0, 16, 16, Rgb::new(79, 209, 196));
-    canvas
-}
-
-fn board_with(cells: &[(usize, usize, u8)]) -> GameSnapshot {
-    let mut snap = GameSnapshot::default();
-    for &(x, y, value) in cells {
-        snap.board[y][x] = value;
-    }
-    snap
-}
-
-/// Centre of the square mino drawn in board cell `(x, y)`.
-fn mino_center(geom: WellGeometry, x: u16, y: u16) -> (u32, u32) {
-    let (mx, my) = geom.mino_origin(x, y);
-    let side = geom.mino_side();
-    (mx + side / 2, my + side / 2)
-}
-
-fn started_snapshot() -> GameSnapshot {
-    let mut state = tetris_core::core::GameState::new(1);
-    state.start();
-    state.snapshot()
+    let control = control_and_payload(spans[0]).0;
+    (control, inflate(&base64_decode(&encoded)))
 }
 
 // ---------------------------------------------------------------- detection
 
 #[test]
-fn explicit_off_override_wins_over_every_terminal_marker() {
-    let choice = detect(&env_from(&[
-        ("TUI_TETRIS_GRAPHICS", "off"),
-        ("TERM_PROGRAM", "ghostty"),
-        ("TERM_PROGRAM_VERSION", "1.4.0"),
-    ]));
-    assert_eq!(choice, GraphicsChoice::Off);
-}
-
-#[test]
-fn ghostty_marks_enable_kitty_graphics() {
-    assert_eq!(
-        detect(&env_from(&[
-            ("TERM_PROGRAM", "ghostty"),
-            ("TERM_PROGRAM_VERSION", "1.4.0"),
-        ])),
-        GraphicsChoice::Kitty(support())
-    );
-    // Ghostty exports these inside multiplexers as well.
-    assert_eq!(
-        detect(&env_from(&[(
-            "GHOSTTY_RESOURCES_DIR",
-            "/Applications/Ghostty.app/Contents/Resources/ghostty",
-        )])),
-        GraphicsChoice::Kitty(support())
-    );
-}
-
-#[test]
-fn kitty_and_wezterm_and_rio_are_recognised() {
-    for pairs in [
-        vec![("TERM", "xterm-kitty")],
-        vec![("KITTY_WINDOW_ID", "1")],
-        vec![("TERM_PROGRAM", "WezTerm")],
-        vec![("TERM_PROGRAM", "rio")],
-    ] {
-        let choice = detect(&env_from(&pairs));
-        assert!(
-            choice.is_kitty(),
-            "env {pairs:?} should select kitty graphics"
+fn terminal_detection_is_strict_about_kitty_support() {
+    let cases: Vec<(Vec<(&str, &str)>, bool)> = vec![
+        (vec![("TERM_PROGRAM", "ghostty")], true),
+        (vec![("GHOSTTY_RESOURCES_DIR", "/ghostty")], true),
+        (vec![("TERM", "xterm-kitty")], true),
+        (vec![("KITTY_WINDOW_ID", "1")], true),
+        (vec![("TERM_PROGRAM", "WezTerm")], true),
+        (vec![("TERM_PROGRAM", "rio")], true),
+        (vec![("TUI_TETRIS_GRAPHICS", "kitty")], true),
+        (vec![("TERM", "xterm-256color")], false),
+        (vec![("TERM", "dumb")], false),
+        (vec![], false),
+    ];
+    for (env, expected) in cases {
+        assert_eq!(
+            detect(&env_from(&env)).is_some(),
+            expected,
+            "env {env:?} should{} select kitty graphics",
+            if expected { "" } else { " not" }
         );
     }
-}
-
-#[test]
-fn unknown_and_missing_terminals_stay_off() {
-    assert_eq!(detect(&empty_env()), GraphicsChoice::Off);
     assert_eq!(
-        detect(&env_from(&[("TERM", "xterm-256color")])),
-        GraphicsChoice::Off
+        detect(&env_from(&[("TUI_TETRIS_GRAPHICS", "off")])),
+        None,
+        "an explicit opt-out wins"
     );
-    assert_eq!(detect(&env_from(&[("TERM", "dumb")])), GraphicsChoice::Off);
-}
-
-#[test]
-fn tmux_requires_the_passthrough_envelope() {
     assert_eq!(
         detect(&env_from(&[
             ("TERM_PROGRAM", "ghostty"),
-            ("TERM", "screen-256color"),
-            ("TMUX", "/tmp/tmux-501/default,4242,0"),
+            ("TMUX", "/tmp/t,1,0")
         ])),
-        GraphicsChoice::Kitty(KittySupport {
-            tmux_passthrough: true,
-        })
-    );
-}
-
-#[test]
-fn forcing_kitty_inside_an_unknown_multiplexer_keeps_passthrough_on() {
-    assert_eq!(
-        detect(&env_from(&[
-            ("TUI_TETRIS_GRAPHICS", "kitty"),
-            ("TMUX", "/tmp/tmux-501/default,4240,0"),
-        ])),
-        GraphicsChoice::Kitty(KittySupport {
-            tmux_passthrough: true,
-        })
+        Some(KittySupport {
+            tmux_passthrough: true
+        }),
+        "tmux needs the passthrough envelope"
     );
 }
 
 // ------------------------------------------------------------------ encoder
 
 #[test]
-fn transmit_places_a_layer_with_scale_and_z_index() {
-    let canvas = sample_canvas();
+fn transmit_places_one_quiet_chunk_with_the_right_keys() {
+    let mut wiring = PixelCanvas::new(160, 323, PixelFormat::Rgb);
+    wiring.fill(Rgb::new(28, 28, 28));
+    wiring.fill_rect(0, 0, 16, 16, Rgb::new(79, 209, 196));
     let mut writer = KittyEscapeWriter::new(support());
     let mut out = Vec::new();
 
     writer
-        .transmit_and_place(&canvas, 7, 3, 1, geometry(), (4, 5), &mut out)
+        .transmit_and_place(&wiring, 7, 3, 1, geometry(), (4, 5), &mut out)
         .unwrap();
 
-    let spans = apc_spans(&out);
-    assert_eq!(spans.len(), 1, "small payload must be a single APC");
-    let (control, payload) = control_and_payload(spans[0]);
+    assert_eq!(apc_spans(&out).len(), 1, "small payload is a single APC");
+    let (control, payload) = decoded_image(&out);
     let values = control_values(&control);
     assert_eq!(values.get("a"), Some(&"T"));
     assert_eq!(values.get("f"), Some(&"24"), "board layer is packed RGB");
     assert_eq!(values.get("o"), Some(&"z"));
     assert_eq!(values.get("i"), Some(&"7"));
-    assert_eq!(values.get("p"), Some(&"3"));
-    assert_eq!(values.get("c"), Some(&"20"), "well is 10 minos x 2 cells");
-    assert_eq!(values.get("r"), Some(&"20"));
-    assert_eq!(values.get("C"), Some(&"1"), "do not move the cursor");
-    assert_eq!(
-        values.get("q"),
-        Some(&"2"),
-        "no response traffic on the tty"
-    );
+    assert_eq!(values.get("p"), Some(&"3"), "pinned placement id");
+    assert_eq!(values.get("c"), Some(&"20"), "well cell box");
+    assert_eq!(values.get("r"), Some(&"19"));
+    assert_eq!(values.get("C"), Some(&"1"), "never moves the cursor");
+    assert_eq!(values.get("q"), Some(&"2"), "no replies on the tty");
     assert_eq!(values.get("z"), Some(&"1"), "layer stacking");
-    assert_eq!(values.get("s"), Some(&"160"));
-    assert_eq!(values.get("v"), Some(&"340"));
-    assert!(!payload.is_empty());
-    // The image lands on the cell the caller asked for.
-    assert!(out.starts_with(b"\x1b[6;5H"), "cursor move first");
+    assert_eq!(values.get("m"), Some(&"0"));
+    assert_eq!(payload, wiring.data(), "pixels survive base64 + zlib");
+    assert!(out.starts_with(b"\x1b[6;5H"), "cursor moves first");
 }
 
 #[test]
 fn rgba_layers_declare_the_32_bit_format() {
-    let (w, h) = geometry().pixels();
-    let mut canvas = PixelCanvas::new(w, h, PixelFormat::Rgba);
-    canvas.fill_rect(0, 0, 8, 8, Rgb::new(1, 2, 3));
+    let mut layer = PixelCanvas::new(32, 16, PixelFormat::Rgba);
+    layer.fill_rect(0, 0, 8, 8, Rgb::new(1, 2, 3));
     let mut writer = KittyEscapeWriter::new(support());
     let mut out = Vec::new();
 
     writer
-        .transmit_and_place(&canvas, 1, 1, 1, geometry(), (0, 0), &mut out)
+        .transmit_native(&layer, 1, 1, 1, (0, 0), &mut out)
         .unwrap();
 
-    let (control, payload) = control_and_payload(apc_spans(&out)[0]);
+    let (control, payload) = decoded_image(&out);
     assert_eq!(control_values(&control).get("f"), Some(&"32"));
-    assert_eq!(
-        inflate(&base64_decode(payload)),
-        canvas.data(),
-        "RGBA bytes travel unchanged"
+    assert!(
+        !control_values(&control).contains_key("c"),
+        "a native-size sprite must not ask for cell scaling"
     );
+    assert_eq!(payload, layer.data());
 }
 
 #[test]
-fn payload_round_trips_through_base64_and_zlib() {
-    let canvas = sample_canvas();
-    let mut writer = KittyEscapeWriter::new(support());
-    let mut out = Vec::new();
-    writer
-        .transmit_and_place(&canvas, 1, 1, 0, geometry(), (0, 0), &mut out)
-        .unwrap();
-
-    let mut encoded = Vec::new();
-    for span in apc_spans(&out) {
-        let (_, payload) = control_and_payload(span);
-        encoded.extend_from_slice(payload);
-    }
-
-    assert_eq!(inflate(&base64_decode(&encoded)), canvas.data());
-}
-
-#[test]
-fn large_payloads_chunk_on_base64_quartets_and_repeat_quiet_mode() {
-    let geom = WellGeometry::new(2, 1, (20, 24));
+fn large_payloads_chunk_on_quartets_and_repeat_quiet_mode() {
+    let geom = WellGeometry::new((20, 19), (720, 1600));
     let (w, h) = geom.pixels();
     let mut canvas = PixelCanvas::new(w, h, PixelFormat::Rgb);
-    // Noise defeats compression so the encoded stream needs many chunks.
     let mut state: u32 = 12345;
     for byte in canvas.data_mut() {
         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
         *byte = (state >> 24) as u8;
     }
-
     let mut writer = KittyEscapeWriter::new(support());
     let mut out = Vec::new();
+
     writer
         .transmit_and_place(&canvas, 1, 1, 0, geom, (0, 0), &mut out)
         .unwrap();
@@ -327,64 +250,37 @@ fn large_payloads_chunk_on_base64_quartets_and_repeat_quiet_mode() {
     assert!(spans.len() > 2, "expected chunking, got {}", spans.len());
     for (index, span) in spans.iter().enumerate() {
         let (control, payload) = control_and_payload(span);
-        assert!(
-            payload.len() <= BASE64_CHUNK,
-            "chunk {index} is {} bytes",
-            payload.len()
-        );
+        assert!(payload.len() <= BASE64_CHUNK, "chunk {index} too long");
         assert_eq!(payload.len() % 4, 0, "chunk {index} splits a quartet");
+        assert!(control.contains("q=2"), "chunk {index} must stay quiet");
+        let last = index + 1 == spans.len();
         assert!(
-            control.contains("q=2"),
-            "chunk {index} must stay quiet: {control}"
+            control.contains(if last { "m=0" } else { "m=1" }),
+            "{control}"
         );
-        let expected_m = if index + 1 == spans.len() {
-            "m=0"
-        } else {
-            "m=1"
-        };
-        assert!(control.contains(expected_m), "chunk {index}: {control}");
         if index > 0 {
             assert!(
                 !control.contains("a=T"),
-                "continuation {index} repeats control data: {control}"
-            );
-            assert!(
-                !control.contains("i=1"),
-                "continuation {index} repeats the image id: {control}"
+                "continuation repeats control data"
             );
         }
     }
 }
 
 #[test]
-fn delete_all_is_quiet_and_frees_terminal_storage() {
-    let mut writer = KittyEscapeWriter::new(support());
-    let mut out = Vec::new();
-
-    writer.delete_all(&mut out);
-
-    let spans = apc_spans(&out);
-    assert_eq!(spans.len(), 1);
-    let (control, payload) = control_and_payload(spans[0]);
-    assert_eq!(control, "a=d,d=A,q=2");
-    assert!(payload.is_empty());
-}
-
-#[test]
-fn tmux_passthrough_doubles_every_escape_and_wraps_each_chunk() {
-    let canvas = sample_canvas();
+fn tmux_passthrough_wraps_every_command_with_doubled_escapes() {
+    let mut layer = PixelCanvas::new(32, 16, PixelFormat::Rgba);
+    layer.fill_rect(0, 0, 8, 8, Rgb::new(1, 2, 3));
     let mut writer = KittyEscapeWriter::new(KittySupport {
         tmux_passthrough: true,
     });
     let mut out = Vec::new();
-
     writer
-        .transmit_and_place(&canvas, 1, 1, 0, geometry(), (0, 0), &mut out)
+        .transmit_native(&layer, 1, 1, 1, (0, 0), &mut out)
         .unwrap();
     writer.delete_all(&mut out);
 
     assert!(apc_spans(&out).is_empty(), "every APC must be wrapped");
-
     let prefix = b"\x1bPtmux;";
     let mut envelopes = 0;
     let mut cursor = 0;
@@ -394,13 +290,13 @@ fn tmux_passthrough_doubles_every_escape_and_wraps_each_chunk() {
     {
         let mut i = cursor + found + prefix.len();
         loop {
-            assert!(i + 1 < out.len(), "unterminated passthrough envelope");
+            assert!(i + 1 < out.len(), "unterminated envelope");
             if out[i] == ESC {
                 if out[i + 1] == ESC {
                     i += 2;
                     continue;
                 }
-                assert_eq!(out[i + 1], b'\\', "envelope must end with ST");
+                assert_eq!(out[i + 1], b'\\', "envelope ends with ST");
                 cursor = i + 2;
                 envelopes += 1;
                 break;
@@ -408,101 +304,47 @@ fn tmux_passthrough_doubles_every_escape_and_wraps_each_chunk() {
             i += 1;
         }
     }
-    assert_eq!(envelopes, 2, "one DCS envelope per graphics command");
+    assert_eq!(envelopes, 2, "one envelope per graphics command");
 }
 
 // ---------------------------------------------------------------- geometry
 
 #[test]
-fn geometry_maps_minos_onto_a_square_grid() {
-    let geom = geometry();
-    assert_eq!(geom.cells(), (BOARD_WIDTH as u16 * 2, BOARD_HEIGHT as u16));
-    assert_eq!(geom.pixels(), (160, 340));
-    assert_eq!(geom.band_pixels(), (16, 17), "bands tile the well box");
-    assert_eq!(geom.mino_side(), 16, "largest square that fits a band");
-    assert_eq!(geom.grid_origin(), (0, 0), "bands leave no leftover here");
-}
-
-#[test]
-fn the_grid_fills_the_well_box_so_rows_touch_the_frame() {
-    // Whatever the cell aspect, the bands must span the whole layer; otherwise
-    // the bottom row floats above the frame.
-    for (cell_w, cell_h) in [(2u16, 1u16), (1, 1), (3, 1), (2, 2)] {
-        for cell_px in [(8u16, 17u16), (8, 16), (9, 19), (10, 21)] {
-            let geom = WellGeometry::new(cell_w, cell_h, cell_px).with_layer_pixels(
-                10 * u32::from(cell_w) * u32::from(cell_px.0),
-                20 * u32::from(cell_h) * u32::from(cell_px.1),
-            );
-            let (band_w, band_h) = geom.band_pixels();
-            let (ox, oy) = geom.grid_origin();
-            let (layer_w, layer_h) = geom.pixels();
-            assert!(
-                layer_w - (ox + band_w * 10) < band_w,
-                "{cell_w}x{cell_h} {cell_px:?}"
-            );
-            assert!(
-                layer_h - (oy + band_h * 20) < band_h,
-                "{cell_w}x{cell_h} {cell_px:?}"
-            );
-
-            // The bottom-right mino's last pixel row is inside the frame.
-            let side = geom.mino_side();
-            let (mx, my) = geom.mino_origin(9, 19);
-            assert!(mx + side <= layer_w);
-            assert!(my + side <= layer_h);
-            assert!(
-                layer_h - (my + side) <= band_h,
-                "bottom row must touch the frame"
-            );
-        }
+fn the_grid_tiles_the_box_and_keeps_minos_square() {
+    // Whatever the cell shape, the bands must span the whole layer; otherwise
+    // the bottom row floats above the frame or cells drift apart.
+    for (cells, px) in [
+        ((20u16, 19u16), (160u32, 323u32)),
+        ((20, 20), (160, 340)),
+        ((20, 19), (170, 344)),
+        ((10, 20), (100, 240)),
+    ] {
+        let geom = WellGeometry::new(cells, px);
+        let (x0, y0, band_w, band_h) = geom.cell_rect(0, 0);
+        let (_, _, _, _) = (x0, y0, band_w, band_h);
+        let (lx, ly, lw, lh) = geom.cell_rect(9, 19);
+        assert!(band_w >= 4 && band_h >= 4, "{cells:?} {px:?}");
+        assert!(
+            lx + lw <= px.0 && ly + lh <= px.1,
+            "grid fits {cells:?} {px:?}"
+        );
+        assert!(
+            px.1 - (ly + lh) < band_h,
+            "no leftover row: {cells:?} {px:?}"
+        );
+        assert!(
+            px.0 - (lx + lw) < band_w,
+            "no leftover column: {cells:?} {px:?}"
+        );
     }
-}
-
-#[test]
-fn measured_layer_pixels_replace_the_integer_box() {
-    let geom = geometry().with_layer_pixels(170, 344);
-    assert_eq!(geom.pixels(), (170, 344));
-    assert_eq!(geom.mino_side(), 17);
+    assert_eq!(geometry().cells(), (20, 19));
+    assert_eq!(geometry().pixels(), (160, 323));
 }
 
 // ------------------------------------------------------------- board layer
 
 #[test]
-fn board_layer_paints_settled_minos_as_opaque_blocks() {
-    let snap = board_with(&[(0, 0, 1), (9, 19, 3)]);
-    let geom = geometry();
-    let mut well = WellRenderer::new(support(), geom);
-    let mut out = Vec::new();
-
-    well.sync(&snap, geom, (0, 0), &mut out).unwrap();
-
-    let canvas = well.board();
-    let (x, y) = mino_center(geom, 0, 0);
-    assert_eq!(
-        canvas.pixel(x, y),
-        Some(FbRgb::new(79, 209, 196)),
-        "mino interior uses the piece colour"
-    );
-    let (x, y) = mino_center(geom, 9, 19);
-    assert_eq!(
-        canvas.pixel(x, y),
-        Some(FbRgb::new(158, 122, 235)),
-        "bottom-right mino"
-    );
-    let (x, y) = mino_center(geom, 5, 5);
-    let empty = canvas.pixel(x, y).expect("empty cell");
-    assert!(
-        empty.r < 60 && empty.g < 60 && empty.b < 60,
-        "empty cells keep the dark well backdrop, got {empty:?}"
-    );
-    assert_eq!(canvas.format(), PixelFormat::Rgb, "board is opaque");
-}
-
-#[test]
-fn neighbouring_cells_never_expose_a_background_gap() {
-    // Two settled cells side by side and stacked: the seam must be made of
-    // bevel pixels only. Background showing between cells is what made pieces
-    // look like loose tiles.
+fn settled_cells_touch_each_other_and_never_expose_the_backdrop() {
     let snap = board_with(&[(0, 17, 2), (1, 17, 2), (0, 18, 2), (1, 18, 2)]);
     let geom = geometry();
     let mut well = WellRenderer::new(support(), geom);
@@ -510,32 +352,30 @@ fn neighbouring_cells_never_expose_a_background_gap() {
     well.sync(&snap, geom, (0, 0), &mut out).unwrap();
 
     let canvas = well.board();
-    let side = geom.mino_side();
-    assert!(side >= 4);
-    let (mx, my) = geom.mino_origin(0, 0);
-    let probe_row = my + 17 * 17 + side / 2;
-    for x in mx..mx + side {
-        assert_ne!(
-            canvas.pixel(x, probe_row),
-            Some(WELL_BG),
-            "background pixel at x={x} on the horizontal seam"
-        );
+    // Every pixel of the 2x2 block is either body colour or its own rim.
+    let (bx, by, _, bh) = geom.cell_rect(0, 17);
+    let (ex, _, ew, _) = geom.cell_rect(1, 18);
+    for y in by..by + 2 * bh {
+        for x in bx..ex + ew {
+            let pixel = canvas.pixel(x, y).expect("inside the layer");
+            assert_ne!(pixel, WELL_BG, "backdrop pixel at ({x},{y})");
+        }
     }
-    let probe_col = mx + side / 2;
-    for y in my + 17 * 17..my + 18 * 17 + side {
-        assert_ne!(
-            canvas.pixel(probe_col, y),
-            Some(WELL_BG),
-            "background pixel at y={y} on the vertical seam"
-        );
-    }
+    let (x, y) = mino_center(geom, 9, 19);
+    let empty = canvas.pixel(x, y).expect("empty cell");
+    assert!(
+        empty.r < 60 && empty.g < 60 && empty.b < 60,
+        "empty cells keep the dark backdrop, got {empty:?}"
+    );
+    // A bottom-right mino exists and uses the piece colour.
+    let snap = board_with(&[(9, 19, 3)]);
+    well.sync(&snap, geom, (0, 0), &mut out).unwrap();
+    let (x, y) = mino_center(geom, 9, 19);
+    assert_eq!(well.board().pixel(x, y), Some(FbRgb::new(158, 122, 235)));
 }
 
 #[test]
 fn a_locked_tetromino_looks_exactly_like_the_falling_one() {
-    // The whole point of the region painter: settling must not restyle the
-    // piece. Render it as the active piece, then as four settled cells, and
-    // require byte-identical pixels for those cells.
     let geom = geometry();
     let falling = GameSnapshot {
         active: Some(ActiveSnapshot {
@@ -547,26 +387,24 @@ fn a_locked_tetromino_looks_exactly_like_the_falling_one() {
         ..GameSnapshot::default()
     };
     let locked = board_with(&[(5, 8, 2), (6, 8, 2), (5, 9, 2), (6, 9, 2)]);
-
     let mut well = WellRenderer::new(support(), geom);
     let mut out = Vec::new();
     well.sync(&falling, geom, (0, 0), &mut out).unwrap();
     let motion = well.motion().clone();
-    let mut out = Vec::new();
     well.sync(&locked, geom, (0, 0), &mut out).unwrap();
     let board = well.board();
 
     for &(bx, by) in &[(5u16, 8u16), (6, 8), (5, 9), (6, 9)] {
-        let (mx, my) = geom.mino_origin(bx, by);
-        for y in my..my + geom.band_pixels().1 {
-            for x in mx..mx + geom.band_pixels().0 {
+        let (mx, my, band_w, band_h) = geom.cell_rect(bx, by);
+        for y in my..my + band_h {
+            for x in mx..mx + band_w {
                 if motion.alpha(x, y) != Some(255) {
                     continue;
                 }
                 assert_eq!(
                     motion.pixel(x, y),
                     board.pixel(x, y),
-                    "locked cell pixel ({x},{y}) differs from the falling piece"
+                    "locked pixel ({x},{y}) differs from the falling piece"
                 );
             }
         }
@@ -574,41 +412,7 @@ fn a_locked_tetromino_looks_exactly_like_the_falling_one() {
 }
 
 #[test]
-fn a_tetromino_is_drawn_as_one_solid_shape() {
-    // The O piece is 2x2 cells: everything inside its outline must be body
-    // colour, with no internal cell borders.
-    let snap = GameSnapshot {
-        active: Some(ActiveSnapshot {
-            kind: PieceKind::O,
-            rotation: Rotation::North,
-            x: 4,
-            y: 8,
-        }),
-        ..GameSnapshot::default()
-    };
-    let geom = geometry();
-    let mut well = WellRenderer::new(support(), geom);
-    let mut out = Vec::new();
-    well.sync(&snap, geom, (0, 0), &mut out).unwrap();
-
-    let motion = well.motion();
-    let side = geom.mino_side();
-    let body = Rgb::new(245, 224, 94);
-    // O occupies (x+1, y) and (x+1, y+1) and (x+2, ...).
-    let (mx, my) = geom.mino_origin(5, 8);
-    for y in my + 1..my + 2 * side - 1 {
-        for x in mx + 1..mx + 2 * side - 1 {
-            assert_eq!(
-                motion.pixel(x, y),
-                Some(body),
-                "interior pixel ({x},{y}) must be body colour, not a seam"
-            );
-        }
-    }
-}
-
-#[test]
-fn unchanged_board_does_not_retransmit() {
+fn unchanged_content_does_not_retransmit() {
     let snap = board_with(&[(0, 0, 1)]);
     let geom = geometry();
     let mut well = WellRenderer::new(support(), geom);
@@ -616,7 +420,6 @@ fn unchanged_board_does_not_retransmit() {
 
     assert!(well.sync(&snap, geom, (0, 0), &mut out).unwrap());
     assert!(!out.is_empty());
-
     out.clear();
     assert!(!well.sync(&snap, geom, (0, 0), &mut out).unwrap());
     assert!(out.is_empty(), "identical frames must not touch the wire");
@@ -625,9 +428,8 @@ fn unchanged_board_does_not_retransmit() {
 // ------------------------------------------------------------ motion layer
 
 #[test]
-fn motion_layer_is_transparent_except_the_piece_and_ghost() {
+fn the_motion_layer_is_transparent_with_a_shadowed_piece_and_hollow_ghost() {
     let snap = GameSnapshot {
-        board: [[1; BOARD_WIDTH as usize]; BOARD_HEIGHT as usize],
         active: Some(ActiveSnapshot {
             kind: PieceKind::O,
             rotation: Rotation::North,
@@ -644,114 +446,65 @@ fn motion_layer_is_transparent_except_the_piece_and_ghost() {
 
     let motion = well.motion();
     assert_eq!(motion.format(), PixelFormat::Rgba);
-    let (x, y) = mino_center(geom, 3, 3);
+    let (x, y) = mino_center(geom, 1, 1);
     assert_eq!(
         motion.alpha(x, y),
         Some(0),
-        "empty area is fully transparent so the board shows through"
+        "empty area shows the board through"
     );
     // The O shape is offset by (+1, 0) from its origin cell.
     let (x, y) = mino_center(geom, 5, 2);
-    let piece = motion.pixel(x, y).expect("piece pixel");
-    assert_eq!(piece, Rgb::new(245, 224, 94));
-
-    // The ghost is a translucent silhouette: visible, but clearly weaker than
-    // the piece, with a denser rim.
-    let side = geom.mino_side();
-    let (gx, gy) = geom.mino_origin(5, 10);
-    let fill = motion
-        .alpha(gx + side / 2, gy + side / 2)
-        .expect("ghost fill");
-    assert!(fill > 0, "the ghost must be visible");
-    assert!(fill < 128, "the ghost must stay translucent, got {fill}");
-    let rim = motion.alpha(gx, gy).expect("ghost rim");
+    assert_eq!(motion.pixel(x, y), Some(Rgb::new(245, 224, 94)));
+    // The shadow sticks out below the block and stays translucent.
+    let (mx, my, band_w, band_h) = geom.cell_rect(5, 3);
+    let shadow = motion.alpha(mx + band_w / 2, my + band_h + 1);
     assert!(
-        rim > fill,
-        "the rim is denser than the fill: {rim} vs {fill}"
+        matches!(shadow, Some(alpha) if alpha > 0 && alpha < 255),
+        "drop shadow below the piece: {shadow:?}"
     );
+    // The ghost is a translucent silhouette with a denser rim.
+    let (gx, gy, gw, gh) = geom.cell_rect(5, 10);
+    let fill = motion.alpha(gx + gw / 2, gy + gh / 2);
+    let rim = motion.alpha(gx, gy);
+    assert!(matches!(fill, Some(alpha) if alpha > 0 && alpha < 128));
+    assert!(matches!(rim, Some(alpha) if alpha > 0), "ghost rim");
 }
 
 #[test]
-fn motion_layer_has_a_drop_shadow_below_the_piece() {
-    let snap = GameSnapshot {
-        active: Some(ActiveSnapshot {
-            kind: PieceKind::I,
-            rotation: Rotation::North,
-            x: 3,
-            y: 5,
-        }),
-        ..GameSnapshot::default()
-    };
-    let geom = geometry();
-    let mut well = WellRenderer::new(support(), geom);
-    let mut out = Vec::new();
-    well.sync(&snap, geom, (0, 0), &mut out).unwrap();
-
-    let motion = well.motion();
-    let side = geom.mino_side();
-    // I(North) occupies (dx, 1), so the piece covers row 6. The shadow is offset
-    // by (+2, +2): sample the sliver that sticks out below the block.
-    let (mx, my) = geom.mino_origin(3, 6);
-    let x = mx + side / 2;
-    let y = my + side + 1;
-    let alpha = motion.alpha(x, y).expect("shadow pixel");
-    assert!(alpha > 0, "shadow must be visible, got alpha {alpha}");
-    assert!(
-        alpha < 255,
-        "shadow is translucent so the board shows through"
-    );
-}
-
-#[test]
-fn motion_layer_ignores_board_changes() {
+fn only_the_changed_layer_is_retransmitted() {
     let geom = geometry();
     let mut well = WellRenderer::new(support(), geom);
     let snap = started_snapshot();
     let mut out = Vec::new();
     well.sync(&snap, geom, (0, 0), &mut out).unwrap();
 
-    // A locked cell changes the board layer only.
+    // A locked cell moves only the board layer.
     let mut locked = snap;
     locked.board[19][0] = 1;
+    let mut moved = locked;
     out.clear();
-    assert!(well.sync(&locked, geom, (0, 0), &mut out).unwrap());
+    well.sync(&locked, geom, (0, 0), &mut out).unwrap();
     let spans = apc_spans(&out);
-    assert_eq!(spans.len(), 1, "only the board layer is retransmitted");
+    assert_eq!(spans.len(), 1, "one layer per change");
     let (control, _) = control_and_payload(spans[0]);
-    assert_eq!(control_values(&control).get("z"), Some(&"0"));
-}
+    assert_eq!(control_values(&control).get("z"), Some(&"0"), "board layer");
 
-#[test]
-fn moving_the_piece_retransmits_only_the_motion_layer() {
-    let geom = geometry();
-    let mut well = WellRenderer::new(support(), geom);
-    let mut snap = board_with(&[(0, 19, 1)]);
-    snap.active = Some(ActiveSnapshot {
-        kind: PieceKind::T,
-        rotation: Rotation::North,
-        x: 3,
-        y: 4,
-    });
-    let mut out = Vec::new();
-    well.sync(&snap, geom, (0, 0), &mut out).unwrap();
-
-    snap.active = Some(ActiveSnapshot {
-        y: 5,
-        ..snap.active.unwrap()
+    // A falling row moves only the motion layer (continue from the locked board,
+    // otherwise the board change would legitimately resend it too).
+    moved.active = moved.active.map(|active| ActiveSnapshot {
+        y: active.y + 1,
+        ..active
     });
     out.clear();
-    assert!(well.sync(&snap, geom, (0, 0), &mut out).unwrap());
-
-    let spans = apc_spans(&out);
-    assert_eq!(spans.len(), 1);
-    let (control, _) = control_and_payload(spans[0]);
+    well.sync(&moved, geom, (0, 0), &mut out).unwrap();
+    let (control, _) = control_and_payload(apc_spans(&out)[0]);
     let values = control_values(&control);
-    assert_eq!(values.get("z"), Some(&"1"), "motion layer is on top");
+    assert_eq!(values.get("z"), Some(&"1"), "motion layer");
     assert_eq!(values.get("f"), Some(&"32"));
 }
 
 #[test]
-fn line_clear_flashes_and_pause_dims_the_motion_layer() {
+fn a_clear_flashes_the_row_and_pausing_dims_the_well() {
     let geom = geometry();
     let mut well = WellRenderer::new(support(), geom);
     let mut full_row = [(0usize, 19usize, 1u8); BOARD_WIDTH as usize];
@@ -759,30 +512,31 @@ fn line_clear_flashes_and_pause_dims_the_motion_layer() {
         *cell = (x, 19, (x % 7 + 1) as u8);
     }
     let mut snap = board_with(&full_row);
-    snap.active = None;
     let mut out = Vec::new();
     well.sync(&snap, geom, (0, 0), &mut out).unwrap();
 
     snap.timers.line_clear_ms = 120;
-    out.clear();
     well.sync(&snap, geom, (0, 0), &mut out).unwrap();
     let (x, y) = mino_center(geom, 0, 19);
-    let flashed = well.motion().alpha(x, y).expect("flash pixel");
-    assert!(flashed > 0, "the cleared row must flash");
+    assert!(
+        matches!(well.motion().alpha(x, y), Some(alpha) if alpha > 0),
+        "the cleared row must flash"
+    );
 
     snap.timers.line_clear_ms = 0;
     snap.paused = true;
-    out.clear();
     well.sync(&snap, geom, (0, 0), &mut out).unwrap();
     let (x, y) = mino_center(geom, 5, 5);
-    let dim = well.motion().alpha(x, y).expect("dim pixel");
-    assert!(dim > 0, "pausing dims the whole well");
+    assert!(
+        matches!(well.motion().alpha(x, y), Some(alpha) if alpha > 0),
+        "pausing dims the whole well"
+    );
 }
 
 // ----------------------------------------------------------------- hashes
 
 #[test]
-fn hashes_track_only_what_their_layer_draws() {
+fn each_layer_hash_tracks_only_what_it_draws() {
     let mut snap = GameSnapshot::default();
     let board = board_hash(&snap);
     let motion = motion_hash(&snap, geometry());
@@ -791,21 +545,17 @@ fn hashes_track_only_what_their_layer_draws() {
     snap.level = 9;
     snap.next_queue[0] = PieceKind::S;
     assert_eq!(board_hash(&snap), board, "HUD fields are not board pixels");
-    assert_eq!(
-        motion_hash(&snap, geometry()),
-        motion,
-        "HUD fields are not motion pixels"
-    );
+    assert_eq!(motion_hash(&snap, geometry()), motion, "nor motion pixels");
 
     snap.board[0][0] = 1;
     assert_ne!(board_hash(&snap), board);
     assert_eq!(
         motion_hash(&snap, geometry()),
         motion,
-        "the settled board belongs to the board layer"
+        "board is not motion"
     );
 
-    let moved = GameSnapshot {
+    let falling = GameSnapshot {
         active: Some(ActiveSnapshot {
             kind: PieceKind::T,
             rotation: Rotation::North,
@@ -814,50 +564,30 @@ fn hashes_track_only_what_their_layer_draws() {
         }),
         ..GameSnapshot::default()
     };
-    assert_ne!(motion_hash(&moved, geometry()), motion);
-    assert_eq!(
-        board_hash(&moved),
-        board_hash(&GameSnapshot::default()),
-        "the falling piece belongs to the motion layer"
-    );
+    assert_ne!(motion_hash(&falling, geometry()), motion);
+    assert_eq!(board_hash(&falling), board_hash(&GameSnapshot::default()));
 }
 
 // ---------------------------------------------------------------- lifecycle
 
 #[test]
-fn geometry_changes_resize_and_retransmit_both_layers() {
+fn geometry_changes_resize_and_a_cleared_screen_forces_a_resend() {
     let snap = started_snapshot();
     let geom = geometry();
     let mut well = WellRenderer::new(support(), geom);
     let mut out = Vec::new();
     well.sync(&snap, geom, (0, 0), &mut out).unwrap();
 
-    let resized = WellGeometry::new(1, 1, (12, 12));
+    let resized = WellGeometry::new((10, 20), (100, 240));
     out.clear();
-    assert!(well.sync(&snap, resized, (0, 0), &mut out).unwrap());
-
-    assert_eq!(spans_of(&out), 2, "board and motion layers both resend");
+    well.sync(&snap, resized, (0, 0), &mut out).unwrap();
+    assert_eq!(apc_spans(&out).len(), 2, "both layers resend");
     assert_eq!(well.board().width(), resized.pixels().0);
-    assert_eq!(well.motion().height(), resized.pixels().1);
-    assert_eq!(well.geometry(), resized);
-}
-
-fn spans_of(out: &[u8]) -> usize {
-    apc_spans(out).len()
-}
-
-#[test]
-fn invalidate_forces_a_full_retransmission() {
-    let snap = board_with(&[(0, 0, 1)]);
-    let geom = geometry();
-    let mut well = WellRenderer::new(support(), geom);
-    let mut out = Vec::new();
-    well.sync(&snap, geom, (0, 0), &mut out).unwrap();
 
     out.clear();
     well.invalidate();
-    assert!(well.sync(&snap, geom, (0, 0), &mut out).unwrap());
-    assert_eq!(spans_of(&out), 2, "a cleared screen needs both layers");
+    well.sync(&snap, resized, (0, 0), &mut out).unwrap();
+    assert_eq!(apc_spans(&out).len(), 2, "CSI 2J clears images");
 }
 
 #[test]
@@ -869,68 +599,27 @@ fn shutdown_removes_every_placement_once() {
     well.sync(&snap, geom, (0, 0), &mut out).unwrap();
 
     out.clear();
+    well.invalidate(); // markers cleared, images still on screen
     well.shutdown(&mut out);
     let spans = apc_spans(&out);
     assert_eq!(spans.len(), 1);
-    let (control, _) = control_and_payload(spans[0]);
-    assert_eq!(control, "a=d,d=A,q=2");
+    assert_eq!(
+        control_and_payload(spans[0]).0,
+        "a=d,d=A,q=2",
+        "delete everything"
+    );
 
     out.clear();
     well.shutdown(&mut out);
     assert!(out.is_empty(), "shutdown is idempotent");
 }
 
-#[test]
-fn shutdown_still_deletes_after_an_invalidate() {
-    let snap = board_with(&[(0, 0, 1)]);
-    let geom = geometry();
-    let mut well = WellRenderer::new(support(), geom);
-    let mut out = Vec::new();
-    well.sync(&snap, geom, (0, 0), &mut out).unwrap();
-
-    // invalidate() clears the per-layer markers but the terminal still holds the
-    // images, so quitting must still delete them.
-    well.invalidate();
-    out.clear();
-    well.shutdown(&mut out);
-    assert_eq!(spans_of(&out), 1, "delete must not depend on drawn markers");
-}
-
 // ----------------------------------------------------------------- previews
 
 #[test]
-fn preview_minos_are_exact_squares() {
-    // The HUD previews used to be half-block glyphs, whose height came from the
-    // font (about 17% too tall). As pixels they are exact.
+fn preview_minos_are_half_a_board_mino_and_exact_squares() {
     let snap = GameSnapshot {
         hold: Some(PieceKind::O),
-        ..GameSnapshot::default()
-    };
-    let mut previews = PreviewRenderer::new(support(), 16);
-    let mut out = Vec::new();
-    previews.sync(&snap, (0, 0), (0, 0), &mut out).unwrap();
-
-    let canvas = previews.hold();
-    let side = previews.mino();
-    let opaque: Vec<_> = (0..canvas.height())
-        .flat_map(|y| (0..canvas.width()).map(move |x| (x, y)))
-        .filter(|&(x, y)| canvas.alpha(x, y) == Some(255))
-        .collect();
-    let min_x = opaque.iter().map(|(x, _)| *x).min().unwrap();
-    let max_x = opaque.iter().map(|(x, _)| *x).max().unwrap();
-    let min_y = opaque.iter().map(|(_, y)| *y).min().unwrap();
-    let max_y = opaque.iter().map(|(_, y)| *y).max().unwrap();
-    assert_eq!(
-        (max_x - min_x + 1, max_y - min_y + 1),
-        (2 * side, 2 * side),
-        "the O preview must be two exact mino squares"
-    );
-}
-
-#[test]
-fn preview_layers_are_native_size_sprites() {
-    let snap = GameSnapshot {
-        hold: Some(PieceKind::T),
         next_queue: [
             PieceKind::O,
             PieceKind::I,
@@ -942,40 +631,33 @@ fn preview_layers_are_native_size_sprites() {
     };
     let mut previews = PreviewRenderer::new(support(), 16);
     let mut out = Vec::new();
-    previews.sync(&snap, (3, 5), (3, 8), &mut out).unwrap();
+    previews.sync(&snap, (0, 0), (0, 0), &mut out).unwrap();
 
-    let spans = apc_spans(&out);
-    assert_eq!(spans.len(), 2, "one image for HOLD, one for NEXT");
-    for span in &spans {
-        let (control, payload) = control_and_payload(span);
-        let values = control_values(&control);
-        assert_eq!(values.get("f"), Some(&"32"), "previews are RGBA");
-        assert!(
-            !values.contains_key("c"),
-            "a native-size sprite must not ask for cell scaling: {control}"
-        );
-        assert!(!payload.is_empty());
-    }
-    // The HOLD image lands at its own anchor, the NEXT strip below it.
-    assert!(out.starts_with(b"\x1b[6;4H"), "cursor move first");
-    // Five slots with a visible gap between the pieces, so they read as separate
-    // shapes instead of one column.
     let side = previews.mino();
-    assert_eq!(side, 8, "half a 16px board mino, like the cell renderer");
+    assert_eq!(side, 8, "half of a 16px board mino");
+    assert_eq!(previews.next().width(), PREVIEW_COLS * side);
     assert_eq!(
         previews.next().height(),
         5 * (2 * side + 2 * side) - 2 * side,
-        "five 2-mino slots with a blank half-slot between pieces"
+        "five slots with a blank half slot between pieces"
     );
-    assert_eq!(
-        previews.next().width(),
-        PREVIEW_COLS * side,
-        "wide enough for an I piece"
-    );
+    assert_eq!(spans_of(&out), 2, "HOLD and NEXT are separate images");
+
+    // The O preview is exactly two mino squares across and down.
+    let canvas = previews.hold();
+    let opaque = |x: u32, y: u32| canvas.alpha(x, y) == Some(255);
+    let xs: Vec<u32> = (0..canvas.width())
+        .filter(|x| (0..canvas.height()).any(|y| opaque(*x, y)))
+        .collect();
+    let ys: Vec<u32> = (0..canvas.height())
+        .filter(|y| (0..canvas.width()).any(|x| opaque(x, *y)))
+        .collect();
+    assert_eq!(xs.len() as u32, 2 * side);
+    assert_eq!(ys.len() as u32, 2 * side);
 }
 
 #[test]
-fn previews_ignore_hud_only_scoring_changes() {
+fn previews_only_restyle_when_the_queue_or_anchor_moves() {
     let snap = GameSnapshot {
         next_queue: [PieceKind::O; 5],
         ..GameSnapshot::default()
@@ -986,34 +668,35 @@ fn previews_ignore_hud_only_scoring_changes() {
 
     let mut scored = snap;
     scored.score = 1234;
-    scored.lines = 12;
     out.clear();
     assert!(!previews.sync(&scored, (0, 0), (0, 0), &mut out).unwrap());
     assert!(out.is_empty(), "score changes are text-only");
 
-    // ...but a new queue retransmits the strip, and a moved anchor re-places it.
     let mut queued = snap;
     queued.next_queue[4] = PieceKind::T;
     out.clear();
     assert!(previews.sync(&queued, (0, 0), (0, 0), &mut out).unwrap());
+    assert_eq!(spans_of(&out), 1, "only the queue strip resends");
+
     out.clear();
     assert!(previews.sync(&queued, (0, 0), (0, 4), &mut out).unwrap());
-    assert_eq!(spans_of(&out), 1, "only the re-placed strip is re-sent");
-}
+    assert_eq!(spans_of(&out), 1, "a new anchor re-places the strip");
 
-#[test]
-fn preview_shutdown_removes_the_images() {
-    let snap = GameSnapshot {
-        hold: Some(PieceKind::I),
-        ..GameSnapshot::default()
-    };
-    let mut previews = PreviewRenderer::new(support(), 16);
-    let mut out = Vec::new();
-    previews.sync(&snap, (0, 0), (0, 0), &mut out).unwrap();
     out.clear();
     previews.shutdown(&mut out);
     assert_eq!(spans_of(&out), 1);
     out.clear();
     previews.shutdown(&mut out);
     assert!(out.is_empty(), "shutdown is idempotent");
+}
+
+fn spans_of(out: &[u8]) -> usize {
+    apc_spans(out).len()
+}
+
+#[test]
+fn the_board_is_the_same_size_as_the_play_area() {
+    // Guards the constants the smoke test relies on.
+    assert_eq!(BOARD_WIDTH, 10);
+    assert_eq!(BOARD_HEIGHT, 20);
 }

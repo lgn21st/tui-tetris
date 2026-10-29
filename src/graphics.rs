@@ -1,23 +1,18 @@
 //! Pixel rendering of the well through the Kitty graphics protocol.
 //!
-//! The playfield is pixel-native: no board cell is ever drawn as a character.
-//! This module is the composition layer — it resolves the terminal's framing,
-//! measures the cell grid, and hands the layer escapes to
-//! `TerminalRenderer::write_raw` after the text pass.
-//!
-//! Graphics are a hard requirement for the playfield, so the interactive modes
-//! refuse to start without them instead of silently showing an empty well.
-//! Text (HUD, side panel, banners) stays text: the terminal's font renders it
-//! better than any bitmap font we could ship.
+//! Composition layer: resolve the terminal's framing, measure the cell grid, and
+//! hand the layer escapes to `TerminalRenderer::write_raw` after the text pass.
+//! The playfield is pixel-only, so the interactive modes refuse to start without
+//! a working backend instead of showing an empty well. Text (HUD, labels,
+//! banners) stays text: the terminal font renders it better than a bitmap font.
 
 use tetris_core::core::GameSnapshot;
 use tetris_terminal::term::kitty::{
-    GraphicsChoice, KittySupport, PreviewRenderer, WellGeometry, WellRenderer, detect,
+    KittySupport, PreviewRenderer, WellGeometry, WellRenderer, detect,
 };
-use tetris_terminal::term::{GameView, TerminalRenderer, Viewport, detect_window_metrics};
-
-/// Window size in pixels and in cells.
-type WindowMetrics = ((u32, u32), (u32, u32));
+use tetris_terminal::term::{
+    GameView, TerminalRenderer, Viewport, detect_window_metrics, squarest_cell_size,
+};
 
 /// Why the pixel playfield cannot be used.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,14 +24,77 @@ impl std::fmt::Display for GraphicsUnavailable {
     }
 }
 
+/// Terminal geometry, measured once and re-measured on resize.
+#[derive(Debug, Clone, Copy)]
+struct Display {
+    cell_px: (u16, u16),
+    window_px: (u32, u32),
+    window_cells: (u32, u32),
+}
+
+impl Display {
+    fn detect() -> Option<Self> {
+        let (window_px, window_cells) = detect_window_metrics()?;
+        let cell_px = cell_pixels_from_env().unwrap_or((
+            (window_px.0 / window_cells.0).clamp(1, u32::from(u16::MAX)) as u16,
+            (window_px.1 / window_cells.1).clamp(1, u32::from(u16::MAX)) as u16,
+        ));
+        Some(Self {
+            cell_px,
+            window_px,
+            window_cells,
+        })
+    }
+
+    /// Terminal cells per mino, and the device-pixel side that makes it square.
+    fn board_mino(&self) -> u32 {
+        let (cell_w, _) = squarest_cell_size(self.cell_px.0, self.cell_px.1);
+        u32::from(cell_w) * u32::from(self.cell_px.0)
+    }
+
+    /// Cells the frame must reserve for the well.
+    ///
+    /// The frame hugs a square mino grid: 20 square minos of `side` pixels need
+    /// `ceil(800 / cell_px_h)` rows, which is 19 rows for an 8x17 cell instead
+    /// of 20 - and 19 is what keeps the image at a scale factor of exactly 1.
+    fn well_cells(&self) -> (u16, u16) {
+        let side = self.board_mino();
+        let cell_w = u32::from(self.cell_px.0).max(1);
+        let cell_h = u32::from(self.cell_px.1).max(1);
+        (
+            (10 * side).div_ceil(cell_w).clamp(4, 200) as u16,
+            (20 * side).div_ceil(cell_h).clamp(4, 200) as u16,
+        )
+    }
+
+    /// Device-pixel box of a cell box, from the window's own pixel size.
+    fn layer_px(&self, cells: (u16, u16)) -> (u32, u32) {
+        if self.window_cells.0 == 0 || self.window_cells.1 == 0 {
+            return (
+                u32::from(cells.0) * u32::from(self.cell_px.0),
+                u32::from(cells.1) * u32::from(self.cell_px.1),
+            );
+        }
+        (
+            (u64::from(cells.0) * u64::from(self.window_px.0) / u64::from(self.window_cells.0))
+                as u32,
+            (u64::from(cells.1) * u64::from(self.window_px.1) / u64::from(self.window_cells.1))
+                as u32,
+        )
+    }
+
+    fn geometry(&self, view: &GameView) -> WellGeometry {
+        let cells = view.well_cells();
+        WellGeometry::new(cells, self.layer_px(cells))
+    }
+}
+
 /// The well's pixel backend.
 pub struct Graphics {
+    display: Display,
     renderer: WellRenderer,
     previews: PreviewRenderer,
-    board_mino: u32,
     out: Vec<u8>,
-    cell_pixels: (u16, u16),
-    window_metrics: WindowMetrics,
     last_geometry: WellGeometry,
 }
 
@@ -44,24 +102,20 @@ impl Graphics {
     /// Resolve the backend once at startup.
     ///
     /// Fails when the terminal does not implement Kitty graphics, when tmux
-    /// swallows passthrough, or when the cell grid cannot be measured — all of
+    /// swallows passthrough, or when the cell grid cannot be measured - all of
     /// which would leave the well blank.
     pub fn from_env() -> Result<Self, GraphicsUnavailable> {
         let tmux = tmux_probe();
         let forced = std::env::var("TUI_TETRIS_GRAPHICS")
             .map(|value| value.trim().to_ascii_lowercase())
-            .ok();
-        match forced.as_deref() {
-            Some("off") | Some("none") | Some("never") | Some("0") | Some("false") => {
-                return Err(GraphicsUnavailable(
-                    "TUI_TETRIS_GRAPHICS=off: the playfield is graphics-only".to_string(),
-                ));
-            }
-            _ => {}
+            .unwrap_or_default();
+        if matches!(forced.as_str(), "off" | "none" | "never" | "0" | "false") {
+            return Err(GraphicsUnavailable(
+                "TUI_TETRIS_GRAPHICS=off: the playfield is graphics-only".to_string(),
+            ));
         }
 
-        let choice = detect(&|key| outer_env_key(&tmux, key));
-        let GraphicsChoice::Kitty(support) = choice else {
+        let Some(support) = detect(&|key| outer_env_key(&tmux, key)) else {
             return Err(GraphicsUnavailable(format!(
                 "this terminal does not implement the Kitty graphics protocol (TERM={}, TERM_PROGRAM={})",
                 std::env::var("TERM").unwrap_or_default(),
@@ -69,11 +123,8 @@ impl Graphics {
             )));
         };
 
-        let explicitly_forced = matches!(
-            forced.as_deref(),
-            Some("kitty" | "on" | "force" | "1" | "true")
-        );
-        if !explicitly_forced
+        let forced = matches!(forced.as_str(), "kitty" | "on" | "force" | "1" | "true");
+        if !forced
             && let Some(probe) = tmux.as_ref()
             && !probe.passthrough_enabled()
         {
@@ -82,26 +133,19 @@ impl Graphics {
             ));
         }
 
-        let window_metrics = detect_window_metrics().ok_or_else(|| {
+        let display = Display::detect().ok_or_else(|| {
             GraphicsUnavailable(
                 "the terminal did not report its pixel size (TIOCGWINSZ), so minos cannot be sized"
                     .to_string(),
             )
         })?;
-        let cell_pixels =
-            cell_pixels_from_env().unwrap_or_else(|| cell_pixels_from_metrics(window_metrics));
-        let geometry = WellGeometry::new(2, 1, cell_pixels);
-        let board_mino =
-            u32::from(tetris_terminal::term::squarest_cell_size(cell_pixels.0, cell_pixels.1).0)
-                * u32::from(cell_pixels.0);
-
+        let geometry =
+            WellGeometry::new(display.well_cells(), display.layer_px(display.well_cells()));
         Ok(Self {
             renderer: WellRenderer::new(support, geometry),
-            previews: PreviewRenderer::new(support, board_mino),
-            board_mino,
+            previews: PreviewRenderer::new(support, display.board_mino()),
+            display,
             out: Vec::with_capacity(1024 * 1024),
-            cell_pixels,
-            window_metrics,
             last_geometry: geometry,
         })
     }
@@ -113,30 +157,19 @@ impl Graphics {
     /// Cell boxes the HUD must reserve for the pixel previews.
     pub fn preview_cells(&self) -> ((u16, u16), (u16, u16)) {
         (
-            self.previews.hold_cell_box(self.cell_pixels),
-            self.previews.next_cell_box(self.cell_pixels),
+            self.previews.hold_cell_box(self.display.cell_px),
+            self.previews.next_cell_box(self.display.cell_px),
         )
     }
 
-    /// Terminal cells the frame must reserve for the well interior.
-    ///
-    /// The frame hugs a square mino grid: 20 square minos of `side` pixels need
-    /// `ceil(20 * side / cell_px_h)` rows, which is 19 rows for an 8x17 cell
-    /// instead of 20. Two rows of frame padding are added by the view.
+    /// Cells the frame must reserve for the well interior.
     pub fn well_cells(&self) -> (u16, u16) {
-        let (cell_px_w, cell_px_h) = (u32::from(self.cell_pixels.0), u32::from(self.cell_pixels.1));
-        let (cell_w, _) =
-            tetris_terminal::term::squarest_cell_size(self.cell_pixels.0, self.cell_pixels.1);
-        let side = u32::from(cell_w) * cell_px_w;
-        let rows = (20 * side).div_ceil(cell_px_h.max(1));
-        let cols = (10 * side).div_ceil(cell_px_w.max(1));
-        (cols.clamp(4, 200) as u16, rows.clamp(4, 200) as u16)
+        self.display.well_cells()
     }
 
     /// Short one-line description for `tui-tetris diagnostic`.
     pub fn describe(&self) -> String {
-        let support = self.support();
-        let framing = if support.tmux_passthrough {
+        let framing = if self.support().tmux_passthrough {
             "tmux-passthrough"
         } else {
             "direct"
@@ -144,57 +177,33 @@ impl Graphics {
         let (width, height) = self.last_geometry.pixels();
         format!(
             "kitty,{framing},cell={}x{}px,well={width}x{height}px,mino={}px",
-            self.cell_pixels.0,
-            self.cell_pixels.1,
-            self.last_geometry.mino_side()
+            self.display.cell_px.0,
+            self.display.cell_px.1,
+            self.display.board_mino()
         )
     }
 
     /// The next text pass will be a full redraw, which clears images.
     pub fn invalidate(&mut self) {
-        self.window_metrics = detect_window_metrics().unwrap_or(self.window_metrics);
-        self.cell_pixels =
-            cell_pixels_from_env().unwrap_or_else(|| cell_pixels_from_metrics(self.window_metrics));
+        if let Some(display) = Display::detect() {
+            // A new display scale also changes the preview sprite size.
+            if display.board_mino() != self.display.board_mino() {
+                self.previews = PreviewRenderer::new(self.support(), display.board_mino());
+            }
+            self.display = display;
+        }
         self.renderer.invalidate();
         self.previews.invalidate();
-        let board_mino = u32::from(
-            tetris_terminal::term::squarest_cell_size(self.cell_pixels.0, self.cell_pixels.1).0,
-        ) * u32::from(self.cell_pixels.0);
-        if board_mino != self.board_mino {
-            // Display scale changed: rebuild the preview sprites at the new size.
-            self.board_mino = board_mino;
-            self.previews = PreviewRenderer::new(self.renderer.support(), board_mino);
-        }
     }
 
-    fn geometry(&self, view: &GameView) -> WellGeometry {
-        let (cell_w, cell_h) = view.cell_size();
-        let (window_px, window_cells) = self.window_metrics;
-        let (cols, rows) = window_cells;
-        let mut geometry = WellGeometry::new(cell_w, cell_h, self.cell_pixels);
-        // Size the layer to the frame's cell box, using the window's pixel size
-        // rather than `cells * integer cell size` so it is exact.
-        let box_cells = view.well_cells();
-        if cols > 0 && rows > 0 {
-            let width = (u64::from(box_cells.0) * u64::from(window_px.0) / u64::from(cols)) as u32;
-            let height = (u64::from(box_cells.1) * u64::from(window_px.1) / u64::from(rows)) as u32;
-            geometry = geometry.with_layer_pixels(width, height);
-        } else {
-            geometry = geometry.with_layer_pixels(
-                u32::from(box_cells.0) * u32::from(self.cell_pixels.0),
-                u32::from(box_cells.1) * u32::from(self.cell_pixels.1),
-            );
-        }
-        geometry.with_box_cells(box_cells)
-    }
-
-    /// Emit whichever well layers changed. Returns the bytes to write after the
-    /// text frame, or an empty slice.
+    /// Emit whichever layers changed. Returns the bytes to write after the text
+    /// frame, or an empty slice.
     pub fn sync(&mut self, snap: &GameSnapshot, view: &GameView, viewport: Viewport) -> &[u8] {
         self.out.clear();
-        let geometry = self.geometry(view);
+        let geometry = self.display.geometry(view);
         self.last_geometry = geometry;
         let origin = view.well_origin(viewport);
+
         let mut failed = self
             .renderer
             .sync(snap, geometry, origin, &mut self.out)
@@ -313,16 +322,6 @@ fn outer_program(client_termname: &str) -> Option<&'static str> {
     }
 }
 
-fn cell_pixels_from_metrics((window_px, window_cells): WindowMetrics) -> (u16, u16) {
-    let (cols, rows) = window_cells;
-    if cols == 0 || rows == 0 {
-        return (8, 17);
-    }
-    let w = (window_px.0 / cols).clamp(1, u32::from(u16::MAX)) as u16;
-    let h = (window_px.1 / rows).clamp(1, u32::from(u16::MAX)) as u16;
-    (w, h)
-}
-
 fn cell_pixels_from_env() -> Option<(u16, u16)> {
     let read = |key: &str| {
         std::env::var(key)
@@ -347,9 +346,32 @@ mod tests {
         assert_eq!(outer_program("screen-256color"), None);
     }
 
+    fn display(cell_px: (u16, u16), window_px: (u32, u32), window_cells: (u32, u32)) -> Display {
+        Display {
+            cell_px,
+            window_px,
+            window_cells,
+        }
+    }
+
     #[test]
-    fn cell_pixels_are_derived_from_the_window_grid() {
-        assert_eq!(cell_pixels_from_metrics(((1280, 816), (160, 48))), (8, 17));
-        assert_eq!(cell_pixels_from_metrics(((0, 0), (0, 0))), (8, 17));
+    fn the_frame_hugs_square_minos_at_any_scale() {
+        // 1x: 8x17 cell -> 16px minos, 19 rows.
+        let one_x = display((8, 17), (640, 408), (80, 24));
+        assert_eq!(one_x.board_mino(), 16);
+        assert_eq!(one_x.well_cells(), (20, 19));
+        assert_eq!(one_x.layer_px((20, 19)), (160, 323));
+
+        // 2x: the same grid in device pixels, doubled.
+        let two_x = display((16, 34), (1280, 816), (80, 24));
+        assert_eq!(two_x.board_mino(), 32);
+        assert_eq!(two_x.well_cells(), (20, 19));
+        assert_eq!(two_x.layer_px((20, 19)), (320, 646));
+    }
+
+    #[test]
+    fn missing_window_metrics_fall_back_to_integer_cells() {
+        let fallback = display((8, 17), (0, 0), (0, 0));
+        assert_eq!(fallback.layer_px((20, 19)), (160, 323));
     }
 }
