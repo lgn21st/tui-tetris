@@ -7,4 +7,5 @@ edition = "2024"
 anyhow.workspace = true
 arrayvec.workspace = true
 crossterm.workspace = true
+flate2.workspace = true
 tetris-core.workspace = true
