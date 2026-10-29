@@ -1,4 +1,4 @@
-use tetris_core::core::{GameState, get_shape};
+use tetris_core::core::GameState;
 use tetris_core::types::PieceKind;
 use tetris_terminal::term::{
     AdapterStatusView, AnchorY, FrameBuffer, GameView, GameViewModel, HudOverlay, HudOverlayValue,
@@ -100,48 +100,6 @@ fn term_view_well_has_no_glyph_grid() {
 }
 
 #[test]
-fn term_view_renders_locked_cell_as_two_chars_wide() {
-    let mut snap = GameState::new(1).snapshot();
-    // Put a locked I block at bottom-left.
-    snap.board[19][0] = 1;
-    snap.active = None;
-    snap.ghost_y = None;
-
-    let view = GameView::default();
-    let vp = Viewport::new(22, 22);
-    let fb = view.render(&snap, vp);
-
-    // Inside border: (1,1) origin. Each cell is 2 chars wide, filled by
-    // matching fg/bg so the mino is a square independent of glyph metrics.
-    let x0 = 1;
-    let y0 = 1 + 19;
-    let left = fb.get(x0, y0).unwrap();
-    let right = fb.get(x0 + 1, y0).unwrap();
-    assert!(is_solid_mino(left));
-    assert_eq!(left, right);
-    assert_eq!(left.style.bg, Rgb::new(79, 209, 196));
-}
-
-#[test]
-fn term_view_ghost_is_neutral_gray() {
-    let mut gs = GameState::new(1);
-    gs.start();
-    let snap = gs.snapshot();
-    let active = snap.active.expect("started game has an active piece");
-    let ghost_y = snap.ghost_y.expect("empty well has a ghost");
-    assert_ne!(ghost_y, active.y);
-
-    let fb = GameView::default().render(&snap, Viewport::new(22, 22));
-    let (dx, dy) = get_shape(active.kind, active.rotation)[0];
-    let cell = fb
-        .get(1 + (active.x + dx) as u16 * 2, 1 + (ghost_y + dy) as u16)
-        .unwrap();
-
-    assert_eq!(cell.style.bg, Rgb::new(42, 42, 42));
-    assert_eq!(cell.style.fg, Rgb::new(42, 42, 42));
-}
-
-#[test]
 fn term_view_draws_side_panel_when_wide_enough() {
     let mut gs = GameState::new(1);
     gs.start();
@@ -160,11 +118,106 @@ fn term_view_draws_side_panel_when_wide_enough() {
     assert!(all.contains("HOLD"));
     assert!(all.contains("NEXT"));
 
-    assert!(
-        panel_minos(&fb) >= 8,
-        "hold/next minos should paint at preview scale, got {}",
-        panel_minos(&fb)
+    assert_eq!(
+        panel_minos(&fb),
+        0,
+        "HOLD/NEXT pieces are pixel layers now, not character cells"
     );
+}
+
+#[test]
+fn the_panel_leaves_a_clear_cell_box_for_the_pixel_previews() {
+    let mut snap = GameState::new(1).snapshot();
+    snap.hold = Some(PieceKind::T);
+    snap.next_queue = [
+        PieceKind::O,
+        PieceKind::I,
+        PieceKind::S,
+        PieceKind::Z,
+        PieceKind::L,
+    ];
+
+    let view = GameView::default();
+    let viewport = Viewport::new(60, 40);
+    let layout = view.panel_layout(&snap, viewport).expect("panel fits");
+    let fb = view.render(&snap, viewport);
+
+    // The reserved box must be blank so the image is never drawn over text.
+    let ((hold_cols, hold_rows), _) = view.preview_cells();
+    for y in layout.hold.1..layout.hold.1 + hold_rows {
+        for x in layout.hold.0..layout.hold.0 + hold_cols {
+            assert_eq!(fb.get(x, y).unwrap().ch, ' ', "hold pixel at ({x},{y})");
+        }
+    }
+    for y in layout.next.1..layout.next.1 + layout.next_rows {
+        for x in layout.next.0..layout.next.0 + hold_cols {
+            assert_eq!(fb.get(x, y).unwrap().ch, ' ', "next pixel at ({x},{y})");
+        }
+    }
+
+    // Labels sit above their reserved boxes and share the same column.
+    let hold_label = fb.get(layout.hold.0, layout.hold.1 - 1).unwrap();
+    let next_label = fb.get(layout.next.0, layout.next.1 - 1).unwrap();
+    let dump = dump(&fb);
+    assert!(dump.contains("HOLD"), "HOLD label");
+    assert!(dump.contains("NEXT"), "NEXT label");
+    assert!(hold_label.ch != ' ', "HOLD label is above the preview");
+    assert!(next_label.ch != ' ', "NEXT label is above the preview");
+}
+
+#[test]
+fn the_panel_keeps_the_cell_renderer_layout() {
+    // SCORE label and value on separate rows, blank separator, LEVEL/LINES, then
+    // HOLD and NEXT underneath - the same column the cell renderer drew.
+    let mut snap = GameState::new(1).snapshot();
+    snap.score = 478;
+    snap.level = 1;
+    snap.lines = 12;
+    let view = GameView::default().with_preview_cells((6, 2), (6, 9));
+    let viewport = Viewport::new(80, 24);
+    let layout = view.panel_layout(&snap, viewport).expect("panel fits");
+    let fb = view.render(&snap, viewport);
+    let x = layout.x;
+    let top = layout.top;
+
+    let row_text = |y: u16, len: u16| {
+        (0..len)
+            .map(|dx| fb.get(x + dx, y).unwrap().ch)
+            .collect::<String>()
+    };
+    assert!(row_text(top, 5).starts_with("SCORE"), "SCORE label");
+    assert_eq!(
+        fb.get(x, top + 1).unwrap().ch,
+        '4',
+        "the score value sits on its own row"
+    );
+    assert!(
+        row_text(top + 2, 5).trim().is_empty(),
+        "blank separator after the score"
+    );
+    assert!(row_text(top + 3, 5).starts_with("LEVEL"));
+    assert!(row_text(top + 4, 5).starts_with("LINES"));
+    assert_eq!(
+        fb.get(x, layout.hold.1 - 1).unwrap().ch,
+        'H',
+        "HOLD label above its preview"
+    );
+    assert_eq!(
+        fb.get(x, layout.next.1 - 1).unwrap().ch,
+        'N',
+        "NEXT label above the strip"
+    );
+}
+
+#[test]
+fn an_empty_hold_slot_shows_a_dash() {
+    let mut snap = GameState::new(1).snapshot();
+    snap.hold = None;
+    let view = GameView::default();
+    let viewport = Viewport::new(60, 40);
+    let layout = view.panel_layout(&snap, viewport).expect("panel fits");
+    let fb = view.render(&snap, viewport);
+    assert_eq!(fb.get(layout.hold.0, layout.hold.1).unwrap().ch, '-');
 }
 
 #[test]
@@ -246,70 +299,6 @@ fn term_view_renders_adapter_pid_and_port_when_enabled() {
 }
 
 #[test]
-fn term_view_preview_minos_pack_to_half_size_squares() {
-    let mut snap = GameState::new(1).snapshot();
-    snap.board[19][0] = 1;
-    snap.active = None;
-    snap.ghost_y = None;
-    snap.hold = Some(PieceKind::O);
-    snap.next_queue = [PieceKind::O; 5];
-
-    let fb = GameView::default().render(&snap, Viewport::new(60, 24));
-
-    // Frame is 22×22, centered in 60×24: start=(19,1). Well cell (0,19) is 2-wide.
-    let well_x = 20u16;
-    let well_y = 21u16;
-    let well_left = fb.get(well_x, well_y).unwrap();
-    let well_right = fb.get(well_x + 1, well_y).unwrap();
-    assert!(is_solid_mino(well_left));
-    assert_eq!(well_left, well_right, "well minos stay cell_w=2");
-
-    // panel_x=19+22+2=43. HOLD label at y=7, preview origin at y=8.
-    // O is 2×2 minos packed into 2 cols × 1 row of filled cells.
-    let px = 43u16;
-    let py = 8u16;
-    let left = fb.get(px, py).unwrap();
-    let right = fb.get(px + 1, py).unwrap();
-    assert!(is_solid_mino(left), "packed O left cell");
-    assert!(is_solid_mino(right), "packed O right cell");
-    assert_eq!(left.style.bg, Rgb::new(245, 224, 94));
-    assert!(
-        !is_hud_mino(fb.get(px + 2, py).unwrap()),
-        "preview O is 2 columns, not well-scale 4"
-    );
-    assert!(
-        !is_hud_mino(fb.get(px, py + 1).unwrap()),
-        "preview O packs both mino rows into one terminal row"
-    );
-}
-
-#[test]
-fn term_view_preview_t_piece_uses_half_blocks() {
-    let mut snap = GameState::new(1).snapshot();
-    snap.active = None;
-    snap.ghost_y = None;
-    snap.hold = Some(PieceKind::T);
-    snap.next_queue = [PieceKind::I; 5];
-
-    let fb = GameView::default().render(&snap, Viewport::new(60, 24));
-    let px = 43u16;
-    let py = 8u16;
-    let t = Rgb::new(158, 122, 235);
-    let page = Rgb::new(16, 16, 16);
-    let left = fb.get(px, py).unwrap();
-    let mid = fb.get(px + 1, py).unwrap();
-    let right = fb.get(px + 2, py).unwrap();
-    assert_eq!(left.ch, '▄');
-    assert_eq!(left.style.fg, t);
-    assert_eq!(left.style.bg, page);
-    assert!(is_solid_mino(mid));
-    assert_eq!(mid.style.bg, t);
-    assert_eq!(right.ch, '▄');
-    assert_eq!(right.style.fg, t);
-    assert_eq!(right.style.bg, page);
-}
-
-#[test]
 fn term_view_shows_five_next_pieces_with_or_without_overlay() {
     let mut snap = GameState::new(1).snapshot();
     snap.active = None;
@@ -336,20 +325,50 @@ fn term_view_shows_five_next_pieces_with_or_without_overlay() {
         &mut with_observe,
     );
 
-    let local = panel_minos(&without);
-    let adapter_count = panel_minos(&with_adapter);
-    let observe_count = panel_minos(&with_observe);
+    // The five previews are pixel layers, so the cell grid stays clear for all
+    // three render paths and the reserved strip is identical.
+    for (label, fb) in [
+        ("local", &without),
+        ("adapter", &with_adapter),
+        ("observe", &with_observe),
+    ] {
+        assert_eq!(panel_minos(fb), 0, "{label}: previews are not cells");
+        assert!(dump(fb).contains("NEXT"), "{label}: NEXT label");
+    }
+    let layout = view.panel_layout(&snap, vp).expect("panel fits");
+    assert_eq!(layout.next_rows, 7, "the default reservation");
+    assert!(layout.hold.1 < layout.next.1, "hold is above next");
+}
+
+#[test]
+fn a_taller_preview_reservation_keeps_the_panel_inside_the_frame() {
+    // The app reserves 12px preview minos, which needs 9 rows for the NEXT strip
+    // on an 8x17 cell. The previews are bottom-anchored so that combo/B2B rows
+    // never move them.
+    let snap = GameState::new(1).snapshot();
+    let view = GameView::default().with_preview_cells((6, 2), (6, 9));
+    let vp = Viewport::new(60, 40);
+    let layout = view.panel_layout(&snap, vp).expect("panel fits");
+    let frame_h = view.well_cells().1 + 2;
+    assert_eq!(layout.next_rows, 9);
     assert_eq!(
-        local, 10,
-        "local HUD shows five packed O previews (5 × 2 cells)"
+        layout.next.1 + layout.next_rows,
+        layout.top + frame_h,
+        "the strip ends exactly on the frame's last row"
     );
     assert_eq!(
-        adapter_count, 10,
-        "adapter overlay still shows the full next queue"
+        layout.hold.1 + 2,
+        layout.next.1 - 1,
+        "one label row between"
     );
+
+    // combo/B2B must not shift the anchors.
+    let mut scored = snap;
+    scored.combo = 3;
+    scored.back_to_back = true;
     assert_eq!(
-        observe_count, 10,
-        "observe overlay still shows the full next queue"
+        view.panel_layout(&scored, vp).map(|l| (l.hold, l.next)),
+        Some((layout.hold, layout.next))
     );
 }
 
@@ -499,4 +518,72 @@ fn term_view_help_line_on_tall_viewport() {
     let fb = GameView::default().render(&snap, Viewport::new(60, 30));
     let all = dump(&fb);
     assert!(all.contains("pause") || all.contains("PAUSE") || all.contains("hold"));
+}
+
+#[test]
+fn well_origin_is_the_cell_inside_the_border() {
+    for (cell_w, cell_h) in [(2u16, 1u16), (1, 1), (3, 1)] {
+        let frame = (10 * cell_w + 2, 20 * cell_h + 2);
+        for viewport in [
+            Viewport::new(frame.0, frame.1),
+            Viewport::new(frame.0 + 20, frame.1 + 4),
+        ] {
+            for anchor in [AnchorY::Center, AnchorY::Top] {
+                let view = GameView::new(cell_w, cell_h).with_anchor_y(anchor);
+                let fb = view.render(&GameState::new(1).snapshot(), viewport);
+                let (ox, oy) = view.well_origin(viewport);
+                assert!(
+                    matches!(fb.get(ox - 1, oy - 1).unwrap().ch, '┌' | '│' | '─'),
+                    "well origin {ox},{oy} must sit inside the frame for {cell_w}x{cell_h}"
+                );
+                // The origin plus the well's cell box ends on the far border.
+                let (cols, rows) = (10 * cell_w, 20 * cell_h);
+                assert_eq!(fb.get(ox + cols, oy).unwrap().ch, '│');
+                assert_eq!(fb.get(ox, oy + rows).unwrap().ch, '─');
+            }
+        }
+    }
+}
+
+#[test]
+fn the_well_is_never_drawn_as_character_cells() {
+    let mut snap = GameState::new(1).snapshot();
+    snap.board[19][0] = 1;
+    snap.board[19][1] = 1;
+    snap.active = None;
+    snap.ghost_y = None;
+    let viewport = Viewport::new(60, 24);
+    let view = GameView::default();
+    let fb = view.render(&snap, viewport);
+    let (ox, oy) = view.well_origin(viewport);
+
+    // Minos are pixels now: the whole interior stays background.
+    for y in 0..20 {
+        for x in 0..20 {
+            let cell = fb.get(ox + x, oy + y).unwrap();
+            assert_eq!(cell.ch, ' ');
+            assert_eq!(cell.style.bg, Rgb::new(28, 28, 28));
+        }
+    }
+    assert_eq!(fb.get(ox - 1, oy - 1).unwrap().ch, '┌');
+    assert_eq!(
+        panel_minos(&fb),
+        0,
+        "HOLD/NEXT previews are pixel layers, not cells"
+    );
+    assert!(dump(&fb).contains("move rotate drop"));
+}
+
+#[test]
+fn the_well_still_gets_a_pause_and_game_over_banner() {
+    let viewport = Viewport::new(60, 24);
+    let view = GameView::default();
+
+    let mut paused = GameState::new(1).snapshot();
+    paused.paused = true;
+    assert!(dump(&view.render(&paused, viewport)).contains("PAUSED"));
+
+    let mut over = GameState::new(1).snapshot();
+    over.game_over = true;
+    assert!(dump(&view.render(&over, viewport)).contains("GAME OVER"));
 }

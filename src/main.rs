@@ -27,6 +27,7 @@ use tui_tetris::app_cli::{
     AppCommand, Budget, HeadlessConfig, diagnostic_report, parse_app_args, run_batch_headless,
     run_report,
 };
+use tui_tetris::graphics::Graphics;
 use tui_tetris::observe::{
     ObserveEvent, ObserveReconnectPolicy, connect_observer_with_retry, observe_hud_overlay,
     parse_observe_args, snapshot_from_observation,
@@ -48,6 +49,10 @@ fn main() -> Result<()> {
         match command {
             AppCommand::Diagnostic => {
                 println!("{}", diagnostic_report());
+                match Graphics::from_env() {
+                    Ok(graphics) => println!("graphics={}", graphics.describe()),
+                    Err(reason) => println!("graphics=unavailable ({reason})"),
+                }
                 return Ok(());
             }
             AppCommand::Headless(config) => {
@@ -77,10 +82,17 @@ fn main() -> Result<()> {
     with_terminal(run)
 }
 
-fn with_terminal(run: impl FnOnce(&mut TerminalRenderer) -> Result<()>) -> Result<()> {
+fn with_terminal(
+    run: impl FnOnce(&mut TerminalRenderer, &mut Graphics) -> Result<()>,
+) -> Result<()> {
+    // The playfield is graphics-only, so refuse to start without a working
+    // pixel backend instead of showing an empty well.
+    let mut graphics = Graphics::from_env().map_err(|reason| anyhow::anyhow!("{reason}"))?;
     let mut term = TerminalRenderer::new();
     term.enter()?;
-    let result = run(&mut term);
+    let result = run(&mut term, &mut graphics);
+    // The alternate screen is about to be dropped; remove the well image first.
+    graphics.shutdown(&mut term);
     let _ = term.exit();
     result
 }
@@ -89,8 +101,8 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
     let reconnect_policy = ObserveReconnectPolicy::default();
     let (mut rx, first_obs) = connect_observer_with_retry(&config, reconnect_policy)?;
 
-    with_terminal(|term| {
-        let mut view = game_view_from_env();
+    with_terminal(|term, graphics| {
+        let mut view = game_view_from_env(graphics);
         let mut fb = tetris_terminal::term::FrameBuffer::new(80, 24);
         let mut latest_obs = first_obs;
         let mut snap = latest_obs
@@ -131,8 +143,9 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
             let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
             if (w, h) != last_term_size {
                 last_term_size = (w, h);
-                view = game_view_from_env();
+                view = game_view_from_env(graphics);
                 term.invalidate();
+                graphics.invalidate();
                 dirty = true;
             }
 
@@ -143,6 +156,8 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
                 );
                 view.render_model_into(&model, Viewport::new(w, h), &mut fb);
                 term.draw_swap(&mut fb)?;
+                let extras = graphics.sync(&snap, &view, Viewport::new(w, h));
+                term.write_raw(extras)?;
                 dirty = false;
             }
 
@@ -150,6 +165,7 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
                 match event::read()? {
                     Event::Resize(_, _) => {
                         term.invalidate();
+                        graphics.invalidate();
                         dirty = true;
                     }
                     Event::Key(key)
@@ -222,10 +238,10 @@ fn run_headless(config: HeadlessConfig) -> Result<()> {
     }
 }
 
-fn run(term: &mut TerminalRenderer) -> Result<()> {
+fn run(term: &mut TerminalRenderer, graphics: &mut Graphics) -> Result<()> {
     let mut session = SessionRuntime::new(1);
 
-    let mut view = game_view_from_env();
+    let mut view = game_view_from_env(graphics);
     let mut fb = tetris_terminal::term::FrameBuffer::new(80, 24);
     let mut input_handler = InputHandler::new();
     if let Ok(s) = std::env::var("TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS")
@@ -299,8 +315,9 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
         let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
         if (w, h) != last_term_size {
             last_term_size = (w, h);
-            view = game_view_from_env();
+            view = game_view_from_env(graphics);
             term.invalidate();
+            graphics.invalidate();
         }
 
         let now_ms = render_epoch.elapsed().as_millis() as u64;
@@ -314,6 +331,8 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
             );
             view.render_model_into(&model, Viewport::new(w, h), &mut fb);
             term.draw_swap(&mut fb)?;
+            let extras = graphics.sync(session.snapshot(), &view, Viewport::new(w, h));
+            term.write_raw(extras)?;
         }
 
         // Input with timeout until next tick.
@@ -326,6 +345,7 @@ fn run(term: &mut TerminalRenderer) -> Result<()> {
                 Event::Resize(_, _) => {
                     // Ensure next frame does a full redraw.
                     term.invalidate();
+                    graphics.invalidate();
                 }
                 Event::Key(key) => match key.kind {
                     KeyEventKind::Press => {
@@ -498,7 +518,7 @@ fn render_fingerprint(
     hash
 }
 
-fn game_view_from_env() -> GameView {
+fn game_view_from_env(graphics: &Graphics) -> GameView {
     let anchor_y = std::env::var("TUI_TETRIS_ANCHOR_Y")
         .ok()
         .map(|v| v.trim().to_ascii_lowercase())
@@ -525,7 +545,11 @@ fn game_view_from_env() -> GameView {
             .map(|(px_w, px_h)| GameView::from_cell_pixels(px_w, px_h))
             .unwrap_or_default(),
     };
-    view = view.with_anchor_y(anchor_y);
+    let (preview_hold, preview_next) = graphics.preview_cells();
+    view = view
+        .with_anchor_y(anchor_y)
+        .with_well_cells(graphics.well_cells())
+        .with_preview_cells(preview_hold, preview_next);
     view
 }
 

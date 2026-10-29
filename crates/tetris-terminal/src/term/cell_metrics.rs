@@ -36,6 +36,18 @@ pub fn squarest_cell_size(cell_px_w: u16, cell_px_h: u16) -> (u16, u16) {
     best
 }
 
+/// Window size in pixels and in cells from the tty ioctl.
+pub fn detect_window_metrics() -> Option<((u32, u32), (u32, u32))> {
+    let ws = crossterm::terminal::window_size().ok()?;
+    if ws.columns == 0 || ws.rows == 0 || ws.width == 0 || ws.height == 0 {
+        return None;
+    }
+    Some((
+        (u32::from(ws.width), u32::from(ws.height)),
+        (u32::from(ws.columns), u32::from(ws.rows)),
+    ))
+}
+
 /// Pixel size of one terminal cell from the tty ioctl, if the emulator fills it.
 pub fn detect_cell_pixels() -> Option<(u16, u16)> {
     let ws = crossterm::terminal::window_size().ok()?;

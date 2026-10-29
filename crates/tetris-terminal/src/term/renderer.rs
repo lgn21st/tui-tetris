@@ -69,6 +69,19 @@ impl<W: Write> TerminalRenderer<W> {
         self.last = None;
     }
 
+    /// Write and flush raw bytes, bypassing the framebuffer diff.
+    ///
+    /// Used by the graphics backend, whose escapes must land *after* the text
+    /// pass because a full redraw emits `CSI 2J`, which also clears images.
+    pub fn write_raw(&mut self, bytes: &[u8]) -> Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        self.writer.write_all(bytes)?;
+        self.writer.flush()?;
+        Ok(())
+    }
+
     /// Draw a framebuffer, swapping it into internal state.
     ///
     /// Callers should keep one `FrameBuffer` and pass it in every frame.

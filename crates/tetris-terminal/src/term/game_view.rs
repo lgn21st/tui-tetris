@@ -3,14 +3,13 @@
 //! This module is pure (no I/O). It can be unit-tested.
 
 use crate::term::fb::{CellStyle, FrameBuffer, Rgb};
-use tetris_core::core::{GameSnapshot, get_shape};
-use tetris_core::types::{BOARD_HEIGHT, BOARD_WIDTH, PieceKind, Rotation};
+use tetris_core::core::GameSnapshot;
+use tetris_core::types::{BOARD_HEIGHT, BOARD_WIDTH, PieceKind};
 
 const PAGE_BG: Rgb = Rgb::new(16, 16, 16);
 const WELL_BG: Rgb = Rgb::new(28, 28, 28);
 const RIM: Rgb = Rgb::new(46, 46, 46);
 const RIM_CLEAR: Rgb = Rgb::new(72, 72, 72);
-const GHOST: Rgb = Rgb::new(42, 42, 42);
 const LABEL: Rgb = Rgb::new(168, 168, 168);
 const VALUE: Rgb = Rgb::new(230, 230, 230);
 const ACCENT: Rgb = Rgb::new(79, 209, 196);
@@ -190,12 +189,36 @@ impl Viewport {
     }
 }
 
+/// Cell anchors of the side panel's pixel previews.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanelLayout {
+    /// Top row of the panel (the frame's first row).
+    pub top: u16,
+    /// Left column of the panel.
+    pub x: u16,
+    /// Top-left cell of the HOLD preview.
+    pub hold: (u16, u16),
+    /// Top-left cell of the NEXT strip.
+    pub next: (u16, u16),
+    /// Rows reserved for the NEXT strip.
+    pub next_rows: u16,
+}
+
 /// A lightweight terminal renderer for the Tetris game.
 pub struct GameView {
     /// Board cell width in terminal columns.
     cell_w: u16,
     /// Board cell height in terminal rows.
     cell_h: u16,
+    /// Terminal cells reserved for the well interior.
+    ///
+    /// Usually `10 x 20` minos at `cell_w x cell_h` cells each, but the pixel
+    /// backend sizes the frame so it hugs a *square* mino grid, which can shave
+    /// a row off (an 8x17 terminal cell needs only 19 rows for 20 square minos).
+    well_cells: (u16, u16),
+    /// Cell boxes the HUD must leave free for the pixel previews.
+    preview_hold: (u16, u16),
+    preview_next: (u16, u16),
     anchor_y: AnchorY,
 }
 
@@ -211,6 +234,9 @@ impl Default for GameView {
         Self {
             cell_w: 2,
             cell_h: 1,
+            well_cells: (BOARD_WIDTH as u16 * 2, BOARD_HEIGHT as u16),
+            preview_hold: (4, 2),
+            preview_next: (4, 7),
             anchor_y: AnchorY::Center,
         }
     }
@@ -221,8 +247,37 @@ impl GameView {
         Self {
             cell_w,
             cell_h,
+            well_cells: (BOARD_WIDTH as u16 * cell_w, BOARD_HEIGHT as u16 * cell_h),
+            preview_hold: (4 * cell_w, 2 * cell_h),
+            preview_next: (4 * cell_w, 7 * cell_h),
             anchor_y: AnchorY::Center,
         }
+    }
+
+    /// Cell boxes reserved for the pixel HOLD/NEXT previews.
+    pub fn preview_cells(&self) -> ((u16, u16), (u16, u16)) {
+        (self.preview_hold, self.preview_next)
+    }
+
+    /// Reserve the cell boxes the pixel HOLD/NEXT previews need.
+    pub fn with_preview_cells(mut self, hold: (u16, u16), next: (u16, u16)) -> Self {
+        self.preview_hold = (hold.0.max(1), hold.1.max(1));
+        self.preview_next = (next.0.max(1), next.1.max(1));
+        self
+    }
+
+    /// Reserve an explicit cell box for the well.
+    ///
+    /// The pixel backend calls this so the frame ends up as close as possible to
+    /// `10 x 20` square minos instead of `10 x 20` tall ones.
+    pub fn with_well_cells(mut self, well_cells: (u16, u16)) -> Self {
+        self.well_cells = (well_cells.0.max(1), well_cells.1.max(1));
+        self
+    }
+
+    /// Terminal cells reserved for the well interior.
+    pub fn well_cells(&self) -> (u16, u16) {
+        self.well_cells
     }
 
     pub fn with_anchor_y(mut self, anchor_y: AnchorY) -> Self {
@@ -238,6 +293,21 @@ impl GameView {
 
     pub fn cell_size(&self) -> (u16, u16) {
         (self.cell_w, self.cell_h)
+    }
+
+    /// Terminal cell of the well interior's top-left corner.
+    ///
+    /// Row/column offsets from this cell address individual board cells:
+    /// `(bx, by)` maps to `(x + bx * cell_w, y + by * cell_h)`.
+    pub fn well_origin(&self, viewport: Viewport) -> (u16, u16) {
+        let frame_w = self.well_cells.0 + 2;
+        let frame_h = self.well_cells.1 + 2;
+        let start_x = viewport.width.saturating_sub(frame_w) / 2;
+        let start_y = match self.anchor_y {
+            AnchorY::Center => viewport.height.saturating_sub(frame_h) / 2,
+            AnchorY::Top => 0,
+        };
+        (start_x + 1, start_y + 1)
     }
 
     /// Render the current game state into an existing framebuffer.
@@ -286,8 +356,8 @@ impl GameView {
             .into_cell(' '),
         );
 
-        let board_px_w = (BOARD_WIDTH as u16) * self.cell_w;
-        let board_px_h = (BOARD_HEIGHT as u16) * self.cell_h;
+        let board_px_w = self.well_cells.0;
+        let board_px_h = self.well_cells.1;
         let frame_w = board_px_w + 2;
         let frame_h = board_px_h + 2;
 
@@ -329,56 +399,28 @@ impl GameView {
             );
         }
 
-        for y in 0..BOARD_HEIGHT as u16 {
-            for x in 0..BOARD_WIDTH as u16 {
-                let cell = snap.board[y as usize][x as usize];
-                if let Some(kind) = piece_from_cell(cell) {
-                    self.draw_board_cell(fb, start_x, start_y, x, y, kind, true);
-                }
-            }
-        }
-
-        if let (Some(active), Some(ghost_y)) = (snap.active, snap.ghost_y)
-            && ghost_y != active.y
-        {
-            let ghost_style = CellStyle {
-                fg: GHOST,
-                bg: GHOST,
-                bold: false,
-                dim: false,
-            };
-            for &(dx, dy) in get_shape(active.kind, active.rotation).iter() {
-                let x = active.x + dx;
-                let y = ghost_y + dy;
-                if x >= 0 && x < BOARD_WIDTH as i8 && y >= 0 && y < BOARD_HEIGHT as i8 {
-                    self.fill_cell_rect(fb, start_x, start_y, x as u16, y as u16, ' ', ghost_style);
-                }
-            }
-        }
-
-        if let Some(active) = snap.active {
-            for &(dx, dy) in get_shape(active.kind, active.rotation).iter() {
-                let x = active.x + dx;
-                let y = active.y + dy;
-                if x >= 0 && x < BOARD_WIDTH as i8 && y >= 0 && y < BOARD_HEIGHT as i8 {
-                    self.draw_board_cell(
-                        fb,
-                        start_x,
-                        start_y,
-                        x as u16,
-                        y as u16,
-                        active.kind,
-                        true,
-                    );
-                }
-            }
-        }
-
-        self.draw_side_panel(fb, snap, viewport, start_x, start_y, frame_w);
+        // The well interior is left empty: minos are pixels, not character
+        // cells. Everything around it stays text so the HUD uses the user's
+        // font at full fidelity.
+        self.draw_side_panel(fb, snap, viewport);
         if let Some(overlay) = overlay {
             self.draw_hud_overlay(fb, overlay, viewport);
         }
 
+        self.draw_state_banner(fb, snap, start_x, start_y, frame_w, frame_h);
+        self.draw_help_line(fb, viewport, start_y, frame_h);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_state_banner(
+        &self,
+        fb: &mut FrameBuffer,
+        snap: &GameSnapshot,
+        start_x: u16,
+        start_y: u16,
+        frame_w: u16,
+        frame_h: u16,
+    ) {
         if snap.paused {
             self.draw_banner(
                 fb, start_x, start_y, frame_w, frame_h, "PAUSED", None, "P resume",
@@ -395,21 +437,24 @@ impl GameView {
                 "R retry",
             );
         }
+    }
 
-        if start_y.saturating_add(frame_h) < viewport.height {
-            let help = CellStyle {
-                fg: LABEL,
-                bg: PAGE_BG,
-                bold: false,
-                dim: true,
-            };
-            fb.put_str(
-                1,
-                viewport.height - 1,
-                "move rotate drop  C hold  P pause  R retry  Q quit",
-                help,
-            );
+    fn draw_help_line(&self, fb: &mut FrameBuffer, viewport: Viewport, start_y: u16, frame_h: u16) {
+        if start_y.saturating_add(frame_h) >= viewport.height {
+            return;
         }
+        let help = CellStyle {
+            fg: LABEL,
+            bg: PAGE_BG,
+            bold: false,
+            dim: true,
+        };
+        fb.put_str(
+            1,
+            viewport.height - 1,
+            "move rotate drop  C hold  P pause  R retry  Q quit",
+            help,
+        );
     }
 
     /// Convenience helper that allocates a new framebuffer.
@@ -450,71 +495,48 @@ impl GameView {
         }
     }
 
-    #[allow(clippy::too_many_arguments)] // Flat scalar arguments keep this render hot path allocation-free.
-    fn draw_board_cell(
-        &self,
-        fb: &mut FrameBuffer,
-        start_x: u16,
-        start_y: u16,
-        x: u16,
-        y: u16,
-        kind: PieceKind,
-        _bold: bool,
-    ) {
-        // Paint with matching fg/bg spaces. Glyphs like '█' rarely fill a
-        // terminal cell and may be fullwidth, which stretches every mino.
-        let color = piece_color(kind);
-        let style = CellStyle {
-            fg: color,
-            bg: color,
-            bold: false,
-            dim: false,
+    /// Where the side panel's dynamic parts land, shared by the text pass and
+    /// the pixel preview layers so both agree on the anchors.
+    ///
+    /// The previews are anchored to the *bottom* of the frame, so the stats and
+    /// the combo rows above them never move them (a moved anchor would force the
+    /// sprite layers to re-place themselves).
+    pub fn panel_layout(&self, _snap: &GameSnapshot, viewport: Viewport) -> Option<PanelLayout> {
+        let frame_w = self.well_cells.0 + 2;
+        let frame_h = self.well_cells.1 + 2;
+        let start_x = viewport.width.saturating_sub(frame_w) / 2;
+        let start_y = match self.anchor_y {
+            AnchorY::Center => viewport.height.saturating_sub(frame_h) / 2,
+            AnchorY::Top => 0,
         };
-        self.fill_cell_rect(fb, start_x, start_y, x, y, ' ', style);
-    }
-
-    #[allow(clippy::too_many_arguments)] // Flat scalar arguments keep this render hot path allocation-free.
-    fn fill_cell_rect(
-        &self,
-        fb: &mut FrameBuffer,
-        start_x: u16,
-        start_y: u16,
-        cell_x: u16,
-        cell_y: u16,
-        ch: char,
-        style: CellStyle,
-    ) {
-        let px = start_x + 1 + cell_x * self.cell_w;
-        let py = start_y + 1 + cell_y * self.cell_h;
-        fb.fill_rect(px, py, self.cell_w, self.cell_h, ch, style);
-    }
-
-    fn preview_cell_w(&self) -> u16 {
-        (self.cell_w / 2).max(1)
-    }
-
-    fn preview_cell_h(&self) -> u16 {
-        (self.cell_h / 2).max(1)
-    }
-
-    fn draw_side_panel(
-        &self,
-        fb: &mut FrameBuffer,
-        snap: &GameSnapshot,
-        viewport: Viewport,
-        start_x: u16,
-        start_y: u16,
-        frame_w: u16,
-    ) {
-        let panel_x = start_x.saturating_add(frame_w).saturating_add(2);
-        if panel_x >= viewport.width {
-            return;
-        }
-        let panel_w = viewport.width - panel_x;
-        if panel_w < 12 {
-            return;
+        let x = start_x.saturating_add(frame_w).saturating_add(2);
+        if x >= viewport.width || viewport.width - x < self.preview_next.0.max(1) {
+            return None;
         }
 
+        let hold_rows = self.preview_hold.1.max(1);
+        let next_rows = self.preview_next.1.max(1);
+        let next_y = start_y.saturating_add(frame_h.saturating_sub(next_rows));
+        let hold_y = next_y.saturating_sub(hold_rows).saturating_sub(1);
+
+        Some(PanelLayout {
+            top: start_y,
+            x,
+            hold: (x, hold_y),
+            next: (x, next_y),
+            next_rows,
+        })
+    }
+
+    /// Text part of the panel: stats, labels and the empty-hold dash.
+    ///
+    /// This is the layout the cell renderer used: stats stacked in the right
+    /// column with blank separators, then HOLD and NEXT underneath. The pieces
+    /// themselves are pixel layers (see `PreviewRenderer`).
+    fn draw_side_panel(&self, fb: &mut FrameBuffer, snap: &GameSnapshot, viewport: Viewport) {
+        let Some(layout) = self.panel_layout(snap, viewport) else {
+            return;
+        };
         let label = CellStyle {
             fg: LABEL,
             bg: PAGE_BG,
@@ -533,53 +555,39 @@ impl GameView {
             bold: true,
             dim: false,
         };
-
-        let mut y = start_y;
-        fb.put_str(panel_x, y, "SCORE", label);
-        y = y.saturating_add(1);
-        fb.put_u32(panel_x, y, snap.score, value);
-        y = y.saturating_add(2);
-
-        fb.put_str(panel_x, y, "LEVEL", label);
-        fb.put_u32(panel_x + 6, y, snap.level.saturating_add(1), value);
-        y = y.saturating_add(1);
-        fb.put_str(panel_x, y, "LINES", label);
-        fb.put_u32(panel_x + 6, y, snap.lines, value);
-        y = y.saturating_add(2);
-
-        if snap.combo > 0 {
-            fb.put_str(panel_x, y, "COMBO", accent);
-            fb.put_u32(panel_x + 6, y, snap.combo as u32, accent);
-            y = y.saturating_add(1);
-        }
-        if snap.back_to_back {
-            fb.put_str(panel_x, y, "B2B", accent);
-            y = y.saturating_add(1);
-        }
-        if snap.combo > 0 || snap.back_to_back {
-            y = y.saturating_add(1);
-        }
-
-        fb.put_str(panel_x, y, "HOLD", label);
-        y = y.saturating_add(1);
-        if let Some(kind) = snap.hold {
-            y = y.saturating_add(self.draw_mini_piece(fb, panel_x, y, kind, !snap.can_hold));
-        } else {
-            fb.put_str(panel_x, y, "-", value);
-            y = y.saturating_add(1);
-        }
-        y = y.saturating_add(1);
-
-        fb.put_str(panel_x, y, "NEXT", label);
-        y = y.saturating_add(1);
-        for kind in snap.next_queue.iter() {
-            let height = self.mini_term_height(*kind);
-            if y.saturating_add(height) >= viewport.height {
-                break;
+        let x = layout.x;
+        // Everything above the HOLD label belongs to the stats block.
+        let limit = layout.hold.1.saturating_sub(1);
+        let row = |offset: u16| layout.top.saturating_add(offset);
+        let put = |fb: &mut FrameBuffer, offset: u16, text: &str, number: u32, style: CellStyle| {
+            let y = row(offset);
+            if y < limit {
+                fb.put_str(x, y, text, style);
+                fb.put_u32(x + 6, y, number, style);
             }
-            y = y.saturating_add(self.draw_mini_piece(fb, panel_x, y, *kind, false));
-            y = y.saturating_add(1);
+        };
+
+        // SCORE keeps the cell renderer's shape: label, then its value below.
+        if row(0) < limit {
+            fb.put_str(x, row(0), "SCORE", label);
         }
+        if row(1) < limit {
+            fb.put_u32(x, row(1), snap.score, value);
+        }
+        put(fb, 3, "LEVEL", snap.level.saturating_add(1), label);
+        put(fb, 4, "LINES", snap.lines, label);
+        if snap.combo > 0 {
+            put(fb, 6, "COMBO", snap.combo as u32, accent);
+        }
+        if snap.back_to_back && row(7) < limit {
+            fb.put_str(x, row(7), "B2B", accent);
+        }
+
+        fb.put_str(x, layout.hold.1.saturating_sub(1), "HOLD", label);
+        if snap.hold.is_none() {
+            fb.put_str(layout.hold.0, layout.hold.1, "-", value);
+        }
+        fb.put_str(x, layout.next.1.saturating_sub(1), "NEXT", label);
     }
 
     fn draw_hud_overlay(&self, fb: &mut FrameBuffer, overlay: &HudOverlay, viewport: Viewport) {
@@ -695,7 +703,7 @@ impl GameView {
     }
 }
 
-fn piece_from_cell(v: u8) -> Option<PieceKind> {
+pub(crate) fn piece_from_cell(v: u8) -> Option<PieceKind> {
     match v {
         1 => Some(PieceKind::I),
         2 => Some(PieceKind::O),
@@ -708,7 +716,7 @@ fn piece_from_cell(v: u8) -> Option<PieceKind> {
     }
 }
 
-fn piece_color(kind: PieceKind) -> Rgb {
+pub(crate) fn piece_color(kind: PieceKind) -> Rgb {
     match kind {
         PieceKind::I => Rgb::new(79, 209, 196),
         PieceKind::O => Rgb::new(245, 224, 94),
@@ -717,125 +725,6 @@ fn piece_color(kind: PieceKind) -> Rgb {
         PieceKind::Z => Rgb::new(252, 130, 130),
         PieceKind::J => Rgb::new(99, 178, 237),
         PieceKind::L => Rgb::new(245, 173, 84),
-    }
-}
-
-fn mix_rgb(a: Rgb, b: Rgb) -> Rgb {
-    mix_rgb_n(a, b, 1, 1)
-}
-
-fn mix_rgb_n(a: Rgb, b: Rgb, a_w: u16, b_w: u16) -> Rgb {
-    let t = a_w.saturating_add(b_w).max(1);
-    Rgb::new(
-        ((u16::from(a.r) * a_w + u16::from(b.r) * b_w) / t) as u8,
-        ((u16::from(a.g) * a_w + u16::from(b.g) * b_w) / t) as u8,
-        ((u16::from(a.b) * a_w + u16::from(b.b) * b_w) / t) as u8,
-    )
-}
-
-fn mini_height(kind: PieceKind) -> u16 {
-    let shape = get_shape(kind, Rotation::North);
-    let mut min_y = i8::MAX;
-    let mut max_y = i8::MIN;
-    for &(_, dy) in &shape {
-        min_y = min_y.min(dy);
-        max_y = max_y.max(dy);
-    }
-    (max_y - min_y + 1) as u16
-}
-
-impl GameView {
-    fn packs_preview_half_blocks(&self) -> bool {
-        self.cell_h == 1 && self.cell_w >= 2
-    }
-
-    fn mini_term_height(&self, kind: PieceKind) -> u16 {
-        let rows = mini_height(kind);
-        if self.packs_preview_half_blocks() {
-            rows.div_ceil(2)
-        } else {
-            rows.saturating_mul(self.preview_cell_h())
-        }
-    }
-
-    fn draw_mini_piece(
-        &self,
-        fb: &mut FrameBuffer,
-        origin_x: u16,
-        origin_y: u16,
-        kind: PieceKind,
-        dim: bool,
-    ) -> u16 {
-        let shape = get_shape(kind, Rotation::North);
-        let mut min_x = i8::MAX;
-        let mut min_y = i8::MAX;
-        let mut max_x = i8::MIN;
-        let mut max_y = i8::MIN;
-        for &(dx, dy) in &shape {
-            min_x = min_x.min(dx);
-            min_y = min_y.min(dy);
-            max_x = max_x.max(dx);
-            max_y = max_y.max(dy);
-        }
-        let mut color = piece_color(kind);
-        if dim {
-            color = mix_rgb(color, PAGE_BG);
-        }
-        let fill = CellStyle {
-            fg: color,
-            bg: color,
-            bold: false,
-            dim: false,
-        };
-
-        if self.packs_preview_half_blocks() {
-            let width = (max_x - min_x + 1) as usize;
-            let height = (max_y - min_y + 1) as usize;
-            let mut occ = [[false; 4]; 4];
-            for &(dx, dy) in &shape {
-                occ[(dy - min_y) as usize][(dx - min_x) as usize] = true;
-            }
-            // Odd-height pieces sit on the lower half so they share a baseline with O.
-            let pad = height % 2;
-            let term_rows = ((height + pad) / 2) as u16;
-            let half = CellStyle {
-                fg: color,
-                bg: PAGE_BG,
-                bold: false,
-                dim: false,
-            };
-            let row_at = |y: isize| -> [bool; 4] {
-                if y < 0 {
-                    return [false; 4];
-                }
-                let y = y as usize;
-                if y >= height { [false; 4] } else { occ[y] }
-            };
-            for tr in 0..term_rows as usize {
-                let ups = row_at((tr as isize) * 2 - pad as isize);
-                let downs = row_at((tr as isize) * 2 - pad as isize + 1);
-                for (mx, (&up, &down)) in ups.iter().zip(downs.iter()).take(width).enumerate() {
-                    let px = origin_x.saturating_add(mx as u16);
-                    let py = origin_y.saturating_add(tr as u16);
-                    match (up, down) {
-                        (true, true) => fb.put_char(px, py, ' ', fill),
-                        (true, false) => fb.put_char(px, py, '▀', half),
-                        (false, true) => fb.put_char(px, py, '▄', half),
-                        (false, false) => {}
-                    }
-                }
-            }
-            return term_rows;
-        }
-
-        let cell_w = self.preview_cell_w();
-        let cell_h = self.preview_cell_h();
-        for &(dx, dy) in &shape {
-            let px = origin_x.saturating_add((dx - min_x) as u16 * cell_w);
-            let py = origin_y.saturating_add((dy - min_y) as u16 * cell_h);
-            fb.fill_rect(px, py, cell_w, cell_h, ' ', fill);
-        }
-        ((max_y - min_y + 1) as u16).saturating_mul(cell_h)
     }
 }
 

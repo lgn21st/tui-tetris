@@ -49,5 +49,6 @@
 //! - Diff-based terminal rendering (dirty-cell flush)
 
 pub mod app_cli;
+pub mod graphics;
 pub mod observe;
 pub mod replay_cli;

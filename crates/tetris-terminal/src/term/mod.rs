@@ -12,13 +12,18 @@
 pub mod cell_metrics;
 pub mod fb;
 pub mod game_view;
+pub mod kitty;
 pub mod render_throttle;
 pub mod renderer;
 
-pub use cell_metrics::{detect_cell_pixels, squarest_cell_size};
+pub use cell_metrics::{detect_cell_pixels, detect_window_metrics, squarest_cell_size};
 pub use fb::{Cell, CellStyle, FrameBuffer, Rgb};
 pub use game_view::{
-    AdapterStatusView, AnchorY, GameView, GameViewModel, HudOverlay, HudOverlayValue, Viewport,
+    AdapterStatusView, AnchorY, GameView, GameViewModel, HudOverlay, HudOverlayValue, PanelLayout,
+    Viewport,
+};
+pub use kitty::{
+    GraphicsChoice, KittySupport, PixelCanvas, PixelFormat, WellGeometry, WellRenderer, detect,
 };
 pub use render_throttle::RenderThrottle;
 pub use renderer::{TerminalRenderer, encode_diff_into, encode_full_into};
