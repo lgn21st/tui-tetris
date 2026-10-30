@@ -163,7 +163,7 @@ pub fn board_hash(snap: &GameSnapshot) -> u64 {
 }
 
 /// Hash of everything in the motion layer.
-pub fn motion_hash(snap: &GameSnapshot, geometry: WellGeometry) -> u64 {
+pub fn motion_hash(snap: &GameSnapshot, geometry: WellGeometry, fall_offset: u32) -> u64 {
     let mut hash = FNV_OFFSET ^ geometry.salt();
     match snap.active {
         Some(active) => {
@@ -184,6 +184,9 @@ pub fn motion_hash(snap: &GameSnapshot, geometry: WellGeometry) -> u64 {
     hash = fnv_step(hash, u64::from(flash_bucket(snap.timers.line_clear_ms)));
     hash = fnv_step(hash, u64::from(snap.paused));
     hash = fnv_step(hash, u64::from(snap.game_over));
+    // Sub-cell fall progress: the piece is drawn between rows, so a whole pixel
+    // of movement is a real change.
+    hash = fnv_step(hash, u64::from(fall_offset));
     hash
 }
 
@@ -272,6 +275,10 @@ pub struct WellRenderer {
     board: Layer,
     motion: Layer,
     geometry: WellGeometry,
+    /// Gravity period observed from consecutive drops, used to place the piece
+    /// between rows (soft drop and level changes update it by themselves).
+    fall_period_ms: u32,
+    last_drop_ms: u32,
     /// Whether the terminal may still hold our images. Kept separate from each
     /// layer's `drawn` marker, which `invalidate` clears.
     live: bool,
@@ -296,6 +303,8 @@ impl WellRenderer {
                 PixelFormat::Rgba,
             ),
             geometry,
+            fall_period_ms: 0,
+            last_drop_ms: 0,
             live: false,
         }
     }
@@ -355,9 +364,10 @@ impl WellRenderer {
             emitted = true;
         }
 
-        let hash = motion_hash(snap, geometry);
+        let offset = self.fall_offset(snap);
+        let hash = motion_hash(snap, geometry, offset);
         if self.motion.needs(hash, layout) {
-            paint_motion(&mut self.motion.canvas, snap, geometry);
+            paint_motion(&mut self.motion.canvas, snap, geometry, offset);
             self.writer.transmit_and_place(
                 &self.motion.canvas,
                 self.motion.image_id,
@@ -375,6 +385,39 @@ impl WellRenderer {
             self.live = true;
         }
         Ok(emitted)
+    }
+
+    /// Device pixels the falling piece is drawn below its row, in `0..band_h`.
+    ///
+    /// `timers.drop_ms` counts up to the gravity period and resets when the piece
+    /// actually moves, so the piece can be placed between rows without a clock and
+    /// without asking the core for the interval. The period is learned from the
+    /// last reset, which makes soft drop and level changes self-correcting.
+    fn fall_offset(&mut self, snap: &GameSnapshot) -> u32 {
+        let Some(active) = snap.active else {
+            return 0;
+        };
+        if snap.paused || snap.game_over || snap.timers.lock_ms > 0 {
+            return 0;
+        }
+        // Resting on the stack: there is no next row to slide towards.
+        if snap.ghost_y == Some(active.y) {
+            return 0;
+        }
+        let drop_ms = snap.timers.drop_ms;
+        if drop_ms < self.last_drop_ms {
+            self.fall_period_ms = self.last_drop_ms;
+        }
+        self.last_drop_ms = drop_ms;
+
+        let band = self.geometry.grid().band.1;
+        let period = self.fall_period_ms;
+        // Too fast to interpolate usefully (and the quantisation would be coarse).
+        if period < 32 || band < 4 {
+            return 0;
+        }
+        let offset = u64::from(drop_ms) * u64::from(band) / u64::from(period);
+        (offset as u32).min(band - 1)
     }
 
     /// Force both layers to be retransmitted on the next `sync`.
@@ -450,7 +493,12 @@ fn paint_backdrop(canvas: &mut PixelCanvas, geometry: WellGeometry) {
     }
 }
 
-fn paint_motion(canvas: &mut PixelCanvas, snap: &GameSnapshot, geometry: WellGeometry) {
+fn paint_motion(
+    canvas: &mut PixelCanvas,
+    snap: &GameSnapshot,
+    geometry: WellGeometry,
+    fall_offset: u32,
+) {
     canvas.clear();
     let grid = geometry.grid();
     if grid.band.0 == 0 || grid.band.1 == 0 {
@@ -497,7 +545,7 @@ fn paint_motion(canvas: &mut PixelCanvas, snap: &GameSnapshot, geometry: WellGeo
             let (mx, my) = grid.cell(x as u16, y as u16);
             canvas.blend_rect(
                 mx + SHADOW_OFFSET.0,
-                my + SHADOW_OFFSET.1,
+                my + SHADOW_OFFSET.1 + fall_offset,
                 grid.band.0,
                 grid.band.1,
                 BLACK,
@@ -505,10 +553,11 @@ fn paint_motion(canvas: &mut PixelCanvas, snap: &GameSnapshot, geometry: WellGeo
             );
         }
         // The falling piece goes through exactly the same painter as a locked
-        // one, so nothing changes visually when it settles.
+        // one, so nothing changes visually when it settles - only the sub-cell
+        // offset differs while it is airborne.
         paint_regions(
             canvas,
-            geometry.grid(),
+            Grid::new((grid.origin.0, grid.origin.1 + fall_offset), grid.band),
             &cells,
             |x, y| inside(x, y).then_some(color),
             255,
@@ -519,7 +568,7 @@ fn paint_motion(canvas: &mut PixelCanvas, snap: &GameSnapshot, geometry: WellGeo
         if tint > 0 {
             for &(x, y) in cells.iter() {
                 let (mx, my) = grid.cell(x as u16, y as u16);
-                canvas.blend_rect(mx, my, grid.band.0, grid.band.1, WHITE, tint);
+                canvas.blend_rect(mx, my + fall_offset, grid.band.0, grid.band.1, WHITE, tint);
             }
         }
     }
