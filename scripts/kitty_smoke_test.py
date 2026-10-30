@@ -299,7 +299,12 @@ def unwrap(envelope: bytes) -> bytes:
     return payload.replace(b"\x1b\x1b", b"\x1b")
 
 
-def check(data: bytes, tmux: bool, expect_square_minos: bool = False) -> list[str]:
+def check(
+    data: bytes,
+    tmux: bool,
+    expect_square_minos: bool = False,
+    expect_previews: bool = True,
+) -> list[str]:
     problems = []
     if b"\x1b[?1049h" not in data:
         problems.append("never entered the alternate screen")
@@ -429,7 +434,9 @@ def check(data: bytes, tmux: bool, expect_square_minos: bool = False) -> list[st
         problems.append("no transmit-and-place command")
     if expect_square_minos and "rgba" not in formats:
         problems.append("no motion layer to measure mino shapes")
-    if len(previews) != 2:
+    # The side panel needs 12 columns beside the frame; a narrower terminal draws
+    # the playfield only, which is reported on stderr rather than rendered.
+    if len(previews) != 2 and expect_previews:
         problems.append(f"expected two HUD preview layers, saw {sorted(previews)}")
 
     if b"Gi=" in data:
@@ -516,7 +523,9 @@ def main() -> int:
         print(f"OK: refused to start without graphics ({len(data)} bytes)")
         return 0
 
-    problems = check(data, args.tmux, args.expect_square_minos)
+    problems = check(
+        data, args.tmux, args.expect_square_minos, expect_previews=args.cols >= 49
+    )
     if problems:
         for problem in problems:
             print(f"FAIL: {problem}")
