@@ -5,7 +5,7 @@
 - Playfield and HUD previews are drawn with layered Kitty graphics instead of character cells (`docs/kitty-graphics.md`); the game refuses to start without a pixel backend
 - Layers split by change frequency: opaque board (`z=0`, RGB) on a lock or clear, transparent motion (`z=1`, RGBA) per piece movement, plus native-size HOLD/NEXT sprites at half a board mino
 - The frame hugs the pixel grid, so minos are exact squares (19 text rows for 20 minos on an 8x17 cell, image sent at device resolution); cells fill their band edge to edge and one painter covers falling and locked pieces
-- Motion-layer effects: drop shadow, translucent ghost silhouette, lock-delay whitening, line-clear flash, pause dim, and the piece slides between rows instead of jumping one per tick
+- Motion-layer effects: drop shadow, translucent ghost silhouette, lock-delay whitening, line-clear flash, pause dim; pieces move exactly one row per gravity tick, as in arcade Tetris
 - The side panel keeps the cell renderer's composition, warns once on stderr when the terminal is too narrow for it, and the playfield gates now include the layer benchmarks
 - Gravity follows the Guideline curve to a normal-mode ceiling of 7 ms/row (≈2.4G) from level 15, instead of plateauing at 120 ms; soft drop clamps to at least 1 ms
 - Local timing profile `tui-tetris-timing-1.1.0` is recorded with the portable ruleset as `<ruleset>+<timing>` in replay metadata, `welcome.ruleset_id`, and `diagnostic`

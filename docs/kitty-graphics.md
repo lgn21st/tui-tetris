@@ -103,11 +103,13 @@ Composite the dumped layers to inspect rendering by eye.
 ## Limits
 
 - Each layer is a full-well image, so one changed pixel re-sends that layer. A
-  per-mino sprite atlas would cut the motion layer to ~90 bytes per move and
-  allow sub-cell motion, but needs pixel-offset arithmetic that can drift against
-  the board.
-- No animation frames (`a=f`): fades and the sub-cell fall are driven by the
-  existing 16 ms tick and the snapshot's `timers.drop_ms`.
+  per-mino sprite atlas would cut the motion layer to ~90 bytes per move, but
+  needs pixel-offset arithmetic that can drift against the board, and buys
+  nothing while pieces step a whole row at a time.
+- No animation frames (`a=f`): the line-clear fade is driven by the existing
+  16 ms tick.
+- Pieces move one whole row per gravity tick, as in arcade Tetris; the motion
+  layer is therefore re-sent on a row change, not every frame.
 - Images do not scroll with text; the well lives on the alternate screen, so
   `U=1` Unicode placeholders (the tmux scroll-safe mechanism) are not needed.
 - The side panel needs 12 columns beside the frame; below that it is skipped with

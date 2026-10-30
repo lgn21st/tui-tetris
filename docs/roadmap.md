@@ -14,9 +14,10 @@ The renderer is where the work has been (`docs/kitty-graphics.md`). What is left
 
 Deliberately not done:
 
-- The sprite atlas is not needed for smooth motion: the layered image already
-  places the piece at any pixel offset, so the fall is interpolated between rows
-  without it
+- Sub-cell fall interpolation and a per-mino sprite atlas. Arcade Tetris moves a
+  piece one whole row per gravity tick, and the layered image can already place
+  the piece at any pixel offset if that ever changes; interpolating also costs
+  ~16 retransmissions a second instead of one per row
 - Cell-based rendering stays removed; there is no fallback path to maintain
 
 Validate:

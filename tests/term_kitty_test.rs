@@ -533,78 +533,24 @@ fn a_clear_flashes_the_row_and_pausing_dims_the_well() {
     );
 }
 
-#[test]
-fn the_piece_slides_between_rows_without_a_clock() {
-    let geom = geometry();
-    let mut well = WellRenderer::new(support(), geom);
-    let band = geom.cell_rect(0, 0).3;
-    let mut out = Vec::new();
-    let mut snap = GameSnapshot {
-        active: Some(ActiveSnapshot {
-            kind: PieceKind::T,
-            rotation: Rotation::North,
-            x: 3,
-            y: 2,
-        }),
-        ghost_y: Some(18),
-        ..GameSnapshot::default()
-    };
-    let probe_x = geom.cell_rect(4, 2).0 + 2;
-    let top = geom.cell_rect(4, 2).1;
-
-    // Two gravity cycles: `drop_ms` climbs to the period then resets, which is
-    // how the renderer learns it. Measure in the second cycle.
-    let mut halfway = None;
-    for step in 0..2000u32 {
-        snap.timers.drop_ms = step % 1000;
-        well.sync(&snap, geom, (0, 0), &mut out).unwrap();
-        if step == 1500 {
-            halfway = Some(well.motion().clone());
-        }
-    }
-    let canvas = halfway.expect("captured mid-fall");
-    let shifted = (top..top + 2 * band)
-        .find(|y| canvas.alpha(probe_x, *y) == Some(255))
-        .expect("the piece is drawn below its row");
-    let offset = shifted - top;
-    assert!(
-        offset > band / 4 && offset < band,
-        "offset {offset} should be partway into the band"
-    );
-
-    // A grounded piece is not interpolated.
-    snap.timers.drop_ms = 500;
-    snap.ghost_y = Some(2);
-    well.sync(&snap, geom, (0, 0), &mut out).unwrap();
-    assert_eq!(
-        well.motion().alpha(probe_x, top),
-        Some(255),
-        "a grounded piece stays on its row"
-    );
-}
-
 // ----------------------------------------------------------------- hashes
 
 #[test]
 fn each_layer_hash_tracks_only_what_it_draws() {
     let mut snap = GameSnapshot::default();
     let board = board_hash(&snap);
-    let motion = motion_hash(&snap, geometry(), 0);
+    let motion = motion_hash(&snap, geometry());
 
     snap.score = 999;
     snap.level = 9;
     snap.next_queue[0] = PieceKind::S;
     assert_eq!(board_hash(&snap), board, "HUD fields are not board pixels");
-    assert_eq!(
-        motion_hash(&snap, geometry(), 0),
-        motion,
-        "nor motion pixels"
-    );
+    assert_eq!(motion_hash(&snap, geometry()), motion, "nor motion pixels");
 
     snap.board[0][0] = 1;
     assert_ne!(board_hash(&snap), board);
     assert_eq!(
-        motion_hash(&snap, geometry(), 0),
+        motion_hash(&snap, geometry()),
         motion,
         "board is not motion"
     );
@@ -618,7 +564,7 @@ fn each_layer_hash_tracks_only_what_it_draws() {
         }),
         ..GameSnapshot::default()
     };
-    assert_ne!(motion_hash(&falling, geometry(), 0), motion);
+    assert_ne!(motion_hash(&falling, geometry()), motion);
     assert_eq!(board_hash(&falling), board_hash(&GameSnapshot::default()));
 }
 
