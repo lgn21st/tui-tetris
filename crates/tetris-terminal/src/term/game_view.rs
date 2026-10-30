@@ -285,12 +285,6 @@ impl GameView {
         self
     }
 
-    /// Size a mino from the pixel dimensions of one terminal cell.
-    pub fn from_cell_pixels(cell_px_w: u16, cell_px_h: u16) -> Self {
-        let (cell_w, cell_h) = crate::term::cell_metrics::squarest_cell_size(cell_px_w, cell_px_h);
-        Self::new(cell_w, cell_h)
-    }
-
     pub fn cell_size(&self) -> (u16, u16) {
         (self.cell_w, self.cell_h)
     }

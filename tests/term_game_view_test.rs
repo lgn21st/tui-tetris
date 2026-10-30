@@ -58,8 +58,8 @@ fn observe_overlay() -> HudOverlay {
 fn squarest_cell_size_picks_1x1_for_square_fonts_and_2x1_for_classic_cells() {
     assert_eq!(tetris_terminal::term::squarest_cell_size(8, 16), (2, 1));
     assert_eq!(tetris_terminal::term::squarest_cell_size(12, 12), (1, 1));
-    assert_eq!(GameView::from_cell_pixels(8, 16).cell_size(), (2, 1));
-    assert_eq!(GameView::from_cell_pixels(12, 12).cell_size(), (1, 1));
+    assert_eq!(GameView::new(2, 1).cell_size(), (2, 1));
+    assert_eq!(GameView::new(1, 1).cell_size(), (1, 1));
 }
 
 #[test]

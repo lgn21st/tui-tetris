@@ -15,7 +15,7 @@ pub mod kitty;
 pub mod render_throttle;
 pub mod renderer;
 
-pub use cell_metrics::{detect_cell_pixels, detect_window_metrics, squarest_cell_size};
+pub use cell_metrics::{detect_window_metrics, squarest_cell_size};
 pub use fb::{Cell, CellStyle, FrameBuffer, Rgb};
 pub use game_view::{
     AdapterStatusView, AnchorY, GameView, GameViewModel, HudOverlay, HudOverlayValue, PanelLayout,

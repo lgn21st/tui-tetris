@@ -48,13 +48,6 @@ pub fn detect_window_metrics() -> Option<((u32, u32), (u32, u32))> {
     ))
 }
 
-/// Pixel size of one terminal cell from the tty ioctl, if the emulator fills it.
-pub fn detect_cell_pixels() -> Option<(u16, u16)> {
-    let ((px_w, px_h), (cols, rows)) = detect_window_metrics()?;
-    let cell = ((px_w / cols) as u16, (px_h / rows) as u16);
-    (cell.0 > 0 && cell.1 > 0).then_some(cell)
-}
-
 #[cfg(test)]
 mod tests {
     use super::squarest_cell_size;

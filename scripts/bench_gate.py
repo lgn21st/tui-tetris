@@ -50,6 +50,12 @@ THRESHOLDS_SECONDS: dict[str, float] = {
     "renderer_backend_changed_frame": 20e-6,  # 20us
     # JSON parsing can vary a lot by CPU and serde_json version; keep generous.
     "parse_command_action": 50e-6,  # 50us
+    # Playfield layers. The board layer is a full opaque re-deflate (measured
+    # ~185-195us) and only runs on a lock or a clear; the motion layer is mostly
+    # transparent (~44us); the no-op path is the content hash (~0.22us).
+    "kitty_board_layer_emit": 600e-6,  # 600us
+    "kitty_motion_layer_emit": 200e-6,  # 200us
+    "kitty_well_skip": 5e-6,  # 5us
 }
 
 

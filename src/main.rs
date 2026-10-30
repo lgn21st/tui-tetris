@@ -530,27 +530,13 @@ fn game_view_from_env(graphics: &Graphics) -> GameView {
         })
         .unwrap_or(AnchorY::Center);
 
-    let override_w = std::env::var("TUI_TETRIS_CELL_W")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .filter(|w| *w >= 1);
-    let override_h = std::env::var("TUI_TETRIS_CELL_H")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .filter(|h| *h >= 1);
-
-    let mut view = match (override_w, override_h) {
-        (Some(w), Some(h)) => GameView::new(w, h),
-        _ => tetris_terminal::term::detect_cell_pixels()
-            .map(|(px_w, px_h)| GameView::from_cell_pixels(px_w, px_h))
-            .unwrap_or_default(),
-    };
+    // The frame size and the preview sprites come from the measured display, so
+    // only the anchor is configurable here.
     let (preview_hold, preview_next) = graphics.preview_cells();
-    view = view
+    GameView::default()
         .with_anchor_y(anchor_y)
         .with_well_cells(graphics.well_cells())
-        .with_preview_cells(preview_hold, preview_next);
-    view
+        .with_preview_cells(preview_hold, preview_next)
 }
 
 #[cfg(test)]
