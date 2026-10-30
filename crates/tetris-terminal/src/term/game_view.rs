@@ -189,6 +189,9 @@ impl Viewport {
     }
 }
 
+/// Narrowest panel worth drawing: the stats labels need this much room.
+const MIN_PANEL_COLS: u16 = 12;
+
 /// Cell anchors of the side panel's pixel previews.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PanelLayout {
@@ -504,7 +507,9 @@ impl GameView {
             AnchorY::Top => 0,
         };
         let x = start_x.saturating_add(frame_w).saturating_add(2);
-        if x >= viewport.width || viewport.width - x < self.preview_next.0.max(1) {
+        // Room for both the labels and the preview strip, or the panel is skipped.
+        let needed = self.preview_next.0.max(1).max(MIN_PANEL_COLS);
+        if x >= viewport.width || viewport.width - x < needed {
             return None;
         }
 
@@ -520,6 +525,16 @@ impl GameView {
             next: (x, next_y),
             next_rows,
         })
+    }
+
+    /// Narrowest viewport that still draws the side panel.
+    ///
+    /// `panel_layout` returns `None` below this, and the panel - score, HOLD and
+    /// NEXT included - is skipped, so callers can warn about it.
+    pub fn panel_min_width(&self, viewport: Viewport) -> u16 {
+        let frame_w = self.well_cells.0 + 2;
+        let x = viewport.width.saturating_sub(frame_w) / 2 + frame_w + 2;
+        x + self.preview_next.0.max(1).max(MIN_PANEL_COLS)
     }
 
     /// Text part of the panel: stats, labels and the empty-hold dash.

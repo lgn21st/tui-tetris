@@ -210,6 +210,30 @@ fn the_panel_keeps_the_cell_renderer_layout() {
 }
 
 #[test]
+fn a_terminal_too_narrow_for_the_panel_reports_no_layout() {
+    let snap = GameState::new(1).snapshot();
+    let view = GameView::default().with_preview_cells((6, 2), (6, 9));
+    // The 22-column frame needs 12 more columns for the panel plus its margin,
+    // which puts the boundary at 50 columns for this geometry.
+    let first = (20..80)
+        .find(|width| {
+            view.panel_layout(&snap, Viewport::new(*width, 24))
+                .is_some()
+        })
+        .expect("some width fits the panel");
+    assert_eq!(
+        view.panel_min_width(Viewport::new(first, 24)),
+        first,
+        "the warning threshold agrees with the layout"
+    );
+    assert!(first < 60, "the boundary is close to the frame width");
+    assert!(
+        view.panel_layout(&snap, Viewport::new(48, 24)).is_none(),
+        "narrow terminals drop the panel"
+    );
+}
+
+#[test]
 fn an_empty_hold_slot_shows_a_dash() {
     let mut snap = GameState::new(1).snapshot();
     snap.hold = None;

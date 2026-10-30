@@ -103,6 +103,8 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
 
     with_terminal(|term, graphics| {
         let mut view = game_view_from_env(graphics);
+        let (start_w, start_h) = crossterm::terminal::size().unwrap_or((80, 24));
+        warn_if_panel_hidden(&view, Viewport::new(start_w, start_h));
         let mut fb = tetris_terminal::term::FrameBuffer::new(80, 24);
         let mut latest_obs = first_obs;
         let mut snap = latest_obs
@@ -181,6 +183,20 @@ fn run_observe(config: tui_tetris::observe::ObserveConfig) -> Result<()> {
     })
 }
 
+/// Warn once when the terminal is too narrow for the side panel.
+///
+/// `panel_layout` returns `None` below this width and the panel - score, HOLD and
+/// NEXT included - is silently skipped, which is easy to mistake for a bug.
+fn warn_if_panel_hidden(view: &GameView, viewport: Viewport) {
+    let needed = view.panel_min_width(viewport);
+    if viewport.width < needed {
+        eprintln!(
+            "tui-tetris: side panel hidden: {needed} columns needed, this terminal has {}",
+            viewport.width
+        );
+    }
+}
+
 fn headless_enabled() -> bool {
     std::env::var("TUI_TETRIS_HEADLESS")
         .ok()
@@ -242,6 +258,8 @@ fn run(term: &mut TerminalRenderer, graphics: &mut Graphics) -> Result<()> {
     let mut session = SessionRuntime::new(1);
 
     let mut view = game_view_from_env(graphics);
+    let (start_w, start_h) = crossterm::terminal::size().unwrap_or((80, 24));
+    warn_if_panel_hidden(&view, Viewport::new(start_w, start_h));
     let mut fb = tetris_terminal::term::FrameBuffer::new(80, 24);
     let mut input_handler = InputHandler::new();
     if let Ok(s) = std::env::var("TUI_TETRIS_KEY_RELEASE_TIMEOUT_MS")

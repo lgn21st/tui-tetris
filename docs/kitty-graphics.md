@@ -18,7 +18,10 @@ next preview   RGBA  z=1   five NEXT pieces, native size
 
 Splitting by change frequency is what makes per-frame animation affordable: the
 opaque board is re-sent only on a lock or a clear, the mostly transparent motion
-layer on every piece movement. Each layer keeps a content hash and a stable image
+layer on every piece movement. The falling piece is drawn *between* rows: the
+renderer learns the gravity period from `timers.drop_ms`, so a whole period is
+spent crossing the band instead of jumping a row on the tick (about 16
+retransmissions a second, quantised to whole pixels). Each layer keeps a content hash and a stable image
 and placement id, so a retransmission replaces the previous placement instead of
 stacking one.
 
@@ -103,5 +106,9 @@ Composite the dumped layers to inspect rendering by eye.
   per-mino sprite atlas would cut the motion layer to ~90 bytes per move and
   allow sub-cell motion, but needs pixel-offset arithmetic that can drift against
   the board.
-- No animation frames (`a=f`): fades are driven by the existing 16 ms tick.
-- Images do not scroll with text; the well lives on the alternate screen.
+- No animation frames (`a=f`): fades and the sub-cell fall are driven by the
+  existing 16 ms tick and the snapshot's `timers.drop_ms`.
+- Images do not scroll with text; the well lives on the alternate screen, so
+  `U=1` Unicode placeholders (the tmux scroll-safe mechanism) are not needed.
+- The side panel needs 12 columns beside the frame; below that it is skipped with
+  a one-line stderr hint.
